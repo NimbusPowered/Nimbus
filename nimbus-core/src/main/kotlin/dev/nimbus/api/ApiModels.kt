@@ -186,6 +186,15 @@ data class CustomStateResponse(
     val customState: String?
 )
 
+// ── Messaging DTOs ──────────────────────────────────────────────────
+
+@Serializable
+data class SendMessageRequest(
+    val from: String,
+    val channel: String,
+    val data: Map<String, String> = emptyMap()
+)
+
 // ── Generic Response ────────────────────────────────────────────────
 
 @Serializable
@@ -284,6 +293,66 @@ data class ConfigUpdateRequest(
     val networkName: String? = null,
     val consoleColored: Boolean? = null,
     val consoleLogEvents: Boolean? = null
+)
+
+// ── Permission DTOs ─────────────────────────────────────────────────
+
+@Serializable
+data class PermissionGroupResponse(
+    val name: String,
+    val default: Boolean,
+    val permissions: List<String>,
+    val parents: List<String>
+)
+
+@Serializable
+data class PermissionGroupListResponse(
+    val groups: List<PermissionGroupResponse>,
+    val total: Int
+)
+
+@Serializable
+data class CreatePermissionGroupRequest(
+    val name: String,
+    val default: Boolean = false
+)
+
+@Serializable
+data class UpdatePermissionGroupRequest(
+    val default: Boolean? = null,
+    val permissions: List<String>? = null,
+    val parents: List<String>? = null
+)
+
+@Serializable
+data class PermissionModifyRequest(
+    val permission: String
+)
+
+@Serializable
+data class ParentModifyRequest(
+    val parent: String
+)
+
+@Serializable
+data class PlayerPermissionResponse(
+    val uuid: String,
+    val name: String,
+    val groups: List<String>,
+    val effectivePermissions: List<String>
+)
+
+@Serializable
+data class PlayerGroupRequest(
+    val group: String,
+    val name: String? = null
+)
+
+@Serializable
+data class PermissionCheckResponse(
+    val uuid: String,
+    val permission: String,
+    val allowed: Boolean
 )
 
 // ── Event DTOs (for WebSocket) ──────────────────────────────────────

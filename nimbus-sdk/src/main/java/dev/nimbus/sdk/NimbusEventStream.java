@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import dev.nimbus.sdk.event.EventRegistry;
+import dev.nimbus.sdk.event.TypedEvent;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -71,6 +73,38 @@ public class NimbusEventStream implements AutoCloseable {
      */
     public void onAnyEvent(Consumer<NimbusEvent> handler) {
         globalHandlers.add(handler);
+    }
+
+    /**
+     * Register a typed event handler.
+     * <p>
+     * Provides type-safe access to event data without string-based lookups.
+     *
+     * <pre>{@code
+     * stream.on(ServiceReadyEvent.class, event -> {
+     *     System.out.println(event.getServiceName() + " is ready!");
+     * });
+     *
+     * stream.on(CustomStateChangedEvent.class, event -> {
+     *     System.out.println(event.getServiceName() + ": " + event.getOldState() + " → " + event.getNewState());
+     * });
+     * }</pre>
+     *
+     * @param eventClass the typed event class (e.g. {@code ServiceReadyEvent.class})
+     * @param handler    callback receiving the typed event
+     */
+    @SuppressWarnings("unchecked")
+    public <T extends TypedEvent> void on(Class<T> eventClass, Consumer<T> handler) {
+        String type = EventRegistry.getType(eventClass);
+        if (type == null) {
+            throw new IllegalArgumentException("Unknown typed event class: " + eventClass.getName());
+        }
+        onEvent(type, raw -> {
+            T typed = EventRegistry.create(type, raw);
+            if (typed != null) {
+                handler.accept(typed);
+            }
+        });
     }
 
     /**

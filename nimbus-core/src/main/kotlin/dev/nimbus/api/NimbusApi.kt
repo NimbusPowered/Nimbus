@@ -6,6 +6,7 @@ import dev.nimbus.config.NimbusConfig
 import dev.nimbus.event.EventBus
 import dev.nimbus.event.NimbusEvent
 import dev.nimbus.group.GroupManager
+import dev.nimbus.permissions.PermissionManager
 import dev.nimbus.service.ServiceManager
 import dev.nimbus.service.ServiceRegistry
 import io.ktor.http.*
@@ -34,6 +35,7 @@ class NimbusApi(
     private val registry: ServiceRegistry,
     private val serviceManager: ServiceManager,
     private val groupManager: GroupManager,
+    private val permissionManager: PermissionManager,
     private val eventBus: EventBus,
     private val scope: CoroutineScope,
     private val baseDir: Path,
@@ -187,12 +189,16 @@ class NimbusApi(
             val routeBlock: Route.() -> Unit = {
                 serviceRoutes(registry, serviceManager, groupManager, eventBus)
                 groupRoutes(registry, groupManager, groupsDir, eventBus)
+                permissionRoutes(permissionManager, eventBus)
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
                 systemRoutes(config, groupManager, groupsDir, serviceManager, eventBus, scope, startedAt)
-                eventRoutes(eventBus, registry, serviceManager, token)
                 fileRoutes(scopeRoots, readOnlyScopes, maxUploadBytes)
                 configRoutes(config, configPath)
             }
+
+            // WebSocket routes handle their own auth via ?token= query parameter
+            // (WebSocket clients can't set Bearer headers during handshake)
+            eventRoutes(eventBus, registry, serviceManager, token)
 
             if (token.isNotBlank()) {
                 authenticate("api-token") {

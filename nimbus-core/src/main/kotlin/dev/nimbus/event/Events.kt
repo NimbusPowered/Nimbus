@@ -33,6 +33,20 @@ sealed class NimbusEvent {
     data class GroupUpdated(val groupName: String) : NimbusEvent()
     data class GroupDeleted(val groupName: String) : NimbusEvent()
 
+    // Messaging (service-to-service)
+    data class ServiceMessage(
+        val fromService: String,
+        val toService: String,
+        val channel: String,
+        val data: Map<String, String>
+    ) : NimbusEvent()
+
+    // Permissions
+    data class PermissionGroupCreated(val groupName: String) : NimbusEvent()
+    data class PermissionGroupUpdated(val groupName: String) : NimbusEvent()
+    data class PermissionGroupDeleted(val groupName: String) : NimbusEvent()
+    data class PlayerPermissionsUpdated(val uuid: String, val playerName: String) : NimbusEvent()
+
     // Config
     data class ConfigReloaded(val groupsLoaded: Int) : NimbusEvent()
 

@@ -2,8 +2,10 @@ package dev.nimbus.plugin;
 
 import com.google.inject.Inject;
 import com.velocitypowered.api.command.SimpleCommand;
-import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.connection.LoginEvent;
+import com.velocitypowered.api.event.permission.PermissionsSetupEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -58,6 +60,28 @@ public class NimbusCloudPlugin {
 
         // Register event listeners
         server.getEventManager().register(this, new ConnectionListener(server, logger));
+
+        // Register permission provider (if bridge config exists)
+        registerPermissionProvider();
+    }
+
+    private NimbusPermissionProvider permissionProvider;
+
+    private void registerPermissionProvider() {
+        try {
+            BridgeConfig config = BridgeConfig.load(dataDirectory);
+            if (config == null) return;
+
+            NimbusApiClient apiClient = new NimbusApiClient(config.getApiUrl(), config.getToken());
+            permissionProvider = new NimbusPermissionProvider(apiClient, logger);
+
+            // Register as Velocity's permission provider
+            server.getEventManager().register(this, new PermissionListener(permissionProvider));
+
+            logger.info("Nimbus Permission Provider registered");
+        } catch (Exception e) {
+            logger.warn("Failed to register permission provider: {}", e.getMessage());
+        }
     }
 
     private void registerBridge(com.velocitypowered.api.command.CommandManager commandManager) {
@@ -70,7 +94,7 @@ public class NimbusCloudPlugin {
 
             dev.nimbus.sdk.NimbusClient sdkClient = new dev.nimbus.sdk.NimbusClient(config.getApiUrl(), config.getToken());
             NimbusApiClient apiClient = new NimbusApiClient(config.getApiUrl(), config.getToken());
-            CloudCommand cloudCommand = new CloudCommand(apiClient, sdkClient);
+            CloudCommand cloudCommand = new CloudCommand(apiClient, sdkClient, server);
 
             // Register /cloud and /nimbus
             for (String alias : new String[]{"cloud", "nimbus"}) {
@@ -148,6 +172,36 @@ public class NimbusCloudPlugin {
                 Component.text("Connection lost.", NamedTextColor.RED)
             );
             event.setResult(KickedFromServerEvent.DisconnectPlayer.create(reason));
+        }
+    }
+
+    /**
+     * Injects the Nimbus permission provider into Velocity's permission system
+     * and manages the permission cache lifecycle.
+     */
+    private static class PermissionListener {
+
+        private final NimbusPermissionProvider provider;
+
+        PermissionListener(NimbusPermissionProvider provider) {
+            this.provider = provider;
+        }
+
+        @Subscribe
+        public void onPermissionsSetup(PermissionsSetupEvent event) {
+            if (event.getSubject() instanceof Player) {
+                event.setProvider(provider);
+            }
+        }
+
+        @Subscribe
+        public void onLogin(LoginEvent event) {
+            provider.loadPermissions(event.getPlayer().getUniqueId());
+        }
+
+        @Subscribe
+        public void onDisconnect(DisconnectEvent event) {
+            provider.invalidate(event.getPlayer().getUniqueId());
         }
     }
 

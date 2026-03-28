@@ -48,6 +48,27 @@ public class NimbusApiClient {
         return execute(builder.build());
     }
 
+    public CompletableFuture<ApiResult> put(String path, Object body) {
+        HttpRequest.Builder builder = buildRequest(path);
+        if (body != null) {
+            builder.PUT(HttpRequest.BodyPublishers.ofString(gson.toJson(body)));
+        } else {
+            builder.PUT(HttpRequest.BodyPublishers.noBody());
+        }
+        return execute(builder.build());
+    }
+
+    public CompletableFuture<ApiResult> delete(String path) {
+        HttpRequest request = buildRequest(path).DELETE().build();
+        return execute(request);
+    }
+
+    public CompletableFuture<ApiResult> delete(String path, Object body) {
+        HttpRequest.Builder builder = buildRequest(path);
+        builder.method("DELETE", HttpRequest.BodyPublishers.ofString(gson.toJson(body)));
+        return execute(builder.build());
+    }
+
     private HttpRequest.Builder buildRequest(String path) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))

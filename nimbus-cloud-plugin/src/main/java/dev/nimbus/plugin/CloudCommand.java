@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
@@ -40,17 +41,27 @@ public class CloudCommand implements SimpleCommand {
             Map.entry("info",    "nimbus.cloud.info"),
             Map.entry("setstate","nimbus.cloud.setstate"),
             Map.entry("reload",  "nimbus.cloud.reload"),
-            Map.entry("shutdown","nimbus.cloud.shutdown")
+            Map.entry("shutdown","nimbus.cloud.shutdown"),
+            Map.entry("perms",   "nimbus.cloud.perms")
     );
 
     private static final List<String> SUBCOMMANDS = List.of(
             "help", "list", "status", "start", "stop", "restart",
-            "exec", "players", "send", "groups", "info", "setstate", "reload", "shutdown"
+            "exec", "players", "send", "groups", "info", "setstate", "reload", "shutdown", "perms"
     );
 
-    public CloudCommand(NimbusApiClient api, dev.nimbus.sdk.NimbusClient sdkClient) {
+    private static final List<String> PERMS_SUBCMDS = List.of("group", "user");
+    private static final List<String> PERMS_GROUP_SUBCMDS = List.of(
+            "list", "info", "create", "delete", "addperm", "removeperm", "setdefault", "addparent", "removeparent"
+    );
+    private static final List<String> PERMS_USER_SUBCMDS = List.of("list", "info", "addgroup", "removegroup");
+
+    private final com.velocitypowered.api.proxy.ProxyServer proxyServer;
+
+    public CloudCommand(NimbusApiClient api, dev.nimbus.sdk.NimbusClient sdkClient, com.velocitypowered.api.proxy.ProxyServer proxyServer) {
         this.api = api;
         this.sdkClient = sdkClient;
+        this.proxyServer = proxyServer;
     }
 
     @Override
@@ -97,6 +108,7 @@ public class CloudCommand implements SimpleCommand {
             case "setstate"-> handleSetState(invocation, args);
             case "reload"  -> handleReload(invocation);
             case "shutdown"-> handleShutdown(invocation);
+            case "perms"   -> handlePerms(invocation, args);
         }
     }
 
@@ -115,8 +127,14 @@ public class CloudCommand implements SimpleCommand {
                     .toList();
         }
 
-        // For subcommands that take service/group names, fetch suggestions async
-        // Return empty for now — could add live tab completion later
+        String sub = args[0].toLowerCase();
+
+        // Perms subcommand tab completion
+        if (sub.equals("perms") && invocation.source().hasPermission("nimbus.cloud.perms")) {
+            return suggestPerms(args);
+        }
+
+        // For other subcommands that take service/group names
         return List.of();
     }
 
@@ -141,6 +159,7 @@ public class CloudCommand implements SimpleCommand {
                 new HelpEntry("/cloud players",               "List online players",       "nimbus.cloud.players"),
                 new HelpEntry("/cloud send <player> <target>","Transfer a player",         "nimbus.cloud.send"),
                 new HelpEntry("/cloud setstate <svc> <state>", "Set custom state on service","nimbus.cloud.setstate"),
+                new HelpEntry("/cloud perms",                 "Manage permissions",        "nimbus.cloud.perms"),
                 new HelpEntry("/cloud reload",                "Reload group configs",      "nimbus.cloud.reload"),
                 new HelpEntry("/cloud shutdown",              "Shutdown the cloud",        "nimbus.cloud.shutdown")
         );
@@ -519,6 +538,349 @@ public class CloudCommand implements SimpleCommand {
                 source.sendMessage(apiError(result));
             }
         });
+    }
+
+    // ── Perms ───────────────────────────────────────────────────────
+
+    private void handlePerms(Invocation invocation, String[] args) {
+        var source = invocation.source();
+
+        if (args.length < 2) {
+            sendPermsHelp(source);
+            return;
+        }
+
+        String category = args[1].toLowerCase();
+        switch (category) {
+            case "group" -> handlePermsGroup(source, args);
+            case "user" -> handlePermsUser(source, args);
+            default -> sendPermsHelp(source);
+        }
+    }
+
+    private void handlePermsGroup(com.velocitypowered.api.command.CommandSource source, String[] args) {
+        if (args.length < 3) {
+            source.sendMessage(Component.text("Usage: /cloud perms group <list|info|create|delete|addperm|removeperm|setdefault|addparent|removeparent>", NamedTextColor.RED));
+            return;
+        }
+
+        String action = args[2].toLowerCase();
+        switch (action) {
+            case "list" -> {
+                api.get("/api/permissions/groups").thenAccept(result -> {
+                    if (!result.isSuccess()) { source.sendMessage(apiError(result)); return; }
+                    JsonObject json = result.asJson();
+                    JsonArray groups = json.getAsJsonArray("groups");
+
+                    source.sendMessage(Component.text("Permission Groups (" + groups.size() + ")", NamedTextColor.AQUA).decorate(TextDecoration.BOLD));
+                    for (JsonElement el : groups) {
+                        JsonObject g = el.getAsJsonObject();
+                        String name = g.get("name").getAsString();
+                        boolean isDefault = g.get("default").getAsBoolean();
+                        int permCount = g.getAsJsonArray("permissions").size();
+
+                        var line = Component.text("  " + name, NamedTextColor.WHITE)
+                                .clickEvent(ClickEvent.runCommand("/cloud perms group info " + name));
+                        if (isDefault) line = line.append(Component.text(" [default]", NamedTextColor.GREEN));
+                        line = line.append(Component.text(" " + permCount + " perm(s)", NamedTextColor.GRAY));
+                        source.sendMessage(line);
+                    }
+                });
+            }
+            case "info" -> {
+                if (args.length < 4) { source.sendMessage(Component.text("Usage: /cloud perms group info <name>", NamedTextColor.RED)); return; }
+                String name = args[3];
+                api.get("/api/permissions/groups/" + name).thenAccept(result -> {
+                    if (!result.isSuccess()) { source.sendMessage(apiError(result)); return; }
+                    JsonObject g = result.asJson();
+
+                    source.sendMessage(Component.empty());
+                    source.sendMessage(Component.text("  " + g.get("name").getAsString(), NamedTextColor.AQUA).decorate(TextDecoration.BOLD));
+                    source.sendMessage(Component.text("  Default: ", NamedTextColor.GRAY)
+                            .append(Component.text(g.get("default").getAsBoolean() ? "Yes" : "No", NamedTextColor.WHITE)));
+
+                    JsonArray parents = g.getAsJsonArray("parents");
+                    if (parents != null && !parents.isEmpty()) {
+                        List<String> parentNames = new ArrayList<>();
+                        parents.forEach(p -> parentNames.add(p.getAsString()));
+                        source.sendMessage(Component.text("  Parents: ", NamedTextColor.GRAY)
+                                .append(Component.text(String.join(", ", parentNames), NamedTextColor.WHITE)));
+                    }
+
+                    JsonArray perms = g.getAsJsonArray("permissions");
+                    source.sendMessage(Component.text("  Permissions (" + perms.size() + "):", NamedTextColor.GRAY));
+                    for (JsonElement p : perms) {
+                        String perm = p.getAsString();
+                        NamedTextColor color = perm.startsWith("-") ? NamedTextColor.RED : NamedTextColor.GREEN;
+                        source.sendMessage(Component.text("    " + perm, color));
+                    }
+                    source.sendMessage(Component.empty());
+                });
+            }
+            case "create" -> {
+                if (args.length < 4) { source.sendMessage(Component.text("Usage: /cloud perms group create <name>", NamedTextColor.RED)); return; }
+                JsonObject body = new JsonObject();
+                body.addProperty("name", args[3]);
+                api.post("/api/permissions/groups", body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Permission group '" + args[3] + "' created.", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "delete" -> {
+                if (args.length < 4) { source.sendMessage(Component.text("Usage: /cloud perms group delete <name>", NamedTextColor.RED)); return; }
+                api.delete("/api/permissions/groups/" + args[3]).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Permission group '" + args[3] + "' deleted.", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "addperm" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms group addperm <group> <permission>", NamedTextColor.RED)); return; }
+                JsonObject body = new JsonObject();
+                body.addProperty("permission", args[4]);
+                api.post("/api/permissions/groups/" + args[3] + "/permissions", body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Added '" + args[4] + "' to '" + args[3] + "'.", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "removeperm" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms group removeperm <group> <permission>", NamedTextColor.RED)); return; }
+                JsonObject body = new JsonObject();
+                body.addProperty("permission", args[4]);
+                api.delete("/api/permissions/groups/" + args[3] + "/permissions", body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Removed '" + args[4] + "' from '" + args[3] + "'.", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "setdefault" -> {
+                if (args.length < 4) { source.sendMessage(Component.text("Usage: /cloud perms group setdefault <group> [true/false]", NamedTextColor.RED)); return; }
+                boolean value = args.length < 5 || Boolean.parseBoolean(args[4]);
+                JsonObject body = new JsonObject();
+                body.addProperty("default", value);
+                api.put("/api/permissions/groups/" + args[3], body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Group '" + args[3] + "' default set to " + value + ".", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "addparent" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms group addparent <group> <parent>", NamedTextColor.RED)); return; }
+                // Fetch current group, add parent, update
+                api.get("/api/permissions/groups/" + args[3]).thenAccept(result -> {
+                    if (!result.isSuccess()) { source.sendMessage(apiError(result)); return; }
+                    JsonObject current = result.asJson();
+                    JsonArray parents = current.getAsJsonArray("parents");
+                    List<String> parentList = new ArrayList<>();
+                    parents.forEach(p -> parentList.add(p.getAsString()));
+                    if (!parentList.contains(args[4])) parentList.add(args[4]);
+
+                    JsonObject body = new JsonObject();
+                    JsonArray newParents = new JsonArray();
+                    parentList.forEach(newParents::add);
+                    body.add("parents", newParents);
+
+                    api.put("/api/permissions/groups/" + args[3], body).thenAccept(r2 -> {
+                        if (r2.isSuccess()) source.sendMessage(Component.text("Added parent '" + args[4] + "' to '" + args[3] + "'.", NamedTextColor.GREEN));
+                        else source.sendMessage(apiError(r2));
+                    });
+                });
+            }
+            case "removeparent" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms group removeparent <group> <parent>", NamedTextColor.RED)); return; }
+                api.get("/api/permissions/groups/" + args[3]).thenAccept(result -> {
+                    if (!result.isSuccess()) { source.sendMessage(apiError(result)); return; }
+                    JsonObject current = result.asJson();
+                    JsonArray parents = current.getAsJsonArray("parents");
+                    List<String> parentList = new ArrayList<>();
+                    parents.forEach(p -> parentList.add(p.getAsString()));
+                    parentList.remove(args[4]);
+
+                    JsonObject body = new JsonObject();
+                    JsonArray newParents = new JsonArray();
+                    parentList.forEach(newParents::add);
+                    body.add("parents", newParents);
+
+                    api.put("/api/permissions/groups/" + args[3], body).thenAccept(r2 -> {
+                        if (r2.isSuccess()) source.sendMessage(Component.text("Removed parent '" + args[4] + "' from '" + args[3] + "'.", NamedTextColor.GREEN));
+                        else source.sendMessage(apiError(r2));
+                    });
+                });
+            }
+            default -> source.sendMessage(Component.text("Unknown perms group subcommand: " + action, NamedTextColor.RED));
+        }
+    }
+
+    private void handlePermsUser(com.velocitypowered.api.command.CommandSource source, String[] args) {
+        if (args.length < 3) {
+            source.sendMessage(Component.text("Usage: /cloud perms user <list|info|addgroup|removegroup>", NamedTextColor.RED));
+            return;
+        }
+
+        String action = args[2].toLowerCase();
+        switch (action) {
+            case "list" -> {
+                // List all players with assignments — there's no dedicated endpoint, so use groups
+                source.sendMessage(Component.text("Use the Nimbus console for a full player list.", NamedTextColor.GRAY));
+                source.sendMessage(Component.text("Use '/cloud perms user info <uuid>' to look up a specific player.", NamedTextColor.GRAY));
+            }
+            case "info" -> {
+                if (args.length < 4) { source.sendMessage(Component.text("Usage: /cloud perms user info <uuid|player>", NamedTextColor.RED)); return; }
+                String identifier = args[3];
+
+                // If it's a player name, try to resolve UUID from online players
+                String uuid = resolveUuid(identifier);
+                api.get("/api/permissions/players/" + uuid).thenAccept(result -> {
+                    if (!result.isSuccess()) { source.sendMessage(apiError(result)); return; }
+                    JsonObject json = result.asJson();
+
+                    source.sendMessage(Component.empty());
+                    source.sendMessage(Component.text("  " + json.get("name").getAsString(), NamedTextColor.AQUA).decorate(TextDecoration.BOLD));
+                    source.sendMessage(Component.text("  UUID: ", NamedTextColor.GRAY).append(Component.text(json.get("uuid").getAsString(), NamedTextColor.WHITE)));
+
+                    JsonArray groups = json.getAsJsonArray("groups");
+                    List<String> groupNames = new ArrayList<>();
+                    groups.forEach(g -> groupNames.add(g.getAsString()));
+                    source.sendMessage(Component.text("  Groups: ", NamedTextColor.GRAY)
+                            .append(Component.text(groupNames.isEmpty() ? "-" : String.join(", ", groupNames), NamedTextColor.WHITE)));
+
+                    JsonArray perms = json.getAsJsonArray("effectivePermissions");
+                    source.sendMessage(Component.text("  Effective Permissions (" + perms.size() + "):", NamedTextColor.GRAY));
+                    for (JsonElement p : perms) {
+                        source.sendMessage(Component.text("    " + p.getAsString(), NamedTextColor.GREEN));
+                    }
+                    source.sendMessage(Component.empty());
+                });
+            }
+            case "addgroup" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms user addgroup <uuid|player> <group>", NamedTextColor.RED)); return; }
+                String identifier = args[3];
+                String group = args[4];
+                String uuid = resolveUuid(identifier);
+                String playerName = resolvePlayerName(identifier);
+
+                JsonObject body = new JsonObject();
+                body.addProperty("group", group);
+                body.addProperty("name", playerName);
+
+                api.post("/api/permissions/players/" + uuid + "/groups", body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Added group '" + group + "' to " + playerName + ".", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            case "removegroup" -> {
+                if (args.length < 5) { source.sendMessage(Component.text("Usage: /cloud perms user removegroup <uuid|player> <group>", NamedTextColor.RED)); return; }
+                String identifier = args[3];
+                String group = args[4];
+                String uuid = resolveUuid(identifier);
+
+                JsonObject body = new JsonObject();
+                body.addProperty("group", group);
+
+                api.delete("/api/permissions/players/" + uuid + "/groups", body).thenAccept(result -> {
+                    if (result.isSuccess()) source.sendMessage(Component.text("Removed group '" + group + "' from player.", NamedTextColor.GREEN));
+                    else source.sendMessage(apiError(result));
+                });
+            }
+            default -> source.sendMessage(Component.text("Unknown perms user subcommand: " + action, NamedTextColor.RED));
+        }
+    }
+
+    /**
+     * Resolves a player name to UUID. If the identifier is already a UUID, returns it as-is.
+     * Otherwise looks up the online player by name via Velocity.
+     */
+    private String resolveUuid(String identifier) {
+        if (identifier.contains("-")) return identifier;
+        // Look up online player by name
+        Optional<Player> player = proxyServer.getPlayer(identifier);
+        if (player.isPresent()) {
+            return player.get().getUniqueId().toString();
+        }
+        return identifier; // Return as-is, API will treat as unknown
+    }
+
+    private String resolvePlayerName(String identifier) {
+        if (!identifier.contains("-")) return identifier; // Already a name
+        // Try to resolve UUID to online player name
+        try {
+            java.util.UUID uuid = java.util.UUID.fromString(identifier);
+            Optional<Player> player = proxyServer.getPlayer(uuid);
+            if (player.isPresent()) {
+                return player.get().getUsername();
+            }
+        } catch (IllegalArgumentException ignored) {}
+        return identifier;
+    }
+
+    private void sendPermsHelp(com.velocitypowered.api.command.CommandSource source) {
+        source.sendMessage(Component.empty());
+        source.sendMessage(Component.text("  Permission Commands", NamedTextColor.AQUA).decorate(TextDecoration.BOLD));
+        source.sendMessage(Component.empty());
+
+        record Entry(String cmd, String desc) {}
+        var entries = List.of(
+                new Entry("/cloud perms group list", "List permission groups"),
+                new Entry("/cloud perms group info <name>", "Group details"),
+                new Entry("/cloud perms group create <name>", "Create a group"),
+                new Entry("/cloud perms group delete <name>", "Delete a group"),
+                new Entry("/cloud perms group addperm <group> <perm>", "Add permission"),
+                new Entry("/cloud perms group removeperm <group> <perm>", "Remove permission"),
+                new Entry("/cloud perms group setdefault <group>", "Set default group"),
+                new Entry("/cloud perms group addparent <group> <parent>", "Add inheritance"),
+                new Entry("/cloud perms group removeparent <group> <parent>", "Remove inheritance"),
+                new Entry("/cloud perms user info <uuid|player>", "Player permissions"),
+                new Entry("/cloud perms user addgroup <uuid|player> <group>", "Assign group"),
+                new Entry("/cloud perms user removegroup <uuid|player> <group>", "Remove group")
+        );
+
+        for (var entry : entries) {
+            source.sendMessage(
+                    Component.text("  " + entry.cmd(), NamedTextColor.WHITE)
+                            .clickEvent(ClickEvent.suggestCommand(entry.cmd().split(" <")[0]))
+                            .append(Component.text(" — " + entry.desc(), NamedTextColor.GRAY))
+            );
+        }
+        source.sendMessage(Component.empty());
+    }
+
+    private List<String> suggestPerms(String[] args) {
+        // args[0] = "perms", args[1] = category, args[2] = action, etc.
+        if (args.length == 2) {
+            String partial = args[1].toLowerCase();
+            return PERMS_SUBCMDS.stream().filter(s -> s.startsWith(partial)).toList();
+        }
+        if (args.length == 3) {
+            String category = args[1].toLowerCase();
+            String partial = args[2].toLowerCase();
+            return switch (category) {
+                case "group" -> PERMS_GROUP_SUBCMDS.stream().filter(s -> s.startsWith(partial)).toList();
+                case "user" -> PERMS_USER_SUBCMDS.stream().filter(s -> s.startsWith(partial)).toList();
+                default -> List.of();
+            };
+        }
+        if (args.length == 4) {
+            String category = args[1].toLowerCase();
+            String action = args[2].toLowerCase();
+            String partial = args[3].toLowerCase();
+
+            if (category.equals("user") && List.of("info", "addgroup", "removegroup").contains(action)) {
+                // Suggest online player names
+                return proxyServer.getAllPlayers().stream()
+                        .map(Player::getUsername)
+                        .filter(name -> name.toLowerCase().startsWith(partial))
+                        .toList();
+            }
+        }
+        if (args.length == 5) {
+            String category = args[1].toLowerCase();
+            String action = args[2].toLowerCase();
+            String partial = args[4].toLowerCase();
+
+            // Suggest group names for addgroup/removegroup
+            if (category.equals("user") && List.of("addgroup", "removegroup").contains(action)) {
+                // We'd need cached group names — for now suggest nothing (would need async API call)
+                return List.of();
+            }
+        }
+        return List.of();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

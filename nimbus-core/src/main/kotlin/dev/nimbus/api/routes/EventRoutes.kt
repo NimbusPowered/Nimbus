@@ -177,6 +177,36 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("group" to groupName)
         )
+        is NimbusEvent.ServiceMessage -> EventMessage(
+            type = "SERVICE_MESSAGE",
+            timestamp = timestamp.toString(),
+            data = buildMap {
+                put("from", fromService)
+                put("to", toService)
+                put("channel", channel)
+                putAll(data)
+            }
+        )
+        is NimbusEvent.PermissionGroupCreated -> EventMessage(
+            type = "PERMISSION_GROUP_CREATED",
+            timestamp = timestamp.toString(),
+            data = mapOf("group" to groupName)
+        )
+        is NimbusEvent.PermissionGroupUpdated -> EventMessage(
+            type = "PERMISSION_GROUP_UPDATED",
+            timestamp = timestamp.toString(),
+            data = mapOf("group" to groupName)
+        )
+        is NimbusEvent.PermissionGroupDeleted -> EventMessage(
+            type = "PERMISSION_GROUP_DELETED",
+            timestamp = timestamp.toString(),
+            data = mapOf("group" to groupName)
+        )
+        is NimbusEvent.PlayerPermissionsUpdated -> EventMessage(
+            type = "PLAYER_PERMISSIONS_UPDATED",
+            timestamp = timestamp.toString(),
+            data = mapOf("uuid" to uuid, "player" to playerName)
+        )
         is NimbusEvent.ConfigReloaded -> EventMessage(
             type = "CONFIG_RELOADED",
             timestamp = timestamp.toString(),

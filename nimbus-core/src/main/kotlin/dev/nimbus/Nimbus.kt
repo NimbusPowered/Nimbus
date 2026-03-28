@@ -6,6 +6,7 @@ import dev.nimbus.config.NimbusConfig
 import dev.nimbus.console.NimbusConsole
 import dev.nimbus.event.EventBus
 import dev.nimbus.group.GroupManager
+import dev.nimbus.permissions.PermissionManager
 import dev.nimbus.scaling.ScalingEngine
 import dev.nimbus.service.PortAllocator
 import dev.nimbus.service.ServiceManager
@@ -65,8 +66,10 @@ fun main() = runBlocking {
     val globalTemplateDir = templatesDir.resolve("global")
     val globalProxyTemplateDir = templatesDir.resolve("global_proxy")
 
+    val permissionsDir = baseDir.resolve("permissions")
+
     listOf(
-        templatesDir, staticDir, tempDir, logsDir, groupsDir,
+        templatesDir, staticDir, tempDir, logsDir, groupsDir, permissionsDir,
         globalTemplateDir, globalTemplateDir.resolve("plugins"),
         globalProxyTemplateDir, globalProxyTemplateDir.resolve("plugins")
     ).forEach { dir ->
@@ -92,6 +95,8 @@ fun main() = runBlocking {
     val portAllocator = PortAllocator()
     val templateManager = TemplateManager()
     val groupManager = GroupManager()
+    val permissionManager = PermissionManager(permissionsDir)
+    permissionManager.init()
 
     // Load group configs
     val groupConfigs = ConfigLoader.loadGroupConfigs(groupsDir)
@@ -131,6 +136,7 @@ fun main() = runBlocking {
         registry = registry,
         serviceManager = serviceManager,
         groupManager = groupManager,
+        permissionManager = permissionManager,
         eventBus = eventBus,
         scope = scope,
         baseDir = baseDir,
@@ -165,7 +171,8 @@ fun main() = runBlocking {
         scope = scope,
         groupsDir = groupsDir,
         softwareResolver = softwareResolver,
-        api = api
+        api = api,
+        permissionManager = permissionManager
     )
     console.init()
 

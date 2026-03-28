@@ -6,6 +6,7 @@ import dev.nimbus.console.commands.*
 import dev.nimbus.event.EventBus
 import dev.nimbus.event.NimbusEvent
 import dev.nimbus.group.GroupManager
+import dev.nimbus.permissions.PermissionManager
 import dev.nimbus.service.ServiceManager
 import dev.nimbus.service.ServiceRegistry
 import dev.nimbus.template.SoftwareResolver
@@ -32,7 +33,8 @@ class NimbusConsole(
     private val scope: CoroutineScope,
     private val groupsDir: Path? = null,
     private val softwareResolver: SoftwareResolver? = null,
-    private val api: NimbusApi? = null
+    private val api: NimbusApi? = null,
+    private val permissionManager: PermissionManager? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(NimbusConsole::class.java)
@@ -99,6 +101,9 @@ class NimbusConsole(
         }
         if (api != null) {
             dispatcher.register(ApiCommand(api))
+        }
+        if (permissionManager != null) {
+            dispatcher.register(PermsCommand(permissionManager, eventBus))
         }
         dispatcher.register(ClearCommand(terminal))
         dispatcher.register(ShutdownCommand(serviceManager, registry))

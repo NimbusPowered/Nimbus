@@ -131,4 +131,55 @@ public class NimbusSelfService {
     public NimbusEventStream createEventStream() {
         return client.createEventStream();
     }
+
+    // ── Messaging ─────────────────────────────────────────────────────
+
+    /**
+     * Send a message to another service.
+     *
+     * @param targetService the service to send to (e.g. "Lobby-1")
+     * @param channel       message channel (e.g. "game_ended")
+     * @param data          message payload
+     */
+    public CompletableFuture<Void> sendMessage(String targetService, String channel,
+                                                java.util.Map<String, String> data) {
+        return client.sendMessage(targetService, serviceName, channel, data);
+    }
+
+    /**
+     * Send a message to another service (no payload).
+     */
+    public CompletableFuture<Void> sendMessage(String targetService, String channel) {
+        return sendMessage(targetService, channel, java.util.Map.of());
+    }
+
+    // ── Routing ───────────────────────────────────────────────────────
+
+    /**
+     * Create a {@link ServiceRouter} for smart player routing.
+     */
+    public ServiceRouter createRouter() {
+        return new ServiceRouter(client);
+    }
+
+    /**
+     * Create a {@link ServiceCache} for reactive service tracking.
+     */
+    public ServiceCache createCache() {
+        return new ServiceCache(client);
+    }
+
+    /**
+     * Create a {@link PlayerTracker} for real-time player count tracking.
+     */
+    public PlayerTracker createPlayerTracker() {
+        return new PlayerTracker(client);
+    }
+
+    /**
+     * Create a {@link PlayerTracker} with a custom poll interval.
+     */
+    public PlayerTracker createPlayerTracker(long pollIntervalSeconds) {
+        return new PlayerTracker(client, pollIntervalSeconds);
+    }
 }

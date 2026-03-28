@@ -5,12 +5,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Nimbus SDK Paper plugin.
  * <p>
- * This plugin does not add any gameplay features — it only provides the
- * {@link NimbusClient}, {@link NimbusSelfService}, and {@link NimbusEventStream}
- * classes to other plugins that depend on it.
- * <p>
- * Other plugins can declare {@code depend: [NimbusSDK]} in their plugin.yml
- * and then use the SDK to communicate with the Nimbus cloud controller.
+ * Automatically initializes {@link Nimbus} on startup if running in a
+ * Nimbus-managed service. Other plugins just call {@code Nimbus.setState("WAITING")}
+ * etc. — no setup required.
  */
 public class NimbusSdkPlugin extends JavaPlugin {
 
@@ -21,9 +18,12 @@ public class NimbusSdkPlugin extends JavaPlugin {
         instance = this;
 
         if (NimbusSelfService.isNimbusManaged()) {
-            String serviceName = System.getProperty("nimbus.service.name", "unknown");
-            String groupName = System.getProperty("nimbus.service.group", "unknown");
-            getLogger().info("Nimbus SDK loaded — service: " + serviceName + " (group: " + groupName + ")");
+            try {
+                Nimbus.init();
+                getLogger().info("Nimbus SDK initialized — service: " + Nimbus.name() + " (group: " + Nimbus.group() + ")");
+            } catch (Exception e) {
+                getLogger().warning("Failed to initialize Nimbus SDK: " + e.getMessage());
+            }
         } else {
             getLogger().info("Nimbus SDK loaded — not running in a Nimbus-managed service");
         }
@@ -31,12 +31,10 @@ public class NimbusSdkPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        Nimbus.shutdown();
         instance = null;
     }
 
-    /**
-     * Get the plugin instance.
-     */
     public static NimbusSdkPlugin getInstance() {
         return instance;
     }

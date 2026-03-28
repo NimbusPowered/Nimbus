@@ -116,6 +116,19 @@ class CommandDispatcher {
                     val subcommands = listOf("start", "stop", "status", "token")
                     subcommands.filter { it.startsWith(argPrefix, ignoreCase = true) }
                 }
+                "perms" -> {
+                    when (parts.size) {
+                        2 -> listOf("group", "user", "reload").filter { it.startsWith(argPrefix, ignoreCase = true) }
+                        3 -> when (parts[1].lowercase()) {
+                            "group" -> listOf("list", "info", "create", "delete", "addperm", "removeperm", "setdefault", "addparent", "removeparent")
+                                .filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            "user" -> listOf("list", "info", "addgroup", "removegroup")
+                                .filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            else -> emptyList()
+                        }
+                        else -> emptyList()
+                    }
+                }
                 else -> emptyList()
             }
         }

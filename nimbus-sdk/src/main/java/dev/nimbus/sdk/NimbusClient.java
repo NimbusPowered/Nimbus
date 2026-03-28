@@ -117,6 +117,29 @@ public class NimbusClient {
                 });
     }
 
+    // ── Messaging ──────────────────────────────────────────────────────
+
+    /**
+     * Send a message to another service.
+     *
+     * @param targetService the service to send to
+     * @param fromService   the sender service name
+     * @param channel       message channel (e.g. "game_ended", "stats_update")
+     * @param data          message payload as key-value pairs
+     */
+    public CompletableFuture<Void> sendMessage(String targetService, String fromService,
+                                                String channel, java.util.Map<String, String> data) {
+        JsonObject body = new JsonObject();
+        body.addProperty("from", fromService);
+        body.addProperty("channel", channel);
+        JsonObject dataObj = new JsonObject();
+        if (data != null) {
+            data.forEach(dataObj::addProperty);
+        }
+        body.add("data", dataObj);
+        return post("/api/services/" + encode(targetService) + "/message", body).thenApply(r -> null);
+    }
+
     // ── Groups ────────────────────────────────────────────────────────
 
     /** Get all groups. */

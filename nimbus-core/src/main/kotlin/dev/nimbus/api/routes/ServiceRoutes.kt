@@ -168,6 +168,26 @@ fun Route.serviceRoutes(
             val logLines = tailFile(logFile, requestedLines)
             call.respond(LogsResponse(name, logLines, logLines.size))
         }
+
+        // POST /api/services/{name}/message — Send a message to a service (service-to-service messaging)
+        post("{name}/message") {
+            val targetName = call.parameters["name"]!!
+            registry.get(targetName)
+                ?: return@post call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Service '$targetName' not found"))
+
+            val request = call.receive<SendMessageRequest>()
+
+            eventBus.emit(
+                NimbusEvent.ServiceMessage(
+                    fromService = request.from,
+                    toService = targetName,
+                    channel = request.channel,
+                    data = request.data
+                )
+            )
+
+            call.respond(ApiMessage(true, "Message sent to '$targetName' on channel '${request.channel}'"))
+        }
     }
 }
 

@@ -161,6 +161,16 @@ object ConsoleFormatter {
                 "${warn("- GROUP")} ${BOLD}${event.groupName}${RESET} deleted"
             is NimbusEvent.ServiceCustomStateChanged ->
                 "${info("~ STATE")} ${BOLD}${event.serviceName}${RESET} ${DIM}${event.oldState ?: "-"} → ${event.newState ?: "-"}${RESET}"
+            is NimbusEvent.ServiceMessage ->
+                "${info("✉ MSG")} ${BOLD}${event.fromService}${RESET} → ${BOLD}${event.toService}${RESET} ${DIM}[${event.channel}]${RESET}"
+            is NimbusEvent.PermissionGroupCreated ->
+                "${success("+ PERM")} group ${BOLD}${event.groupName}${RESET} created"
+            is NimbusEvent.PermissionGroupUpdated ->
+                "${info("~ PERM")} group ${BOLD}${event.groupName}${RESET} updated"
+            is NimbusEvent.PermissionGroupDeleted ->
+                "${warn("- PERM")} group ${BOLD}${event.groupName}${RESET} deleted"
+            is NimbusEvent.PlayerPermissionsUpdated ->
+                "${info("~ PERM")} ${BOLD}${event.playerName}${RESET} ${DIM}(${event.uuid})${RESET} updated"
             is NimbusEvent.ConfigReloaded ->
                 "${info("↻ CONFIG")} reloaded ${BOLD}${event.groupsLoaded}${RESET} group(s)"
         }
