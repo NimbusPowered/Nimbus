@@ -4,11 +4,22 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { WebSocketEvent } from "./types";
 
 const API_TOKEN = process.env.NEXT_PUBLIC_NIMBUS_API_TOKEN || "";
+const WS_BASE = process.env.NEXT_PUBLIC_NIMBUS_WS_URL || "";
 
 function buildWsUrl(path: string): string {
   if (typeof window === "undefined") return "";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${proto}//${window.location.host}${path}`;
+
+  let base: string;
+  if (WS_BASE) {
+    // Direct connection to backend (bypasses Next.js proxy which can't handle WS)
+    base = WS_BASE;
+  } else {
+    // Fallback: try via same host (works if a real reverse proxy handles WS)
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    base = `${proto}//${window.location.host}`;
+  }
+
+  const url = `${base}${path}`;
   return API_TOKEN ? `${url}?token=${encodeURIComponent(API_TOKEN)}` : url;
 }
 

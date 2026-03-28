@@ -141,3 +141,29 @@ export const writeFile = (scopePath: string, content: string) =>
 
 export const deleteFile = (scopePath: string) =>
   apiFetch<any>(`/api/files/${scopePath}`, { method: "DELETE" });
+
+export async function uploadFile(scopePath: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  if (API_TOKEN) {
+    headers["Authorization"] = `Bearer ${API_TOKEN}`;
+  }
+
+  const res = await fetch(`/api/files/${scopePath}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(res.status, body?.message || `HTTP ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export const createDirectory = (scopePath: string) =>
+  apiFetch<any>(`/api/files/${scopePath}?mkdir`, { method: "POST" });
