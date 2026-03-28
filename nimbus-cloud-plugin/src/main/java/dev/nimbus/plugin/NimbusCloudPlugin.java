@@ -196,7 +196,8 @@ public class NimbusCloudPlugin {
 
         @Subscribe
         public void onLogin(LoginEvent event) {
-            provider.loadPermissions(event.getPlayer().getUniqueId());
+            Player player = event.getPlayer();
+            provider.loadPermissions(player.getUniqueId(), player.getUsername());
         }
 
         @Subscribe

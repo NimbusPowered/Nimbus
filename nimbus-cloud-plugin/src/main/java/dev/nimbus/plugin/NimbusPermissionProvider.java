@@ -52,7 +52,29 @@ public class NimbusPermissionProvider implements PermissionProvider {
     }
 
     /**
-     * Loads permissions from the API and caches them.
+     * Registers the player with the API (saves UUID + name) and loads their effective permissions.
+     */
+    public void loadPermissions(UUID uuid, String playerName) {
+        JsonObject body = new JsonObject();
+        body.addProperty("name", playerName);
+
+        // PUT registers the player and returns effective permissions in one call
+        apiClient.put("/api/permissions/players/" + uuid, body)
+            .thenAccept(result -> {
+                if (!result.isSuccess()) {
+                    logger.warn("Failed to load permissions for {}: HTTP {}", playerName, result.statusCode());
+                    return;
+                }
+                cacheFromResponse(uuid, playerName, result);
+            })
+            .exceptionally(e -> {
+                logger.warn("Failed to load permissions for {}: {}", playerName, e.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Loads permissions from the API without registering (for refresh).
      */
     public void loadPermissions(UUID uuid) {
         apiClient.get("/api/permissions/players/" + uuid)
@@ -61,24 +83,27 @@ public class NimbusPermissionProvider implements PermissionProvider {
                     logger.warn("Failed to load permissions for {}: HTTP {}", uuid, result.statusCode());
                     return;
                 }
-
-                try {
-                    JsonObject json = result.asJson();
-                    JsonArray permsArray = json.getAsJsonArray("effectivePermissions");
-                    Set<String> permissions = new HashSet<>();
-                    for (JsonElement elem : permsArray) {
-                        permissions.add(elem.getAsString());
-                    }
-                    cache.put(uuid, permissions);
-                    logger.debug("Loaded {} permissions for {}", permissions.size(), uuid);
-                } catch (Exception e) {
-                    logger.warn("Failed to parse permissions for {}: {}", uuid, e.getMessage());
-                }
+                cacheFromResponse(uuid, uuid.toString(), result);
             })
             .exceptionally(e -> {
                 logger.warn("Failed to load permissions for {}: {}", uuid, e.getMessage());
                 return null;
             });
+    }
+
+    private void cacheFromResponse(UUID uuid, String label, NimbusApiClient.ApiResult result) {
+        try {
+            JsonObject json = result.asJson();
+            JsonArray permsArray = json.getAsJsonArray("effectivePermissions");
+            Set<String> permissions = new HashSet<>();
+            for (JsonElement elem : permsArray) {
+                permissions.add(elem.getAsString());
+            }
+            cache.put(uuid, permissions);
+            logger.debug("Loaded {} permissions for {}", permissions.size(), label);
+        } catch (Exception e) {
+            logger.warn("Failed to parse permissions for {}: {}", label, e.getMessage());
+        }
     }
 
     /**

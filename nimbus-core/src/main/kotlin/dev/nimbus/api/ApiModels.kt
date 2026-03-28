@@ -343,6 +343,11 @@ data class PlayerPermissionResponse(
 )
 
 @Serializable
+data class PlayerRegisterRequest(
+    val name: String
+)
+
+@Serializable
 data class PlayerGroupRequest(
     val group: String,
     val name: String? = null

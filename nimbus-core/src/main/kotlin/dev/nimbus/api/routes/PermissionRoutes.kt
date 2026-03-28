@@ -127,6 +127,20 @@ fun Route.permissionRoutes(
                 ))
             }
 
+            // PUT /api/permissions/players/{uuid} — Register/update player (called on join)
+            put("{uuid}") {
+                val uuid = call.parameters["uuid"]!!
+                val request = call.receive<PlayerRegisterRequest>()
+                permissionManager.registerPlayer(uuid, request.name)
+                val effective = permissionManager.getEffectivePermissions(uuid)
+                call.respond(PlayerPermissionResponse(
+                    uuid = uuid,
+                    name = request.name,
+                    groups = permissionManager.getPlayer(uuid)?.groups ?: emptyList(),
+                    effectivePermissions = effective.sorted()
+                ))
+            }
+
             // POST /api/permissions/players/{uuid}/groups — Add group to player
             post("{uuid}/groups") {
                 val uuid = call.parameters["uuid"]!!
