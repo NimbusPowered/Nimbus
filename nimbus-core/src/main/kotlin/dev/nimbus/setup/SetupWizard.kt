@@ -78,11 +78,8 @@ class SetupWizard(
 
             // --- Step 2: Proxy ---
             stepHeader(w, 2, "Proxy")
-            val defaultVelocity = velocityVersions?.latest ?: "3.4.0-SNAPSHOT"
-            val velocityCandidates = velocityVersions?.all ?: listOf(defaultVelocity)
-            val velocityVersion = prompt(terminal, "  Velocity version", defaultVelocity,
-                candidates = velocityCandidates)
-            done(w, "Proxy configured ${DIM}(Velocity $velocityVersion)$RESET")
+            val velocityVersion = velocityVersions?.latest ?: "3.4.0-SNAPSHOT"
+            done(w, "Velocity $velocityVersion ${DIM}(always latest — backwards compatible)$RESET")
             w.println()
 
             // --- Step 3: Server Groups ---

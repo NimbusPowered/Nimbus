@@ -171,6 +171,10 @@ object ConsoleFormatter {
                 "${warn("- PERM")} group ${BOLD}${event.groupName}${RESET} deleted"
             is NimbusEvent.PlayerPermissionsUpdated ->
                 "${info("~ PERM")} ${BOLD}${event.playerName}${RESET} ${DIM}(${event.uuid})${RESET} updated"
+            is NimbusEvent.ProxyUpdateAvailable ->
+                "${warn("↑ UPDATE")} Velocity ${BOLD}${event.currentVersion}${RESET} → ${BOLD}${event.newVersion}${RESET} available"
+            is NimbusEvent.ProxyUpdateApplied ->
+                "${success("✓ UPDATE")} Velocity updated to ${BOLD}${event.newVersion}${RESET} ${DIM}(restart proxy to apply)${RESET}"
             is NimbusEvent.ConfigReloaded ->
                 "${info("↻ CONFIG")} reloaded ${BOLD}${event.groupsLoaded}${RESET} group(s)"
         }

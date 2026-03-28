@@ -232,5 +232,15 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("error" to error)
         )
+        is NimbusEvent.ProxyUpdateAvailable -> EventMessage(
+            type = "PROXY_UPDATE_AVAILABLE",
+            timestamp = timestamp.toString(),
+            data = mapOf("currentVersion" to currentVersion, "newVersion" to newVersion)
+        )
+        is NimbusEvent.ProxyUpdateApplied -> EventMessage(
+            type = "PROXY_UPDATE_APPLIED",
+            timestamp = timestamp.toString(),
+            data = mapOf("oldVersion" to oldVersion, "newVersion" to newVersion)
+        )
     }
 }

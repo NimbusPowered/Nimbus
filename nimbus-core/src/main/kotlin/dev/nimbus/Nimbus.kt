@@ -8,6 +8,7 @@ import dev.nimbus.event.EventBus
 import dev.nimbus.group.GroupManager
 import dev.nimbus.permissions.PermissionManager
 import dev.nimbus.scaling.ScalingEngine
+import dev.nimbus.scaling.VelocityUpdater
 import java.security.SecureRandom
 import dev.nimbus.service.PortAllocator
 import dev.nimbus.service.ServiceManager
@@ -218,6 +219,18 @@ fun main() = runBlocking {
     // Check for compatibility issues and print warnings to console
     console.printCompatWarnings(serviceManager.checkCompatibility())
 
+    // Start Velocity auto-updater (checks every 6 hours)
+    val velocityUpdater = VelocityUpdater(
+        groupManager = groupManager,
+        registry = registry,
+        softwareResolver = softwareResolver,
+        eventBus = eventBus,
+        scope = scope,
+        templatesDir = templatesDir,
+        groupsDir = groupsDir
+    )
+    val updaterJob = velocityUpdater.start()
+
     // Start minimum instances for all groups (auto-downloads JARs if missing)
     serviceManager.startMinimumInstances()
 
@@ -225,6 +238,7 @@ fun main() = runBlocking {
     console.start()
 
     // Console exited (shutdown command), clean up
+    updaterJob.cancel()
     scalingJob.cancel()
     api.stop()
     serviceManager.stopAll()
