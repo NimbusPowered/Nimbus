@@ -31,7 +31,7 @@ fun main() {
     // Relaunch with --enable-native-access=ALL-UNNAMED if not already set (suppresses JLine warnings on Java 21+)
     if (needsNativeAccessRelaunch()) {
         val javaExe = ProcessHandle.current().info().command().orElse("java")
-        val jarPath = Nimbus::class.java.protectionDomain.codeSource?.location?.toURI()?.path
+        val jarPath = java.nio.file.Paths.get(Nimbus::class.java.protectionDomain.codeSource.location.toURI()).toString()
         val currentArgs = ManagementFactory.getRuntimeMXBean().inputArguments
 
         if (jarPath != null) {
