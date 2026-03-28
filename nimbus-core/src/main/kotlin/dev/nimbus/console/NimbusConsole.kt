@@ -127,6 +127,35 @@ class NimbusConsole(
     }
 
     /**
+     * Prints compatibility warnings directly to the console terminal.
+     */
+    fun printCompatWarnings(warnings: List<ServiceManager.CompatWarning>) {
+        if (warnings.isEmpty()) return
+        val w = terminal.writer()
+
+        w.println()
+        for (warning in warnings) {
+            val (icon, color) = when (warning.level) {
+                ServiceManager.CompatWarning.Level.ERROR -> "!!!" to ConsoleFormatter.RED
+                ServiceManager.CompatWarning.Level.WARN -> " ! " to ConsoleFormatter.YELLOW
+                ServiceManager.CompatWarning.Level.INFO -> " i " to ConsoleFormatter.CYAN
+            }
+
+            val bar = "$color${"━".repeat(60)}${ConsoleFormatter.RESET}"
+            w.println(bar)
+            w.println("$color${ConsoleFormatter.BOLD}[$icon] ${warning.title}${ConsoleFormatter.RESET}")
+            if (warning.detail.isNotEmpty()) {
+                for (line in warning.detail.lines()) {
+                    w.println("$color  $line${ConsoleFormatter.RESET}")
+                }
+            }
+            w.println(bar)
+            w.println()
+        }
+        w.flush()
+    }
+
+    /**
      * Starts the interactive console REPL. Blocks until the user issues "shutdown".
      * Must call init() first.
      */

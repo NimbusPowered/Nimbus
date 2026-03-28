@@ -142,6 +142,9 @@ fun main() = runBlocking {
     )
     console.init()
 
+    // Check for compatibility issues and print warnings to console
+    console.printCompatWarnings(serviceManager.checkCompatibility())
+
     // Start minimum instances for all groups (auto-downloads JARs if missing)
     serviceManager.startMinimumInstances()
 

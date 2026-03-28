@@ -13,7 +13,11 @@ enum class GroupType {
 enum class ServerSoftware {
     PAPER,
     VELOCITY,
-    PURPUR
+    PURPUR,
+    FORGE,
+    FABRIC,
+    NEOFORGE,
+    CUSTOM
 }
 
 @Serializable
@@ -28,6 +32,14 @@ data class GroupDefinition(
     val template: String = "",
     val software: ServerSoftware = ServerSoftware.PAPER,
     val version: String = "1.21.4",
+    @SerialName("modloader_version")
+    val modloaderVersion: String = "",
+    @SerialName("jar_name")
+    val jarName: String = "",
+    @SerialName("ready_pattern")
+    val readyPattern: String = "",
+    @SerialName("java_path")
+    val javaPath: String = "",
     val resources: ResourcesConfig = ResourcesConfig(),
     val scaling: ScalingConfig = ScalingConfig(),
     val lifecycle: LifecycleConfig = LifecycleConfig(),

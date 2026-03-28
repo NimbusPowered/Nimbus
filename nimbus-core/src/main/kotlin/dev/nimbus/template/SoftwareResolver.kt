@@ -6,6 +6,8 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -37,6 +39,31 @@ private data class PurpurVersionResponse(val builds: PurpurBuilds)
 
 @Serializable
 private data class PurpurBuilds(val latest: String, val all: List<String>)
+
+// Forge API models
+@Serializable
+private data class ForgePromotions(val promos: Map<String, String> = emptyMap())
+
+// Fabric API models
+@Serializable
+private data class FabricLoaderVersion(val version: String, val stable: Boolean = true)
+
+@Serializable
+private data class FabricGameVersion(val version: String, val stable: Boolean = true)
+
+@Serializable
+private data class FabricInstallerVersion(val version: String, val stable: Boolean = true)
+
+// NeoForge API models
+@Serializable
+private data class NeoForgeVersionsResponse(val versions: List<String> = emptyList())
+
+// Modrinth API models (for proxy forwarding mods)
+@Serializable
+private data class ModrinthVersionsResponse(val id: String = "", val version_number: String = "", val files: List<ModrinthFile> = emptyList())
+
+@Serializable
+private data class ModrinthFile(val url: String, val filename: String, val primary: Boolean = false)
 
 // Hangar API models (for Via plugins)
 @Serializable
@@ -99,6 +126,110 @@ class SoftwareResolver {
             categorizeVersions(data.versions)
         } catch (e: Exception) {
             logger.error("Failed to fetch Velocity versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    // ── Forge version fetching ─────────────────────────────────────
+
+    suspend fun fetchForgeVersions(mcVersion: String): VersionList {
+        return try {
+            val url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<ForgePromotions>(response.bodyAsText())
+            val versions = data.promos.entries
+                .filter { it.key.startsWith("$mcVersion-") }
+                .map { it.value }
+                .distinct()
+            VersionList(stable = versions, snapshots = emptyList())
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Forge versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    suspend fun fetchForgeGameVersions(): VersionList {
+        return try {
+            val url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<ForgePromotions>(response.bodyAsText())
+            val versions = data.promos.keys.map { it.substringBefore("-") }.distinct().sortedDescending()
+            VersionList(stable = versions, snapshots = emptyList())
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Forge game versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    // ── NeoForge version fetching ───────────────────────────────
+
+    suspend fun fetchNeoForgeVersions(mcVersion: String): VersionList {
+        return try {
+            val url = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<NeoForgeVersionsResponse>(response.bodyAsText())
+            val parts = mcVersion.split(".")
+            val minor = parts.getOrNull(1) ?: return VersionList.EMPTY
+            val patch = parts.getOrNull(2) ?: "0"
+            val prefix = "$minor.$patch."
+            val matching = data.versions.filter { it.startsWith(prefix) }.reversed()
+            val stable = matching.filter { !it.contains("beta") && !it.contains("rc") }
+            val snapshots = matching.filter { it.contains("beta") || it.contains("rc") }
+            VersionList(stable = stable.ifEmpty { matching }, snapshots = snapshots)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch NeoForge versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    suspend fun fetchNeoForgeGameVersions(): VersionList {
+        return try {
+            val url = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<NeoForgeVersionsResponse>(response.bodyAsText())
+            val mcVersions = data.versions.mapNotNull { ver ->
+                val vParts = ver.split(".")
+                if (vParts.size >= 2) "1.${vParts[0]}.${vParts[1]}" else null
+            }.distinct().reversed()
+            VersionList(stable = mcVersions, snapshots = emptyList())
+        } catch (e: Exception) {
+            logger.error("Failed to fetch NeoForge game versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    // ── Fabric version fetching ─────────────────────────────────
+
+    suspend fun fetchFabricLoaderVersions(): VersionList {
+        return try {
+            val url = "https://meta.fabricmc.net/v2/versions/loader"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<List<FabricLoaderVersion>>(response.bodyAsText())
+            val stable = data.filter { it.stable }.map { it.version }
+            val snapshots = data.filter { !it.stable }.map { it.version }
+            VersionList(stable = stable, snapshots = snapshots)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Fabric loader versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    suspend fun fetchFabricGameVersions(): VersionList {
+        return try {
+            val url = "https://meta.fabricmc.net/v2/versions/game"
+            val response = client.get(url)
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<List<FabricGameVersion>>(response.bodyAsText())
+            val stable = data.filter { it.stable }.map { it.version }
+            val snapshots = data.filter { !it.stable }.map { it.version }
+            VersionList(stable = stable, snapshots = snapshots)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Fabric game versions: {}", e.message)
             VersionList.EMPTY
         }
     }
@@ -194,22 +325,348 @@ class SoftwareResolver {
         }
     }
 
+    // ── Proxy forwarding mod downloads ─────────────────────────
+
+    /**
+     * Auto-downloads the correct proxy forwarding mod for Forge/NeoForge servers.
+     */
+    suspend fun ensureForwardingMod(software: ServerSoftware, mcVersion: String, templateDir: Path) {
+        val modsDir = templateDir.resolve("mods")
+        if (!modsDir.exists()) modsDir.createDirectories()
+
+        val hasForwardingMod = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains("proxy-compatible") || name.contains("bungeeforge") || name.contains("neovelocity")
+        } ?: false
+        if (hasForwardingMod) return
+
+        val loader = when (software) {
+            ServerSoftware.FORGE -> "forge"
+            ServerSoftware.NEOFORGE -> "neoforge"
+            else -> return
+        }
+
+        // proxy-compatible-forge supports both Forge and NeoForge
+        downloadModrinthMod("proxy-compatible-forge", loader, modsDir, "Proxy Compatible Forge", mcVersion)
+    }
+
+    /**
+     * Auto-downloads FabricProxy-Lite and its dependency Fabric API for Fabric servers.
+     */
+    suspend fun ensureFabricProxyMod(templateDir: Path, mcVersion: String) {
+        val modsDir = templateDir.resolve("mods")
+        if (!modsDir.exists()) modsDir.createDirectories()
+
+        // Download Fabric API first (required by FabricProxy-Lite and most Fabric mods)
+        val hasFabricApi = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains("fabric-api") || name.contains("fabricapi")
+        } ?: false
+        if (!hasFabricApi) {
+            downloadModrinthMod("fabric-api", "fabric", modsDir, "Fabric API", mcVersion)
+        }
+
+        // Then download FabricProxy-Lite
+        val hasProxyMod = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains("fabricproxy") || name.contains("proxy-lite")
+        } ?: false
+        if (!hasProxyMod) {
+            downloadModrinthMod("fabricproxy-lite", "fabric", modsDir, "FabricProxy-Lite", mcVersion)
+        }
+    }
+
+    /**
+     * Downloads a mod from Modrinth by project slug, filtered by game version.
+     */
+    private suspend fun downloadModrinthMod(projectSlug: String, loader: String, modsDir: Path, displayName: String, mcVersion: String = ""): Boolean {
+        return try {
+            val versionFilter = if (mcVersion.isNotEmpty()) "&game_versions=%5B%22$mcVersion%22%5D" else ""
+            val searchUrl = "https://api.modrinth.com/v2/project/$projectSlug/version?loaders=%5B%22$loader%22%5D$versionFilter"
+            val response = client.get(searchUrl)
+            if (response.status == HttpStatusCode.OK) {
+                val versions = json.decodeFromString<List<ModrinthVersionsResponse>>(response.bodyAsText())
+                val version = versions.firstOrNull()
+                val file = version?.files?.firstOrNull { it.primary } ?: version?.files?.firstOrNull()
+
+                if (file != null) {
+                    val jarResponse = client.get(file.url)
+                    if (jarResponse.status == HttpStatusCode.OK) {
+                        val targetFile = modsDir.resolve(file.filename)
+                        Files.write(targetFile, jarResponse.readRawBytes())
+                        val sizeMb = String.format("%.1f", targetFile.fileSize() / 1024.0 / 1024.0)
+                        logger.info("Auto-installed {} ({}, {} MB)", displayName, file.filename, sizeMb)
+                        return true
+                    }
+                }
+            }
+            logger.warn("Could not auto-download {} — install manually", displayName)
+            false
+        } catch (e: Exception) {
+            logger.warn("Failed to auto-download {}: {}", displayName, e.message)
+            false
+        }
+    }
+
     // ── Server JAR downloads ────────────────────────────────────
 
-    suspend fun ensureJarAvailable(software: ServerSoftware, version: String, templateDir: Path): Boolean {
-        val jarFile = templateDir.resolve(jarFileName(software))
-        if (jarFile.exists()) return true
+    suspend fun ensureJarAvailable(
+        software: ServerSoftware,
+        version: String,
+        templateDir: Path,
+        modloaderVersion: String = "",
+        customJarName: String = ""
+    ): Boolean {
+        when (software) {
+            ServerSoftware.CUSTOM -> {
+                val jarName = customJarName.ifEmpty { "server.jar" }
+                val jarFile = templateDir.resolve(jarName)
+                if (jarFile.exists()) return true
+                logger.error("Custom JAR '{}' not found in template dir: {}", jarName, templateDir)
+                return false
+            }
+            ServerSoftware.FORGE -> {
+                if (hasServerJar(templateDir, software)) return true
+                logger.info("Installing Forge {} for MC {}...", modloaderVersion.ifEmpty { "latest" }, version)
+                return installForge(version, modloaderVersion, templateDir)
+            }
+            ServerSoftware.NEOFORGE -> {
+                if (hasServerJar(templateDir, software)) return true
+                logger.info("Installing NeoForge {} for MC {}...", modloaderVersion.ifEmpty { "latest" }, version)
+                return installNeoForge(version, modloaderVersion, templateDir)
+            }
+            ServerSoftware.FABRIC -> {
+                val jarFile = templateDir.resolve(jarFileName(software))
+                if (jarFile.exists()) return true
+                logger.info("Installing Fabric for MC {}...", version)
+                return installFabric(version, modloaderVersion, templateDir)
+            }
+            else -> {
+                val jarFile = templateDir.resolve(jarFileName(software))
+                if (jarFile.exists()) return true
+                logger.info("Downloading {} {}...", software, version)
+                return downloadJar(software, version, templateDir) != null
+            }
+        }
+    }
 
-        logger.info("Downloading {} {}...", software, version)
-        return downloadJar(software, version, templateDir) != null
+    private fun hasServerJar(templateDir: Path, software: ServerSoftware): Boolean {
+        val serverJar = templateDir.resolve("server.jar")
+        if (serverJar.exists()) return true
+        // Check for modded JARs (forge-*.jar, neoforge-*.jar)
+        val prefix = when (software) {
+            ServerSoftware.FORGE -> "forge-"
+            ServerSoftware.NEOFORGE -> "neoforge-"
+            else -> return false
+        }
+        return templateDir.toFile().listFiles()?.any {
+            it.name.startsWith(prefix) && it.name.endsWith(".jar") && !it.name.contains("installer")
+        } ?: false
     }
 
     suspend fun downloadJar(software: ServerSoftware, version: String, targetDir: Path): Path? {
         return when (software) {
             ServerSoftware.PURPUR -> downloadPurpur(version, targetDir)
-            else -> downloadPaperMC(software, version, targetDir)
+            ServerSoftware.PAPER, ServerSoftware.VELOCITY -> downloadPaperMC(software, version, targetDir)
+            else -> null
         }
     }
+
+    // ── Modded server installers ──────────────────────────────────
+
+    private suspend fun installForge(mcVersion: String, forgeVersion: String, targetDir: Path): Boolean {
+        return try {
+            val loaderVer = forgeVersion.ifEmpty {
+                val versions = fetchForgeVersions(mcVersion)
+                versions.latest ?: run {
+                    logger.error("No Forge versions found for MC {}", mcVersion)
+                    return false
+                }
+            }
+
+            val installerUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/$mcVersion-$loaderVer/forge-$mcVersion-$loaderVer-installer.jar"
+            val installerFile = targetDir.resolve("forge-installer.jar")
+
+            Files.createDirectories(targetDir)
+
+            val response = client.get(installerUrl)
+            if (response.status != HttpStatusCode.OK) {
+                logger.error("Failed to download Forge installer: HTTP {}", response.status)
+                return false
+            }
+            Files.write(installerFile, response.readRawBytes())
+            logger.info("Downloaded Forge installer ({} MB)", String.format("%.1f", installerFile.fileSize() / 1024.0 / 1024.0))
+
+            val process = withContext(Dispatchers.IO) {
+                ProcessBuilder("java", "-jar", "forge-installer.jar", "--installServer")
+                    .directory(targetDir.toFile())
+                    .redirectErrorStream(true)
+                    .start()
+            }
+
+            val output = withContext(Dispatchers.IO) { process.inputStream.bufferedReader().readText() }
+            val exitCode = withContext(Dispatchers.IO) { process.waitFor() }
+
+            Files.deleteIfExists(installerFile)
+            Files.deleteIfExists(targetDir.resolve("forge-installer.jar.log"))
+
+            if (exitCode != 0) {
+                logger.error("Forge installer failed (exit code {}): {}", exitCode, output.takeLast(500))
+                return false
+            }
+
+            logger.info("Forge {}-{} installation complete", mcVersion, loaderVer)
+            true
+        } catch (e: Exception) {
+            logger.error("Failed to install Forge: {}", e.message, e)
+            false
+        }
+    }
+
+    private suspend fun installNeoForge(mcVersion: String, neoforgeVersion: String, targetDir: Path): Boolean {
+        return try {
+            val loaderVer = neoforgeVersion.ifEmpty {
+                val versions = fetchNeoForgeVersions(mcVersion)
+                versions.latest ?: run {
+                    logger.error("No NeoForge versions found for MC {}", mcVersion)
+                    return false
+                }
+            }
+
+            val installerUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/$loaderVer/neoforge-$loaderVer-installer.jar"
+            val installerFile = targetDir.resolve("neoforge-installer.jar")
+
+            Files.createDirectories(targetDir)
+
+            val response = client.get(installerUrl)
+            if (response.status != HttpStatusCode.OK) {
+                logger.error("Failed to download NeoForge installer: HTTP {}", response.status)
+                return false
+            }
+            Files.write(installerFile, response.readRawBytes())
+            logger.info("Downloaded NeoForge installer ({} MB)", String.format("%.1f", installerFile.fileSize() / 1024.0 / 1024.0))
+
+            val process = withContext(Dispatchers.IO) {
+                ProcessBuilder("java", "-jar", "neoforge-installer.jar", "--install-server")
+                    .directory(targetDir.toFile())
+                    .redirectErrorStream(true)
+                    .start()
+            }
+
+            val output = withContext(Dispatchers.IO) { process.inputStream.bufferedReader().readText() }
+            val exitCode = withContext(Dispatchers.IO) { process.waitFor() }
+
+            Files.deleteIfExists(installerFile)
+            Files.deleteIfExists(targetDir.resolve("neoforge-installer.jar.log"))
+
+            if (exitCode != 0) {
+                logger.error("NeoForge installer failed (exit code {}): {}", exitCode, output.takeLast(500))
+                return false
+            }
+
+            logger.info("NeoForge {} installation complete", loaderVer)
+            true
+        } catch (e: Exception) {
+            logger.error("Failed to install NeoForge: {}", e.message, e)
+            false
+        }
+    }
+
+    private suspend fun installFabric(mcVersion: String, loaderVersion: String, targetDir: Path): Boolean {
+        return try {
+            val loaderVer = loaderVersion.ifEmpty {
+                val versions = fetchFabricLoaderVersions()
+                versions.latest ?: run {
+                    logger.error("No Fabric loader versions found")
+                    return false
+                }
+            }
+
+            val installerVer = try {
+                val response = client.get("https://meta.fabricmc.net/v2/versions/installer")
+                if (response.status != HttpStatusCode.OK) throw Exception("HTTP ${response.status}")
+                val installers = json.decodeFromString<List<FabricInstallerVersion>>(response.bodyAsText())
+                installers.firstOrNull { it.stable }?.version ?: installers.first().version
+            } catch (e: Exception) {
+                logger.warn("Failed to fetch Fabric installer version, using fallback: {}", e.message)
+                "1.0.1"
+            }
+
+            val launcherUrl = "https://meta.fabricmc.net/v2/versions/loader/$mcVersion/$loaderVer/$installerVer/server/jar"
+
+            Files.createDirectories(targetDir)
+
+            val response = client.get(launcherUrl)
+            if (response.status != HttpStatusCode.OK) {
+                logger.error("Failed to download Fabric server: HTTP {}", response.status)
+                return false
+            }
+
+            val targetFile = targetDir.resolve("server.jar")
+            Files.write(targetFile, response.readRawBytes())
+
+            val sizeMb = String.format("%.1f", targetFile.fileSize() / 1024.0 / 1024.0)
+            logger.info("Downloaded Fabric server launcher ({} MB) — MC {} / Loader {}", sizeMb, mcVersion, loaderVer)
+            true
+        } catch (e: Exception) {
+            logger.error("Failed to install Fabric: {}", e.message, e)
+            false
+        }
+    }
+
+    // ── Modded startup command ─────────────────────────────────
+
+    fun getModdedStartCommand(software: ServerSoftware, templateDir: Path, customJarName: String = ""): List<String> {
+        return when (software) {
+            ServerSoftware.CUSTOM -> {
+                val jarName = customJarName.ifEmpty { "server.jar" }
+                listOf("-jar", jarName)
+            }
+            ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> {
+                // Check for modern Forge/NeoForge with @libraries args file
+                val libsDir = templateDir.resolve("libraries")
+                val argsFile = findArgsFile(libsDir)
+                if (argsFile != null) {
+                    listOf("@$argsFile")
+                } else {
+                    val jar = findModdedJar(templateDir, software)
+                    listOf("-jar", jar)
+                }
+            }
+            ServerSoftware.FABRIC -> listOf("-jar", "server.jar")
+            else -> listOf("-jar", jarFileName(software))
+        }
+    }
+
+    private fun findArgsFile(libsDir: Path): String? {
+        if (!libsDir.exists()) return null
+        val isWindows = System.getProperty("os.name").lowercase().contains("win")
+        val target = if (isWindows) "win_args.txt" else "unix_args.txt"
+        return try {
+            Files.walk(libsDir).use { stream ->
+                stream.filter { it.fileName.toString() == target }
+                    .findFirst()
+                    .map { libsDir.parent.relativize(it).toString() }
+                    .orElse(null)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun findModdedJar(templateDir: Path, software: ServerSoftware): String {
+        val prefix = when (software) {
+            ServerSoftware.FORGE -> "forge-"
+            ServerSoftware.NEOFORGE -> "neoforge-"
+            else -> ""
+        }
+        val jar = templateDir.toFile().listFiles()?.find {
+            it.name.startsWith(prefix) && it.name.endsWith(".jar") && !it.name.contains("installer")
+        }
+        return jar?.name ?: "server.jar"
+    }
+
+    // ── Paper/Purpur/Velocity downloads ─────────────────────────
 
     private suspend fun downloadPaperMC(software: ServerSoftware, version: String, targetDir: Path): Path? {
         return try {
@@ -285,7 +742,7 @@ class SoftwareResolver {
 
     fun jarFileName(software: ServerSoftware): String = when (software) {
         ServerSoftware.VELOCITY -> "velocity.jar"
-        ServerSoftware.PAPER, ServerSoftware.PURPUR -> "server.jar"
+        else -> "server.jar"
     }
 
     fun close() {

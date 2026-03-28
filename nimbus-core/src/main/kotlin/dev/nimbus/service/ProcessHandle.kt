@@ -22,7 +22,11 @@ class ProcessHandle {
     private val _stdoutLines = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 1024)
     val stdoutLines: SharedFlow<String> = _stdoutLines.asSharedFlow()
 
-    private val donePattern = Regex("""Done \(""")
+    private var donePattern = Regex("""Done \(""")
+
+    fun setReadyPattern(pattern: Regex) {
+        donePattern = pattern
+    }
 
     fun start(workDir: Path, command: List<String>) {
         logger.info("Starting process in {} with command: {}", workDir, command)

@@ -54,7 +54,7 @@ fun Route.groupRoutes(
             val software = try {
                 ServerSoftware.valueOf(request.software.uppercase())
             } catch (e: IllegalArgumentException) {
-                return@post call.respond(HttpStatusCode.BadRequest, ApiMessage(false, "Invalid software: '${request.software}'. Valid: PAPER, PURPUR, VELOCITY"))
+                return@post call.respond(HttpStatusCode.BadRequest, ApiMessage(false, "Invalid software: '${request.software}'. Valid: PAPER, PURPUR, VELOCITY, FORGE, FABRIC, NEOFORGE, CUSTOM"))
             }
 
             val groupType = try {
@@ -71,6 +71,9 @@ fun Route.groupRoutes(
                 appendLine("template = \"${request.template}\"")
                 appendLine("software = \"${software.name}\"")
                 appendLine("version = \"${request.version}\"")
+                if (request.modloaderVersion.isNotEmpty()) appendLine("modloader_version = \"${request.modloaderVersion}\"")
+                if (request.jarName.isNotEmpty()) appendLine("jar_name = \"${request.jarName}\"")
+                if (request.readyPattern.isNotEmpty()) appendLine("ready_pattern = \"${request.readyPattern}\"")
                 appendLine()
                 appendLine("[group.resources]")
                 appendLine("memory = \"${request.memory}\"")
@@ -104,6 +107,9 @@ fun Route.groupRoutes(
                     template = request.template,
                     software = software,
                     version = request.version,
+                    modloaderVersion = request.modloaderVersion,
+                    jarName = request.jarName,
+                    readyPattern = request.readyPattern,
                     resources = ResourcesConfig(request.memory, request.maxPlayers),
                     scaling = ScalingConfig(request.minInstances, request.maxInstances, request.playersPerInstance, request.scaleThreshold, request.idleTimeout),
                     lifecycle = LifecycleConfig(request.stopOnEmpty, request.restartOnCrash, request.maxRestarts),
@@ -133,6 +139,9 @@ fun Route.groupRoutes(
                 appendLine("template = \"${request.template}\"")
                 appendLine("software = \"${request.software.uppercase()}\"")
                 appendLine("version = \"${request.version}\"")
+                if (request.modloaderVersion.isNotEmpty()) appendLine("modloader_version = \"${request.modloaderVersion}\"")
+                if (request.jarName.isNotEmpty()) appendLine("jar_name = \"${request.jarName}\"")
+                if (request.readyPattern.isNotEmpty()) appendLine("ready_pattern = \"${request.readyPattern}\"")
                 appendLine()
                 appendLine("[group.resources]")
                 appendLine("memory = \"${request.memory}\"")
@@ -167,6 +176,9 @@ fun Route.groupRoutes(
                     template = request.template,
                     software = software,
                     version = request.version,
+                    modloaderVersion = request.modloaderVersion,
+                    jarName = request.jarName,
+                    readyPattern = request.readyPattern,
                     resources = ResourcesConfig(request.memory, request.maxPlayers),
                     scaling = ScalingConfig(request.minInstances, request.maxInstances, request.playersPerInstance, request.scaleThreshold, request.idleTimeout),
                     lifecycle = LifecycleConfig(request.stopOnEmpty, request.restartOnCrash, request.maxRestarts),

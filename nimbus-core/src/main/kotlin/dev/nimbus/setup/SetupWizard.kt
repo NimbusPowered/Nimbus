@@ -295,6 +295,7 @@ class SetupWizard(
             ServerSoftware.PAPER -> paperVersions
             ServerSoftware.PURPUR -> purpurVersions
             ServerSoftware.VELOCITY -> velocityVersions
+            else -> paperVersions // Modded servers use their own version prompts in CreateGroupCommand
         }
 
         val stableVersions = versions?.stable ?: emptyList()

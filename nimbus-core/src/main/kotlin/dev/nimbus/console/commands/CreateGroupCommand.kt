@@ -21,6 +21,7 @@ import org.jline.reader.UserInterruptException
 import org.jline.terminal.Terminal
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.exists
 
 class CreateGroupCommand(
     private val terminal: Terminal,
@@ -47,7 +48,7 @@ class CreateGroupCommand(
             if (groupName == null) return
 
             // Step 2: Software
-            val software = promptSoftware()
+            val software = promptSoftware(w)
 
             // Step 3: Version
             w.println()
@@ -56,6 +57,10 @@ class CreateGroupCommand(
             val versions = when (software) {
                 ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
                 ServerSoftware.PURPUR -> softwareResolver.fetchPurpurVersions()
+                ServerSoftware.FORGE -> softwareResolver.fetchForgeGameVersions()
+                ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeGameVersions()
+                ServerSoftware.FABRIC -> softwareResolver.fetchFabricGameVersions()
+                ServerSoftware.CUSTOM -> SoftwareResolver.VersionList(listOf("1.21.4"), emptyList())
                 else -> softwareResolver.fetchPaperVersions()
             }
             w.println(" ${GREEN}✓$RESET")
@@ -77,7 +82,39 @@ class CreateGroupCommand(
             }
 
             val allCandidates = stableVersions + snapshotVersions
-            val version = prompt("  Version", defaultVersion, candidates = allCandidates)
+            val version = prompt("  Minecraft version", defaultVersion, candidates = allCandidates)
+
+            // Step 3b: Modloader version (for Forge/NeoForge/Fabric)
+            var modloaderVersion = ""
+            if (software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
+                w.print("  ${DIM}Fetching modloader versions...$RESET")
+                w.flush()
+                val loaderVersions = when (software) {
+                    ServerSoftware.FORGE -> softwareResolver.fetchForgeVersions(version)
+                    ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeVersions(version)
+                    ServerSoftware.FABRIC -> softwareResolver.fetchFabricLoaderVersions()
+                    else -> SoftwareResolver.VersionList.EMPTY
+                }
+                w.println(" ${GREEN}✓$RESET")
+
+                val loaderDefault = loaderVersions.latest ?: ""
+                if (loaderVersions.stable.isNotEmpty()) {
+                    val display = loaderVersions.stable.take(10).joinToString("  ")
+                    w.println("  ${DIM}Available: $display$RESET")
+                }
+                if (loaderDefault.isNotEmpty()) {
+                    modloaderVersion = prompt("  Modloader version", loaderDefault, candidates = loaderVersions.all)
+                } else {
+                    w.println("  ${YELLOW}No modloader versions found for $version — will use latest at install time$RESET")
+                }
+            }
+
+            // Step 3c: Custom JAR name (for CUSTOM software)
+            var customJarName = ""
+            if (software == ServerSoftware.CUSTOM) {
+                customJarName = prompt("  JAR filename in template", "server.jar")
+                w.println("  ${DIM}Place your server JAR as '$customJarName' in templates/${groupName.lowercase()}/$RESET")
+            }
 
             // Step 4: Min instances
             val minInstances = promptInt("  Min instances", 1)
@@ -86,19 +123,62 @@ class CreateGroupCommand(
             val maxInstances = promptInt("  Max instances", 4)
 
             // Step 6: Memory
-            val memory = prompt("  Memory per instance", "1G")
+            val defaultMemory = if (software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE)) "2G" else "1G"
+            val memory = prompt("  Memory per instance", defaultMemory)
 
-            // Step 7: Via plugins
-            val viaPlugins = promptViaPlugins(w, version, versions.latest)
+            // Step 7: Via plugins (only for Paper/Purpur)
+            val viaPlugins = if (software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR)) {
+                promptViaPlugins(w, version, versions.latest)
+            } else {
+                emptyList()
+            }
 
             w.println()
             w.println("  ${BOLD}Downloading files...$RESET")
             w.println()
 
-            // Step 8: Download server JAR
+            // Step 8: Download/install server
             val templateDir = templatesDir.resolve(groupName.lowercase())
-            download(w, "${software.name.lowercase().replaceFirstChar { it.uppercase() }} $version") {
-                softwareResolver.ensureJarAvailable(software, version, templateDir)
+            when (software) {
+                ServerSoftware.CUSTOM -> {
+                    w.println("  ${DIM}Custom software — skipping download$RESET")
+                    if (!templateDir.exists()) {
+                        Files.createDirectories(templateDir)
+                        w.println("  ${GREEN}✓$RESET Created template dir: templates/${groupName.lowercase()}/")
+                    }
+                }
+                ServerSoftware.FORGE -> {
+                    download(w, "Forge $modloaderVersion for MC $version") {
+                        softwareResolver.ensureJarAvailable(software, version, templateDir, modloaderVersion)
+                    }
+                    download(w, "Proxy forwarding mod") {
+                        softwareResolver.ensureForwardingMod(software, version, templateDir)
+                        true
+                    }
+                }
+                ServerSoftware.NEOFORGE -> {
+                    download(w, "NeoForge $modloaderVersion for MC $version") {
+                        softwareResolver.ensureJarAvailable(software, version, templateDir, modloaderVersion)
+                    }
+                    download(w, "Proxy forwarding mod") {
+                        softwareResolver.ensureForwardingMod(software, version, templateDir)
+                        true
+                    }
+                }
+                ServerSoftware.FABRIC -> {
+                    download(w, "Fabric $modloaderVersion for MC $version") {
+                        softwareResolver.ensureJarAvailable(software, version, templateDir, modloaderVersion)
+                    }
+                    download(w, "FabricProxy-Lite") {
+                        softwareResolver.ensureFabricProxyMod(templateDir, version)
+                        true
+                    }
+                }
+                else -> {
+                    download(w, "${software.name.lowercase().replaceFirstChar { it.uppercase() }} $version") {
+                        softwareResolver.ensureJarAvailable(software, version, templateDir)
+                    }
+                }
             }
 
             // Step 9: Download Via plugins
@@ -110,7 +190,7 @@ class CreateGroupCommand(
 
             // Step 10: Write group TOML
             w.println()
-            writeGroupToml(groupName, software, version, minInstances, maxInstances, memory)
+            writeGroupToml(groupName, software, version, modloaderVersion, customJarName, minInstances, maxInstances, memory)
             w.println("  ${GREEN}✓$RESET groups/${groupName.lowercase()}.toml")
 
             // Step 11: Reload groups
@@ -123,14 +203,18 @@ class CreateGroupCommand(
             w.println()
 
             // Step 12: Ask to start an instance
-            if (promptYesNo("  Start an instance now?", true)) {
-                w.println()
-                try {
-                    serviceManager.startService(groupName)
-                    w.println("  ${GREEN}✓$RESET Service start initiated for '$groupName'.")
-                } catch (e: Exception) {
-                    w.println("  ${RED}✗$RESET Failed to start service: ${e.message}")
+            if (software != ServerSoftware.CUSTOM || templateDir.toFile().listFiles()?.any { it.name.endsWith(".jar") } == true) {
+                if (promptYesNo("  Start an instance now?", true)) {
+                    w.println()
+                    try {
+                        serviceManager.startService(groupName)
+                        w.println("  ${GREEN}✓$RESET Service start initiated for '$groupName'.")
+                    } catch (e: Exception) {
+                        w.println("  ${RED}✗$RESET Failed to start service: ${e.message}")
+                    }
                 }
+            } else {
+                w.println("  ${DIM}Place your server JAR in templates/${groupName.lowercase()}/ before starting.$RESET")
             }
 
             w.println()
@@ -192,11 +276,24 @@ class CreateGroupCommand(
         }
     }
 
-    private fun promptSoftware(): ServerSoftware {
+    private fun promptSoftware(w: java.io.PrintWriter): ServerSoftware {
+        w.println("  ${DIM}Available server software:$RESET")
+        w.println("    ${CYAN}paper$RESET     — Paper (optimized vanilla, plugins)")
+        w.println("    ${CYAN}purpur$RESET    — Purpur (Paper fork, extra features)")
+        w.println("    ${CYAN}forge$RESET     — Forge (mods, auto-installs)")
+        w.println("    ${CYAN}neoforge$RESET  — NeoForge (modern Forge fork, auto-installs)")
+        w.println("    ${CYAN}fabric$RESET    — Fabric (lightweight mods, auto-installs)")
+        w.println("    ${CYAN}custom$RESET    — Custom JAR (bring your own server)")
+        w.flush()
+
         val answer = prompt("  Server software", "paper",
-            candidates = listOf("paper", "purpur"))
+            candidates = listOf("paper", "purpur", "forge", "neoforge", "fabric", "custom"))
         return when (answer.lowercase()) {
             "purpur" -> ServerSoftware.PURPUR
+            "forge" -> ServerSoftware.FORGE
+            "neoforge" -> ServerSoftware.NEOFORGE
+            "fabric" -> ServerSoftware.FABRIC
+            "custom" -> ServerSoftware.CUSTOM
             else -> ServerSoftware.PAPER
         }
     }
@@ -270,6 +367,8 @@ class CreateGroupCommand(
         name: String,
         software: ServerSoftware,
         version: String,
+        modloaderVersion: String,
+        jarName: String,
         minInstances: Int,
         maxInstances: Int,
         memory: String
@@ -278,6 +377,9 @@ class CreateGroupCommand(
         val templateName = name.lowercase()
         val isLobby = name.contains("lobby", ignoreCase = true)
 
+        val modloaderLine = if (modloaderVersion.isNotEmpty()) "modloader_version = \"$modloaderVersion\"\n" else ""
+        val jarNameLine = if (jarName.isNotEmpty() && jarName != "server.jar") "jar_name = \"$jarName\"\n" else ""
+
         val content = """
             |[group]
             |name = "$name"
@@ -285,7 +387,7 @@ class CreateGroupCommand(
             |template = "$templateName"
             |software = "${software.name}"
             |version = "$version"
-            |
+            |${modloaderLine}${jarNameLine}
             |[group.resources]
             |memory = "$memory"
             |max_players = ${if (isLobby) 50 else 16}

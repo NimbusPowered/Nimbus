@@ -181,6 +181,84 @@ class ConfigPatcher {
         logger.debug("Patched paper-global.yml at {}", file)
     }
 
+    /**
+     * Configures FabricProxy-Lite for proxy forwarding on Fabric servers.
+     * Supports both modern (Velocity secret) and legacy (BungeeCord) modes.
+     */
+    fun patchFabricProxyLite(workDir: Path, velocityTemplateDir: Path, forwardingMode: String) {
+        val configDir = workDir.resolve("config")
+        if (!configDir.exists()) configDir.createDirectories()
+
+        val configFile = configDir.resolve("FabricProxy-Lite.toml")
+        val secret = readForwardingSecret(velocityTemplateDir)
+
+        if (forwardingMode == "modern") {
+            if (secret.isEmpty()) {
+                logger.warn("No forwarding.secret found — FabricProxy-Lite modern forwarding will not work")
+                return
+            }
+            writeOrPatchFabricProxyConfig(configFile, hackOnlineMode = true, secret = secret)
+            logger.info("FabricProxy-Lite configured for modern forwarding")
+        } else {
+            // Legacy/BungeeCord mode: hackOnlineMode = false, no secret needed
+            writeOrPatchFabricProxyConfig(configFile, hackOnlineMode = false, secret = "")
+            logger.info("FabricProxy-Lite configured for legacy (BungeeCord) forwarding")
+        }
+    }
+
+    private fun writeOrPatchFabricProxyConfig(configFile: Path, hackOnlineMode: Boolean, secret: String) {
+        if (configFile.exists()) {
+            val patched = configFile.readLines().map { line ->
+                when {
+                    line.trimStart().startsWith("hackOnlineMode") -> "hackOnlineMode = $hackOnlineMode"
+                    line.trimStart().startsWith("secret") -> "secret = \"$secret\""
+                    else -> line
+                }
+            }
+            configFile.writeLines(patched)
+        } else {
+            configFile.writeText(buildString {
+                appendLine("hackOnlineMode = $hackOnlineMode")
+                appendLine("hackEarlySend = false")
+                appendLine("hackMessageChain = false")
+                appendLine("disconnectMessage = \"This server requires you to connect through the proxy.\"")
+                appendLine("secret = \"$secret\"")
+            })
+        }
+    }
+
+    /**
+     * Configures proxy-compatible-forge for proxy forwarding on Forge/NeoForge servers.
+     * Supports both modern (Velocity secret) and legacy (BungeeCord) modes.
+     */
+    fun patchForgeProxy(workDir: Path, velocityTemplateDir: Path, forwardingMode: String) {
+        val configDir = workDir.resolve("config")
+        if (!configDir.exists()) configDir.createDirectories()
+
+        val configFile = configDir.resolve("proxy-compatible-forge-server.toml")
+
+        if (forwardingMode == "modern") {
+            val secret = readForwardingSecret(velocityTemplateDir)
+            if (secret.isEmpty()) {
+                logger.warn("No forwarding.secret found — proxy-compatible-forge modern forwarding will not work")
+                return
+            }
+            configFile.writeText(buildString {
+                appendLine("[general]")
+                appendLine("\tforwardingMode = \"MODERN\"")
+                appendLine("\tsecret = \"$secret\"")
+            })
+            logger.info("proxy-compatible-forge configured for modern forwarding")
+        } else {
+            configFile.writeText(buildString {
+                appendLine("[general]")
+                appendLine("\tforwardingMode = \"LEGACY\"")
+                appendLine("\tsecret = \"\"")
+            })
+            logger.info("proxy-compatible-forge configured for legacy (BungeeCord) forwarding")
+        }
+    }
+
     private fun readForwardingSecret(velocityTemplateDir: Path): String {
         val secretFile = velocityTemplateDir.resolve("forwarding.secret")
         return if (secretFile.exists()) secretFile.readText().trim() else ""
