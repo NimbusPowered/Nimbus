@@ -372,7 +372,7 @@ class PermsCommand(
 
     // ── Reload ──────────────────────────────────────────────
 
-    private fun handleReload() {
+    private suspend fun handleReload() {
         permissionManager.reload()
         println(ConsoleFormatter.success("Permissions reloaded."))
     }
@@ -397,7 +397,7 @@ class PermsCommand(
         println("  ${ConsoleFormatter.CYAN}perms user info <name|uuid>${ConsoleFormatter.RESET}              Show player perms")
         println("  ${ConsoleFormatter.CYAN}perms user addgroup <name|uuid> <group>${ConsoleFormatter.RESET} Assign group")
         println("  ${ConsoleFormatter.CYAN}perms user removegroup <name|uuid> <group>${ConsoleFormatter.RESET} Remove group")
-        println("  ${ConsoleFormatter.CYAN}perms reload${ConsoleFormatter.RESET}                             Reload from files")
+        println("  ${ConsoleFormatter.CYAN}perms reload${ConsoleFormatter.RESET}                             Reload from database")
     }
 
     private fun printGroupUsage() {

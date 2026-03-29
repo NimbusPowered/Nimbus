@@ -1,5 +1,8 @@
 package dev.nimbus.permissions
 
+import dev.nimbus.config.DatabaseConfig
+import dev.nimbus.database.DatabaseManager
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -12,19 +15,20 @@ class PermissionManagerTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private lateinit var permDir: Path
+    private lateinit var db: DatabaseManager
     private lateinit var manager: PermissionManager
 
     @BeforeEach
-    fun setUp() {
-        permDir = tempDir.resolve("permissions")
-        manager = PermissionManager(permDir)
+    fun setUp() = runBlocking {
+        db = DatabaseManager(tempDir, DatabaseConfig())
+        db.init()
+        manager = PermissionManager(db)
     }
 
     // ── init / ensureDefaultGroup ───────────────────────────────
 
     @Test
-    fun `init creates Default group if none exists`() {
+    fun `init creates Default group if none exists`() = runBlocking {
         manager.init()
 
         val defaultGroup = manager.getDefaultGroup()
@@ -34,25 +38,10 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `init does not create Default group if groups already exist`() {
-        // Pre-create a group TOML file before init
-        permDir.toFile().mkdirs()
-        val groupFile = permDir.resolve("admin.toml")
-        groupFile.toFile().writeText("""
-            [group]
-            name = "Admin"
-            default = false
-            prefix = ""
-            suffix = ""
-            priority = 100
-
-            [group.permissions]
-            list = []
-
-            [group.inheritance]
-            parents = []
-        """.trimIndent())
-
+    fun `init does not create Default group if groups already exist`() = runBlocking {
+        // Pre-create a group directly via manager
+        manager.createGroup("Admin")
+        // Now init — should not add a Default group
         manager.init()
 
         // Should only have the Admin group, no auto-created Default
@@ -63,7 +52,7 @@ class PermissionManagerTest {
     // ── createGroup ────────────────────────────────────────────
 
     @Test
-    fun `createGroup adds new group`() {
+    fun `createGroup adds new group`() = runBlocking {
         manager.init()
 
         val group = manager.createGroup("VIP")
@@ -73,29 +62,29 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `createGroup with duplicate name throws`() {
+    fun `createGroup with duplicate name throws`() = runBlocking {
         manager.init()
         manager.createGroup("Moderator")
 
         assertThrows<IllegalArgumentException> {
-            manager.createGroup("Moderator")
+            runBlocking { manager.createGroup("Moderator") }
         }
     }
 
     @Test
-    fun `createGroup duplicate is case-insensitive`() {
+    fun `createGroup duplicate is case-insensitive`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
         assertThrows<IllegalArgumentException> {
-            manager.createGroup("admin")
+            runBlocking { manager.createGroup("admin") }
         }
     }
 
     // ── deleteGroup ────────────────────────────────────────────
 
     @Test
-    fun `deleteGroup removes it`() {
+    fun `deleteGroup removes it`() = runBlocking {
         manager.init()
         manager.createGroup("TempGroup")
         assertNotNull(manager.getGroup("TempGroup"))
@@ -105,15 +94,15 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `deleteGroup throws for unknown group`() {
+    fun `deleteGroup throws for unknown group`() = runBlocking {
         manager.init()
         assertThrows<IllegalArgumentException> {
-            manager.deleteGroup("NonExistent")
+            runBlocking { manager.deleteGroup("NonExistent") }
         }
     }
 
     @Test
-    fun `deleteGroup removes group from players`() {
+    fun `deleteGroup removes group from players`() = runBlocking {
         manager.init()
         manager.createGroup("VIP")
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
@@ -129,7 +118,7 @@ class PermissionManagerTest {
     // ── getGroup ───────────────────────────────────────────────
 
     @Test
-    fun `getGroup returns correct group`() {
+    fun `getGroup returns correct group`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
@@ -139,7 +128,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getGroup is case-insensitive`() {
+    fun `getGroup is case-insensitive`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
@@ -148,7 +137,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getGroup returns null for unknown`() {
+    fun `getGroup returns null for unknown`() = runBlocking {
         manager.init()
         assertNull(manager.getGroup("NonExistent"))
     }
@@ -156,7 +145,7 @@ class PermissionManagerTest {
     // ── getAllGroups ────────────────────────────────────────────
 
     @Test
-    fun `getAllGroups returns all groups`() {
+    fun `getAllGroups returns all groups`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.createGroup("VIP")
@@ -172,7 +161,7 @@ class PermissionManagerTest {
     // ── addPermission / removePermission ───────────────────────
 
     @Test
-    fun `addPermission modifies group permissions`() {
+    fun `addPermission modifies group permissions`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
@@ -185,7 +174,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `addPermission does not duplicate`() {
+    fun `addPermission does not duplicate`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
@@ -197,7 +186,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `removePermission removes from group`() {
+    fun `removePermission removes from group`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.addPermission("Admin", "nimbus.cloud.list")
@@ -209,19 +198,18 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `addPermission throws for unknown group`() {
+    fun `addPermission throws for unknown group`() = runBlocking {
         manager.init()
         assertThrows<IllegalArgumentException> {
-            manager.addPermission("NoGroup", "some.perm")
+            runBlocking { manager.addPermission("NoGroup", "some.perm") }
         }
     }
 
     // ── setDefault ─────────────────────────────────────────────
 
     @Test
-    fun `setDefault marks group as default and clears previous`() {
+    fun `setDefault marks group as default and clears previous`() = runBlocking {
         manager.init()
-        // Default group already exists from init
         manager.createGroup("NewDefault")
 
         manager.setDefault("NewDefault", true)
@@ -229,13 +217,12 @@ class PermissionManagerTest {
         val newDefault = manager.getGroup("NewDefault")!!
         assertTrue(newDefault.default)
 
-        // The old Default group should no longer be default
         val oldDefault = manager.getGroup("Default")!!
         assertFalse(oldDefault.default)
     }
 
     @Test
-    fun `getDefaultGroup returns the default group`() {
+    fun `getDefaultGroup returns the default group`() = runBlocking {
         manager.init()
 
         val defaultGroup = manager.getDefaultGroup()
@@ -246,7 +233,7 @@ class PermissionManagerTest {
     // ── addParent / removeParent ───────────────────────────────
 
     @Test
-    fun `addParent manages inheritance chain`() {
+    fun `addParent manages inheritance chain`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.createGroup("Moderator")
@@ -258,7 +245,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `addParent does not duplicate`() {
+    fun `addParent does not duplicate`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.createGroup("Moderator")
@@ -271,17 +258,17 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `addParent throws for unknown parent`() {
+    fun `addParent throws for unknown parent`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
 
         assertThrows<IllegalArgumentException> {
-            manager.addParent("Admin", "NonExistent")
+            runBlocking { manager.addParent("Admin", "NonExistent") }
         }
     }
 
     @Test
-    fun `removeParent removes from inheritance`() {
+    fun `removeParent removes from inheritance`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.createGroup("Moderator")
@@ -296,7 +283,7 @@ class PermissionManagerTest {
     // ── Permission Resolution ──────────────────────────────────
 
     @Test
-    fun `getEffectivePermissions with no parents returns own permissions`() {
+    fun `getEffectivePermissions with no parents returns own permissions`() = runBlocking {
         manager.init()
         manager.createGroup("Admin")
         manager.addPermission("Admin", "nimbus.admin")
@@ -310,7 +297,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getEffectivePermissions with parent merges parent permissions`() {
+    fun `getEffectivePermissions with parent merges parent permissions`() = runBlocking {
         manager.init()
         manager.createGroup("Moderator")
         manager.addPermission("Moderator", "nimbus.moderate")
@@ -329,19 +316,16 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getEffectivePermissions with grandparent merges all`() {
+    fun `getEffectivePermissions with grandparent merges all`() = runBlocking {
         manager.init()
 
-        // C (grandparent)
         manager.createGroup("GroupC")
         manager.addPermission("GroupC", "perm.c")
 
-        // B (parent of A, child of C)
         manager.createGroup("GroupB")
         manager.addPermission("GroupB", "perm.b")
         manager.addParent("GroupB", "GroupC")
 
-        // A (child of B)
         manager.createGroup("GroupA")
         manager.addPermission("GroupA", "perm.a")
         manager.addParent("GroupA", "GroupB")
@@ -357,7 +341,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `negated permission overrides positive from parent`() {
+    fun `negated permission overrides positive from parent`() = runBlocking {
         manager.init()
 
         manager.createGroup("Parent")
@@ -376,7 +360,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getEffectivePermissions includes default group permissions`() {
+    fun `getEffectivePermissions includes default group permissions`() = runBlocking {
         manager.init()
         manager.addPermission("Default", "basic.perm")
 
@@ -429,7 +413,7 @@ class PermissionManagerTest {
     // ── hasPermission ──────────────────────────────────────────
 
     @Test
-    fun `hasPermission resolves through inheritance`() {
+    fun `hasPermission resolves through inheritance`() = runBlocking {
         manager.init()
 
         manager.createGroup("Base")
@@ -447,7 +431,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `hasPermission returns false for missing permission`() {
+    fun `hasPermission returns false for missing permission`() = runBlocking {
         manager.init()
         manager.createGroup("Basic")
 
@@ -461,7 +445,7 @@ class PermissionManagerTest {
     // ── Player Management ──────────────────────────────────────
 
     @Test
-    fun `registerPlayer creates entry`() {
+    fun `registerPlayer creates entry`() = runBlocking {
         manager.init()
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
 
@@ -474,7 +458,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `registerPlayer returns false if already up to date`() {
+    fun `registerPlayer returns false if already up to date`() = runBlocking {
         manager.init()
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
 
@@ -484,7 +468,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `registerPlayer updates name if changed`() {
+    fun `registerPlayer updates name if changed`() = runBlocking {
         manager.init()
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
 
@@ -495,7 +479,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `setPlayerGroup assigns group`() {
+    fun `setPlayerGroup assigns group`() = runBlocking {
         manager.init()
         manager.createGroup("VIP")
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
@@ -507,15 +491,15 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `setPlayerGroup throws for unknown group`() {
+    fun `setPlayerGroup throws for unknown group`() = runBlocking {
         manager.init()
         assertThrows<IllegalArgumentException> {
-            manager.setPlayerGroup("some-uuid", "Steve", "NonExistent")
+            runBlocking { manager.setPlayerGroup("some-uuid", "Steve", "NonExistent") }
         }
     }
 
     @Test
-    fun `removePlayerGroup removes assignment`() {
+    fun `removePlayerGroup removes assignment`() = runBlocking {
         manager.init()
         manager.createGroup("VIP")
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
@@ -528,15 +512,15 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `removePlayerGroup throws for unknown player`() {
+    fun `removePlayerGroup throws for unknown player`() = runBlocking {
         manager.init()
         assertThrows<IllegalArgumentException> {
-            manager.removePlayerGroup("unknown-uuid", "Default")
+            runBlocking { manager.removePlayerGroup("unknown-uuid", "Default") }
         }
     }
 
     @Test
-    fun `getPlayerByName finds player`() {
+    fun `getPlayerByName finds player`() = runBlocking {
         manager.init()
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
         manager.registerPlayer(uuid, "Steve")
@@ -548,7 +532,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getPlayerByName is case-insensitive`() {
+    fun `getPlayerByName is case-insensitive`() = runBlocking {
         manager.init()
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
         manager.registerPlayer(uuid, "Steve")
@@ -558,7 +542,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getPlayerByName returns null for unknown`() {
+    fun `getPlayerByName returns null for unknown`() = runBlocking {
         manager.init()
         assertNull(manager.getPlayerByName("Nobody"))
     }
@@ -566,7 +550,7 @@ class PermissionManagerTest {
     // ── getPlayerDisplay ───────────────────────────────────────
 
     @Test
-    fun `getPlayerDisplay returns highest priority group display`() {
+    fun `getPlayerDisplay returns highest priority group display`() = runBlocking {
         manager.init()
 
         manager.createGroup("VIP")
@@ -587,7 +571,7 @@ class PermissionManagerTest {
     }
 
     @Test
-    fun `getPlayerDisplay falls back to default group`() {
+    fun `getPlayerDisplay falls back to default group`() = runBlocking {
         manager.init()
         manager.updateGroupDisplay("Default", prefix = "[Member] ", suffix = null, priority = 0)
 
@@ -602,27 +586,7 @@ class PermissionManagerTest {
     // ── Persistence ────────────────────────────────────────────
 
     @Test
-    fun `reload reads from TOML files`() {
-        manager.init()
-        manager.createGroup("Admin")
-        manager.addPermission("Admin", "nimbus.admin")
-
-        val uuid = "550e8400-e29b-41d4-a716-446655440000"
-        manager.registerPlayer(uuid, "Steve")
-        manager.setPlayerGroup(uuid, "Steve", "Admin")
-
-        // Create a fresh manager pointing to the same directory
-        val manager2 = PermissionManager(permDir)
-        manager2.init()
-
-        assertNotNull(manager2.getGroup("Admin"))
-        assertTrue("nimbus.admin" in manager2.getGroup("Admin")!!.permissions)
-        assertNotNull(manager2.getPlayer(uuid))
-        assertTrue(manager2.getPlayer(uuid)!!.groups.any { it.equals("Admin", ignoreCase = true) })
-    }
-
-    @Test
-    fun `changes persist after save and reload cycle`() {
+    fun `changes persist after save and reload cycle`() = runBlocking {
         manager.init()
         manager.createGroup("Moderator")
         manager.addPermission("Moderator", "nimbus.moderate")
@@ -635,10 +599,9 @@ class PermissionManagerTest {
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
         manager.setPlayerGroup(uuid, "Steve", "Admin")
 
-        // Reload from disk
+        // Reload from database
         manager.reload()
 
-        // Verify everything survived
         val admin = manager.getGroup("Admin")!!
         assertTrue("nimbus.admin" in admin.permissions)
         assertTrue(admin.parents.any { it.equals("Moderator", ignoreCase = true) })
@@ -650,21 +613,28 @@ class PermissionManagerTest {
         val player = manager.getPlayer(uuid)!!
         assertTrue(player.groups.any { it.equals("Admin", ignoreCase = true) })
 
-        // Effective permissions should still resolve through inheritance
         val perms = manager.getEffectivePermissions(uuid)
         assertTrue("nimbus.admin" in perms)
         assertTrue("nimbus.moderate" in perms)
     }
 
     @Test
-    fun `deleteGroup removes TOML file from disk`() {
+    fun `reload reads from database with fresh manager`() = runBlocking {
         manager.init()
-        manager.createGroup("TempGroup")
+        manager.createGroup("Admin")
+        manager.addPermission("Admin", "nimbus.admin")
 
-        val file = permDir.resolve("tempgroup.toml")
-        assertTrue(file.toFile().exists())
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "Admin")
 
-        manager.deleteGroup("TempGroup")
-        assertFalse(file.toFile().exists())
+        // Create a fresh manager pointing to the same database
+        val manager2 = PermissionManager(db)
+        manager2.init()
+
+        assertNotNull(manager2.getGroup("Admin"))
+        assertTrue("nimbus.admin" in manager2.getGroup("Admin")!!.permissions)
+        assertNotNull(manager2.getPlayer(uuid))
+        assertTrue(manager2.getPlayer(uuid)!!.groups.any { it.equals("Admin", ignoreCase = true) })
     }
 }

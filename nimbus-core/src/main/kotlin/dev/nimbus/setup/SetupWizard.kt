@@ -415,6 +415,16 @@ class SetupWizard(
             |bind = "127.0.0.1"
             |port = 8080
             |token = "$token"
+            |
+            |[database]
+            |# Supported types: sqlite, mysql, postgresql
+            |type = "sqlite"
+            |# Settings below only apply to mysql/postgresql:
+            |# host = "localhost"
+            |# port = 3306
+            |# name = "nimbus"
+            |# username = ""
+            |# password = ""
         """.trimMargin() + "\n"
         val configDir = baseDir.resolve("config")
         Files.createDirectories(configDir)

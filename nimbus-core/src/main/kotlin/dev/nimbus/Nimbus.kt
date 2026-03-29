@@ -4,6 +4,8 @@ import dev.nimbus.api.NimbusApi
 import dev.nimbus.config.ConfigLoader
 import dev.nimbus.config.NimbusConfig
 import dev.nimbus.console.NimbusConsole
+import dev.nimbus.database.DatabaseManager
+import dev.nimbus.database.MetricsCollector
 import dev.nimbus.event.EventBus
 import dev.nimbus.group.GroupManager
 import dev.nimbus.permissions.PermissionManager
@@ -131,13 +133,12 @@ fun nimbusMain() = runBlocking {
     val globalTemplateDir = templatesDir.resolve("global")
     val globalProxyTemplateDir = templatesDir.resolve("global_proxy")
 
-    val permissionsDir = baseDir.resolve("permissions")
     val modulesDir = configDir.resolve("modules")
     val displaysDir = modulesDir.resolve("display")
     val proxyDir = modulesDir.resolve("syncproxy")
 
     listOf(
-        templatesDir, staticDir, tempDir, logsDir, configDir, groupsDir, permissionsDir, modulesDir, displaysDir, proxyDir,
+        templatesDir, staticDir, tempDir, logsDir, configDir, groupsDir, modulesDir, displaysDir, proxyDir,
         globalTemplateDir, globalTemplateDir.resolve("plugins"),
         globalProxyTemplateDir, globalProxyTemplateDir.resolve("plugins")
     ).forEach { dir ->
@@ -157,12 +158,21 @@ fun nimbusMain() = runBlocking {
     // Initialize components
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val eventBus = EventBus(scope)
+
+    // Initialize database
+    val databaseManager = DatabaseManager(baseDir, config.database)
+    databaseManager.init()
+
     val registry = ServiceRegistry()
     val portAllocator = PortAllocator()
     val templateManager = TemplateManager()
     val groupManager = GroupManager()
-    val permissionManager = PermissionManager(permissionsDir)
+    val permissionManager = PermissionManager(databaseManager)
     permissionManager.init()
+
+    // Start metrics collector
+    val metricsCollector = MetricsCollector(databaseManager, eventBus)
+    val metricsJobs = metricsCollector.start()
 
     val displayManager = dev.nimbus.display.DisplayManager(displaysDir)
     displayManager.init()
@@ -228,6 +238,7 @@ fun nimbusMain() = runBlocking {
         if (!shutdownStarted.compareAndSet(false, true)) return@Thread
         runBlocking {
             logger.info("Shutdown signal received, stopping all services...")
+            metricsJobs.forEach { it.cancel() }
             scalingJob.cancel()
             api.stop()
             try {
@@ -282,6 +293,7 @@ fun nimbusMain() = runBlocking {
 
     // Console exited (shutdown command), clean up
     if (shutdownStarted.compareAndSet(false, true)) {
+        metricsJobs.forEach { it.cancel() }
         updaterJob.cancel()
         scalingJob.cancel()
         api.stop()

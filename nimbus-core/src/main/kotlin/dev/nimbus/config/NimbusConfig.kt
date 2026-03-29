@@ -10,7 +10,8 @@ data class NimbusConfig(
     val console: ConsoleConfig = ConsoleConfig(),
     val paths: PathsConfig = PathsConfig(),
     val api: ApiConfig = ApiConfig(),
-    val java: JavaConfig = JavaConfig()
+    val java: JavaConfig = JavaConfig(),
+    val database: DatabaseConfig = DatabaseConfig()
 )
 
 @Serializable
@@ -53,6 +54,16 @@ data class ApiConfig(
     val token: String = "",
     @SerialName("allowed_origins")
     val allowedOrigins: List<String> = emptyList()
+)
+
+@Serializable
+data class DatabaseConfig(
+    val type: String = "sqlite",  // sqlite, mysql, postgresql
+    val host: String = "localhost",
+    val port: Int = 3306,
+    val name: String = "nimbus",
+    val username: String = "",
+    val password: String = ""
 )
 
 @Serializable
