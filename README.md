@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/public/logo-dark.svg" alt="Nimbus" width="80" />
-
-# Nimbus
+<img src="docs/public/banner.svg" alt="Nimbus Cloud" width="460" />
 
 **Lightweight Minecraft Cloud System**
 
@@ -19,12 +17,6 @@ Dynamic server management from a single JAR — auto-scaling, modpack support, a
 </div>
 
 ---
-
-<div align="center">
-<br>
-<img src="docs/public/banner.svg" alt="Nimbus Cloud" width="460" />
-<br><br>
-</div>
 
 ## Features
 
