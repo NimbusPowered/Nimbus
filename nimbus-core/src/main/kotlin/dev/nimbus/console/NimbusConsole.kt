@@ -152,11 +152,21 @@ class NimbusConsole(
         setupTerminal()
         registerCommands()
 
-        // Print banner
+        // Clear screen and print banner at the top
+        terminal.writer().print("\u001B[2J\u001B[H")
         terminal.writer().print(ConsoleFormatter.banner(config.network.name))
         terminal.writer().flush()
 
         setupEventListener()
+    }
+
+    /**
+     * Clears the screen and reprints the banner — used to return from wizard screens.
+     */
+    fun reprintBanner() {
+        terminal.writer().print("\u001B[2J\u001B[H")
+        terminal.writer().print(ConsoleFormatter.banner(config.network.name))
+        terminal.writer().flush()
     }
 
     /**

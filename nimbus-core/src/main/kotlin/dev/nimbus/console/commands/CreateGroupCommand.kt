@@ -241,6 +241,7 @@ class CreateGroupCommand(
             w.flush()
         } finally {
             console.eventsPaused = false
+            console.reprintBanner()
             console.flushBufferedEvents()
         }
     }

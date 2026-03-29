@@ -64,9 +64,8 @@ class ImportCommand(
             w.println(ConsoleFormatter.hint("Cancelled."))
         } finally {
             console.eventsPaused = false
+            console.reprintBanner()
             console.flushBufferedEvents()
-            w.println()
-            w.flush()
         }
     }
 

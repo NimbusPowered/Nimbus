@@ -50,7 +50,8 @@ class SetupWizard(
 
             val w = terminal.writer()
 
-            // Print the banner
+            // Clear screen and print the banner at the top
+            w.print("\u001B[2J\u001B[H")
             w.print(ConsoleFormatter.banner(""))
             w.println("  ${ConsoleFormatter.hint("Let's get your cloud ready.")}")
             w.println()
