@@ -38,6 +38,11 @@ class PortAllocator(
                 }
             }
             allocatedPorts.add(port)
+
+            val remaining = maxPort - allocatedPorts.size
+            if (remaining < 100) {
+                logger.warn("Low on backend ports: only {} remaining in range {}-{}", remaining, backendBasePort, maxPort)
+            }
         }
         logger.info("Allocated backend port {}", port)
         return port

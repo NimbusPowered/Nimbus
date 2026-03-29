@@ -8,7 +8,11 @@ import dev.nimbus.service.ServiceManager
 import dev.nimbus.service.ServiceRegistry
 import dev.nimbus.service.ServiceState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -130,22 +134,32 @@ class ScalingEngine(
                 }
             }
         }
+
+        // Clean up idleSince entries for services that no longer exist (manually stopped, crashed, etc.)
+        val activeServiceNames = registry.getAll().map { it.name }.toSet()
+        idleSince.keys.removeAll { it !in activeServiceNames }
     }
 
     /**
      * Updates player counts for all READY services via [ServerListPing].
+     * Pings run in parallel to avoid stalling the evaluation loop when many services exist.
      */
-    private fun updatePlayerCounts() {
-        for (service in registry.getAll()) {
-            if (service.state != ServiceState.READY) continue
+    private suspend fun updatePlayerCounts() {
+        val readyServices = registry.getAll().filter { it.state == ServiceState.READY }
+        if (readyServices.isEmpty()) return
 
-            val result = ServerListPing.ping("127.0.0.1", service.port, timeout = 3000)
-            if (result != null) {
-                service.playerCount = result.onlinePlayers
-                logger.debug("Pinged '${service.name}': ${result.onlinePlayers}/${result.maxPlayers} players")
-            } else {
-                logger.debug("Ping failed for '${service.name}' on port ${service.port}")
-            }
+        coroutineScope {
+            readyServices.map { service ->
+                async(Dispatchers.IO) {
+                    val result = ServerListPing.ping("127.0.0.1", service.port, timeout = 3000)
+                    if (result != null) {
+                        service.playerCount = result.onlinePlayers
+                        logger.debug("Pinged '${service.name}': ${result.onlinePlayers}/${result.maxPlayers} players")
+                    } else {
+                        logger.debug("Ping failed for '${service.name}' on port ${service.port}")
+                    }
+                }
+            }.awaitAll()
         }
     }
 }

@@ -94,6 +94,7 @@ class ServiceManager(
             return null
         }
 
+        // Early check (non-atomic) for fast rejection — atomic check happens at register time
         val currentCount = registry.countByGroup(groupName)
         if (currentCount >= group.maxInstances) {
             logger.warn("Cannot start service: group '{}' already at max instances ({}/{})", groupName, currentCount, group.maxInstances)
@@ -182,7 +183,12 @@ class ServiceManager(
             initializeVelocityTemplate(templateDir, jarName)
         }
 
-        registry.register(service)
+        // Atomic check-and-register to prevent exceeding max instances under concurrent starts
+        if (!registry.registerIfUnderLimit(service, group.maxInstances)) {
+            logger.warn("Cannot start service: group '{}' reached max instances (concurrent start race avoided)", groupName)
+            portAllocator.release(port)
+            return null
+        }
         eventBus.emit(NimbusEvent.ServiceStarting(serviceName, groupName, port))
         logger.info("Starting service '{}' on port {}", serviceName, port)
 
@@ -348,6 +354,7 @@ class ServiceManager(
         val exitCode = handle.exitCode() ?: -1
 
         // Clean up the instance
+        handle.destroy()
         processHandles.remove(serviceName)
         portAllocator.release(service.port)
         registry.unregister(serviceName)

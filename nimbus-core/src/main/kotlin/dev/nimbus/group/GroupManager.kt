@@ -3,11 +3,12 @@ package dev.nimbus.group
 import dev.nimbus.config.GroupConfig
 import dev.nimbus.config.GroupType
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 class GroupManager {
 
     private val logger = LoggerFactory.getLogger(GroupManager::class.java)
-    private val groups = mutableMapOf<String, ServerGroup>()
+    private val groups = ConcurrentHashMap<String, ServerGroup>()
 
     fun loadGroups(configs: List<GroupConfig>) {
         groups.clear()

@@ -1,6 +1,7 @@
 package dev.nimbus.service
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -19,7 +20,7 @@ class ProcessHandle {
     private var process: Process? = null
     private var stdinWriter: BufferedWriter? = null
 
-    private val _stdoutLines = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 1024)
+    private val _stdoutLines = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 4096, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val stdoutLines: SharedFlow<String> = _stdoutLines.asSharedFlow()
 
     private var donePattern = Regex("""Done \(""")
