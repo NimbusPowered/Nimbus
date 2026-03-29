@@ -1,0 +1,229 @@
+# Architecture
+
+This page covers Nimbus's internal architecture for developers who want to understand how the system works, contribute to the codebase, or build integrations.
+
+## Module structure
+
+Nimbus is organized into four modules:
+
+```
+nimbus-core (Controller)
+├── api/           → Ktor REST + WebSocket server
+├── config/        → TOML configuration loading
+├── console/       → JLine3 interactive REPL
+├── event/         → Coroutine-based EventBus
+├── group/         → Server group state management
+├── scaling/       → Auto-scaling engine + Velocity updater
+├── service/       → Service lifecycle, process management
+├── template/      → Template copying, software download
+├── setup/         → First-run wizard
+├── permissions/   → Permission system (groups, players, wildcards)
+├── display/       → Sign/NPC display configs
+├── proxy/         → Proxy sync (tab list, MOTD, chat format)
+└── velocity/      → Velocity config generation
+
+nimbus-bridge (Velocity Plugin)
+├── CloudCommand          → /cloud subcommands (status, list, start, stop, etc.)
+├── NimbusBridgePlugin    → Plugin entry point, event listeners
+├── NimbusApiClient       → HTTP client for Nimbus API
+├── NimbusPermissionProvider → Velocity permission integration
+├── ProxySyncListener     → Tab list, MOTD, chat sync
+└── BridgeConfig          → API connection config
+
+nimbus-sdk (Paper Plugin)
+├── Nimbus                → Static facade (main entry point)
+├── NimbusClient          → HTTP client for REST API
+├── NimbusSelfService     → Self-identity from JVM properties
+├── ServiceCache          → Reactive service cache via WebSocket
+├── ServiceRouter         → Smart player routing
+├── PlayerTracker         → Real-time player count tracking
+├── NimbusEventStream     → WebSocket event subscription
+├── NimbusPermissible     → Wildcard permission injection
+├── NimbusDisplay         → Display config access
+├── NimbusChatRenderer    → Chat color rendering
+└── RoutingStrategy       → LEAST_PLAYERS, FILL_FIRST, RANDOM
+
+nimbus-signs (Paper Plugin)
+├── SignCommand            → /nsign command
+├── SignManager            → Sign lifecycle + rendering
+├── SignConfig             → YAML persistence
+└── SignListener           → Click-to-join handling
+```
+
+## Bootstrap flow
+
+When Nimbus starts (`Nimbus.kt` → `nimbusMain()`), components are initialized in this order:
+
+```
+1. Log rotation           → Rotate latest.log to dated archives
+2. Setup wizard           → First-run interactive setup (if needed)
+3. Config loading         → Parse nimbus.toml + groups/*.toml
+4. API token generation   → Auto-generate if missing
+5. Directory creation     → Ensure templates/, services/, logs/, etc. exist
+6. Plugin deployment      → Extract nimbus-bridge.jar, nimbus-sdk.jar
+7. Component init         → EventBus, ServiceRegistry, PortAllocator,
+                            TemplateManager, GroupManager, PermissionManager,
+                            DisplayManager, ProxySyncManager
+8. Group loading          → Parse group configs into GroupManager
+9. ServiceManager         → Wire up all dependencies
+10. ScalingEngine         → Start periodic scaling loop
+11. NimbusApi             → Create (but don't start) Ktor server
+12. Shutdown hook         → Register SIGTERM/SIGINT handler
+13. NimbusConsole.init()  → Banner, event listener
+14. Api.start()           → Start Ktor HTTP server
+15. VelocityUpdater       → Start periodic update check (first check after 60s)
+16. startMinimumInstances → Start min_instances for all groups
+17. Console.start()       → JLine3 REPL (blocks until shutdown)
+```
+
+::: info
+The shutdown hook and console REPL provide two paths to shutdown: external signals (SIGTERM) use the hook, while the `shutdown` command exits the REPL.
+:::
+
+## Coroutine architecture
+
+Nimbus uses `kotlinx-coroutines` for all async work. No raw threads are created in the core module.
+
+```kotlin
+// Root scope with SupervisorJob (child failures don't cancel siblings)
+val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+// EventBus uses the shared scope for event dispatch
+val eventBus = EventBus(scope)
+
+// Scaling engine launches a long-running coroutine
+val scalingJob = scalingEngine.start()  // Returns a Job
+```
+
+Key patterns:
+
+- **SupervisorJob** -- A failing coroutine (e.g., scaling error) doesn't bring down the whole system
+- **Dispatchers.Default** -- CPU-bound work (most coordination)
+- **Dispatchers.IO** -- Used in ServiceManager for process I/O and file operations
+- **MutableSharedFlow** -- EventBus uses a shared flow with `extraBufferCapacity = 64`
+
+## Event bus
+
+The event bus is the central communication backbone. All state changes are published as sealed class events.
+
+```kotlin
+// Emitting an event (suspend function)
+eventBus.emit(NimbusEvent.ServiceReady(serviceName = "BedWars-1", groupName = "BedWars"))
+
+// Subscribing to a specific event type
+eventBus.on<NimbusEvent.ServiceReady> { event ->
+    println("${event.serviceName} is ready!")
+}
+
+// Getting the raw SharedFlow
+val flow: SharedFlow<NimbusEvent> = eventBus.subscribe()
+```
+
+### Event types
+
+Events are modeled as a `sealed class NimbusEvent`:
+
+| Category | Events |
+|---|---|
+| Service lifecycle | `ServiceStarting`, `ServiceReady`, `ServiceStopping`, `ServiceStopped`, `ServiceCrashed` |
+| Scaling | `ScaleUp`, `ScaleDown` |
+| Custom state | `ServiceCustomStateChanged` |
+| Players | `PlayerConnected`, `PlayerDisconnected` |
+| Groups | `GroupCreated`, `GroupUpdated`, `GroupDeleted` |
+| Messaging | `ServiceMessage` |
+| Permissions | `PermissionGroupCreated`, `PermissionGroupUpdated`, `PermissionGroupDeleted`, `PlayerPermissionsUpdated` |
+| Proxy updates | `ProxyUpdateAvailable`, `ProxyUpdateApplied` |
+| Proxy sync | `TabListUpdated`, `MotdUpdated`, `PlayerTabUpdated`, `ChatFormatUpdated` |
+| Config | `ConfigReloaded` |
+| API | `ApiStarted`, `ApiStopped`, `ApiWarning`, `ApiError` |
+
+Events are broadcast via the REST API's WebSocket endpoint (`/api/events`) so external systems and plugins can react to them.
+
+## Process management
+
+Each running service is wrapped in a `ProcessHandle` that manages:
+
+- **JVM subprocess** -- Started via `ProcessBuilder` with inherited environment
+- **stdout/stderr** -- Captured asynchronously for ready detection and logging
+- **Ready detection** -- Regex matching against stdout (default pattern: `Done`)
+- **Graceful shutdown** -- Sends `stop` command via stdin, then waits, then force-kills
+
+### Service states
+
+```
+PREPARING → STARTING → READY → STOPPING → STOPPED
+                 ↓                              ↑
+               CRASHED ─── (restart?) ──────────┘
+```
+
+| State | Description |
+|---|---|
+| `PREPARING` | Template being copied to service directory |
+| `STARTING` | JVM started, scanning stdout for ready pattern |
+| `READY` | Server accepting players |
+| `STOPPING` | Graceful shutdown in progress |
+| `STOPPED` | Clean shutdown complete |
+| `CRASHED` | Unexpected exit (triggers restart if `restart_on_crash = true`) |
+
+## Velocity config generation
+
+The `VelocityConfigGen` class keeps the proxy's `velocity.toml` in sync with running backend services:
+
+1. Finds all `READY` backend services (non-VELOCITY groups)
+2. Builds the `[servers]` section with `ServiceName = "127.0.0.1:port"` entries
+3. Sets the `try` list to lobby servers (groups containing "lobby")
+4. Replaces the `[servers]` and `[forced-hosts]` sections in `velocity.toml`
+
+This runs automatically whenever a backend service becomes `READY` or stops.
+
+## Plugin deployment
+
+Nimbus embeds plugin JARs as classpath resources and deploys them at boot:
+
+| Plugin | Target | Auto-deployed |
+|---|---|---|
+| `nimbus-bridge.jar` | `templates/global_proxy/plugins/` | Always |
+| `nimbus-sdk.jar` | `templates/global/plugins/` | Always |
+| `nimbus-signs.jar` | `plugins/` (root) | Extracted for manual use |
+
+Plugin tracking (`.nimbus-plugins` file) ensures:
+- If a user removes a plugin JAR, Nimbus won't re-deploy it
+- If a plugin exists, Nimbus overwrites it with the latest version
+
+## Shutdown order
+
+When Nimbus shuts down:
+
+```
+1. Cancel scaling engine job
+2. Stop REST API server
+3. Stop all services (via ServiceManager.stopAll()):
+   a. Dynamic (game) services first
+   b. Static backend (lobby) services
+   c. Proxy services last
+4. Cancel coroutine scope
+```
+
+This order ensures players are moved to lobbies before lobbies shut down, and proxies stay alive as long as possible to handle redirects.
+
+## Technology choices
+
+| Component | Technology | Rationale |
+|---|---|---|
+| Language | Kotlin 2.1 | Coroutines, sealed classes, null safety |
+| Build | Gradle + Shadow | Fat JAR packaging with embedded plugins |
+| Config | ktoml | Native TOML parsing for Kotlin |
+| Console | JLine 3 | Rich terminal with history, completion, ANSI colors |
+| Async | kotlinx-coroutines | Structured concurrency, no callback hell |
+| HTTP server | Ktor (CIO) | Lightweight, coroutine-native |
+| HTTP client | Ktor Client (CIO) | Server JAR downloads |
+| SDK client | Java HttpClient | Zero dependencies for Paper/Velocity plugins |
+
+The core design principle is **no frameworks** -- no Spring, no dependency injection containers. Components are wired directly in `Nimbus.kt`, making the startup path explicit and debuggable.
+
+## Next steps
+
+- [SDK](/developer/sdk) -- Backend server plugin API
+- [Bridge Plugin](/developer/bridge) -- Velocity proxy plugin
+- [Signs Plugin](/developer/signs) -- Server sign management
+- [WebSocket Reference](/reference/websocket) -- Event stream protocol
