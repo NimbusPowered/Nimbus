@@ -1,8 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  // Set base path for GitHub Pages if deploying to a subpath (e.g., '/nimbus/')
-  // base: '/nimbus/',
+  base: '/Nimbus/',
   title: 'Nimbus',
   description: 'Lightweight Minecraft Cloud System',
   head: [
