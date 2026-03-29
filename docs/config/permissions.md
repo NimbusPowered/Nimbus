@@ -1,6 +1,6 @@
 # Permission System
 
-Nimbus includes a built-in permission system that manages groups, player assignments, and permission inheritance. Permissions are stored as TOML files in the `permissions/` directory and are automatically synced to the Velocity proxy and backend servers via the API.
+Nimbus includes a built-in permission system that manages groups, player assignments, and permission inheritance. Permissions are stored in a database (SQLite by default, configurable to MySQL or PostgreSQL via `nimbus.toml`) and are automatically synced to the Velocity proxy and backend servers via the API.
 
 ## Overview
 
@@ -12,59 +12,65 @@ Nimbus includes a built-in permission system that manages groups, player assignm
 
 ---
 
-## Storage Format
+## Database Storage
 
-### Group Files
-
-Each permission group is stored as a separate TOML file in `permissions/` (e.g., `permissions/admin.toml`):
+Permissions are stored in a database, configurable via the `[database]` section in `config/nimbus.toml`:
 
 ```toml
-[group]
-name = "Admin"
-default = false
-prefix = "&c[Admin] "
-suffix = ""
-priority = 100
+[database]
+# Supported types: sqlite, mysql, postgresql
+type = "sqlite"
 
-[group.permissions]
-list = [
-    "*",
-]
-
-[group.inheritance]
-parents = ["Moderator"]
+# Settings below only apply to mysql/postgresql:
+# host = "localhost"
+# port = 3306
+# name = "nimbus"
+# username = ""
+# password = ""
 ```
+
+By default, Nimbus uses **SQLite** with a database file at `data/nimbus.db`. For larger networks, switch to **MySQL/MariaDB** or **PostgreSQL** by changing `type` and providing connection credentials.
+
+::: tip
+SQLite requires zero configuration and is recommended for single-node setups. Use MySQL or PostgreSQL if you need remote database access or run multiple Nimbus instances against the same database.
+:::
+
+### Database Schema
+
+Permission data is stored across these tables:
+
+| Table | Description |
+|-------|-------------|
+| `permission_groups` | Group definitions (name, default, prefix, suffix, priority) |
+| `group_permissions` | Permission nodes per group |
+| `group_parents` | Inheritance relationships between groups |
+| `players` | Player entries (UUID, name) |
+| `player_groups` | Player-to-group assignments |
+
+Additionally, Nimbus tracks cloud metrics in:
+
+| Table | Description |
+|-------|-------------|
+| `service_events` | Service lifecycle events (start, ready, stop, crash) |
+| `scaling_events` | Auto-scaling decisions (scale up/down with reason) |
+| `player_sessions` | Player connect/disconnect timestamps per service |
+
+### Group Properties
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | String | *required* | Group name. Must not be blank. |
-| `default` | Boolean | `false` | Whether this group applies to all players automatically. Only one group should be default. |
-| `prefix` | String | `""` | Chat prefix. Supports `&` color codes. |
-| `suffix` | String | `""` | Chat suffix. Supports `&` color codes. |
+| `is_default` | Boolean | `false` | Whether this group applies to all players automatically. Only one group should be default. |
+| `prefix` | String | `""` | Chat prefix. Supports MiniMessage format. |
+| `suffix` | String | `""` | Chat suffix. Supports MiniMessage format. |
 | `priority` | Int | `0` | Display priority. Higher values take precedence when a player is in multiple groups. |
-| `list` | List\<String\> | `[]` | Permission nodes granted by this group. Prefix with `-` to negate. |
-| `parents` | List\<String\> | `[]` | Parent groups to inherit permissions from. |
 
-### Player Assignments
-
-All player-to-group assignments are stored in `permissions/players.toml`:
-
-```toml
-["550e8400-e29b-41d4-a716-446655440000"]
-name = "Steve"
-groups = ["Admin"]
-
-["6ba7b810-9dad-11d1-80b4-00c04fd430c8"]
-name = "Alex"
-groups = ["Moderator", "Builder"]
-```
-
-Each entry is keyed by the player's UUID and contains:
+### Player Properties
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `uuid` | String | Player's UUID (primary key). |
 | `name` | String | Player's display name (auto-updated on join). |
-| `groups` | List\<String\> | Groups the player is explicitly assigned to. |
 
 ---
 
@@ -155,7 +161,7 @@ All permission management is available through the Nimbus console.
 
 | Command | Description |
 |---------|-------------|
-| `perms reload` | Reload all permission data from files |
+| `perms reload` | Reload all permission data from database |
 
 ::: tip
 Players can be identified by name (if they've joined before) or UUID. For first-time assignments to players who haven't connected yet, use their UUID.

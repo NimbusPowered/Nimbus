@@ -23,6 +23,7 @@ java -jar nimbus-core/build/libs/nimbus-core-0.1.0-all.jar
 - kotlinx-coroutines for async (scaling loops, event bus, process I/O)
 - Ktor Client (CIO) for downloading server JARs
 - Ktor Server (CIO) for REST API + WebSocket
+- Exposed (JetBrains ORM) + SQLite/MySQL/PostgreSQL for database
 
 ## Architecture
 
@@ -32,6 +33,7 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 ├── api/                   # Ktor REST API + WebSocket (v0.2)
 ├── config/                # TOML config loading (NimbusConfig, GroupConfig)
 ├── console/               # JLine3 REPL, CommandDispatcher, 17 commands
+├── database/              # Exposed ORM: DatabaseManager, Tables, MetricsCollector
 ├── event/                 # Coroutine-based EventBus + sealed Events
 ├── group/                 # ServerGroup runtime state, GroupManager
 ├── scaling/               # ScalingEngine + ScalingRule (auto-scale by player count)
@@ -43,8 +45,9 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 
 ## Configuration
 
-- `config/nimbus.toml` — Main config (network, controller, console, paths, API)
+- `config/nimbus.toml` — Main config (network, controller, console, paths, API, database)
 - `config/groups/*.toml` — One file per server group (proxy, lobby, game servers)
+- `data/nimbus.db` — SQLite database (default, configurable to MySQL/PostgreSQL)
 - `config/modules/display/*.toml` — Display configs per group (signs + NPCs)
 - `config/modules/syncproxy/proxy.toml` — Proxy tab list, MOTD, chat sync
 - Config keys use `snake_case`, group/service names use `PascalCase`

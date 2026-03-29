@@ -35,6 +35,14 @@ port = 8080
 token = ""
 allowed_origins = []
 
+[database]
+type = "sqlite"
+host = "localhost"
+port = 3306
+name = "nimbus"
+username = ""
+password = ""
+
 [java]
 java_8 = ""
 java_11 = ""
@@ -154,6 +162,62 @@ The API token grants full control over your Nimbus instance. Keep it secret. If 
 
 ::: tip
 The `/api/health` endpoint is always public (no authentication required) and can be used for external health checks.
+:::
+
+---
+
+## `[database]`
+
+Database backend configuration for permissions and cloud metrics.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `type` | String | `"sqlite"` | Database type. Supported values: `sqlite`, `mysql`, `mariadb`, `postgresql`, `postgres`. |
+| `host` | String | `"localhost"` | Database server hostname. Only used for MySQL and PostgreSQL. |
+| `port` | Int | `3306` | Database server port. Only used for MySQL and PostgreSQL. Automatically defaults to `5432` for PostgreSQL if set to `3306`. |
+| `name` | String | `"nimbus"` | Database name. Only used for MySQL and PostgreSQL. For MySQL, the database is auto-created if it doesn't exist. |
+| `username` | String | `""` | Database username. Only used for MySQL and PostgreSQL. |
+| `password` | String | `""` | Database password. Only used for MySQL and PostgreSQL. |
+
+### SQLite (default)
+
+```toml
+[database]
+type = "sqlite"
+```
+
+No additional configuration needed. The database file is stored at `data/nimbus.db` inside your Nimbus directory.
+
+### MySQL / MariaDB
+
+```toml
+[database]
+type = "mysql"
+host = "localhost"
+port = 3306
+name = "nimbus"
+username = "nimbus"
+password = "secret"
+```
+
+### PostgreSQL
+
+```toml
+[database]
+type = "postgresql"
+host = "localhost"
+port = 5432
+name = "nimbus"
+username = "nimbus"
+password = "secret"
+```
+
+::: tip
+SQLite is recommended for single-node setups. Use MySQL or PostgreSQL if you need shared database access across multiple machines or want external tooling for querying metrics.
+:::
+
+::: info
+The database stores permission groups, player assignments, and cloud metrics (service events, scaling events, player sessions). All tables are created automatically on first launch.
 :::
 
 ---
