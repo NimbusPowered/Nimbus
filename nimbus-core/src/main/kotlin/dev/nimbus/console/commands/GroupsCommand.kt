@@ -17,7 +17,7 @@ class GroupsCommand(
     override suspend fun execute(args: List<String>) {
         val groups = groupManager.getAllGroups()
         if (groups.isEmpty()) {
-            println(ConsoleFormatter.warn("No groups configured."))
+            println(ConsoleFormatter.emptyState("No groups configured."))
             return
         }
 
@@ -38,6 +38,6 @@ class GroupsCommand(
 
         println(ConsoleFormatter.header("Groups"))
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize("${groups.size} group(s)", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.count(groups.size, "group"))
     }
 }

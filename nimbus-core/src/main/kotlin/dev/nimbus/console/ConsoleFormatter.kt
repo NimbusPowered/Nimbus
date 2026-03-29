@@ -48,6 +48,36 @@ object ConsoleFormatter {
     fun section(title: String): String =
         "$CYAN▸ $BOLD$title$RESET"
 
+    // ── Components ──────────────────────────────────────────────
+
+    fun field(label: String, value: String, indent: Int = 2, labelWidth: Int = 16): String {
+        val padded = label.padEnd(labelWidth)
+        return "${" ".repeat(indent)}${colorize(padded, DIM)}$value"
+    }
+
+    fun yesNo(value: Boolean): String = if (value) success("yes") else colorize("no", DIM)
+
+    fun enabledDisabled(value: Boolean): String = if (value) success("ENABLED") else warn("DISABLED")
+
+    fun emptyState(message: String): String = colorize(message, DIM)
+
+    fun count(n: Int, singular: String, plural: String = "${singular}s"): String =
+        colorize("$n ${if (n == 1) singular else plural}", DIM)
+
+    fun placeholder(text: String = "-"): String = colorize(text, DIM)
+
+    fun successLine(text: String): String = "${GREEN}✓${RESET} $text"
+    fun errorLine(text: String): String = "${RED}✗${RESET} $text"
+    fun warnLine(text: String): String = "${YELLOW}!${RESET} $text"
+    fun infoLine(text: String): String = "${CYAN}ℹ${RESET} $text"
+
+    fun commandEntry(name: String, description: String, padWidth: Int = 0): String {
+        val padded = name.padEnd(padWidth)
+        return "  ${colorize(padded, CYAN)}${colorize(description, DIM)}"
+    }
+
+    fun hint(text: String): String = colorize(text, DIM)
+
     // ── State formatting ────────────────────────────────────────
 
     fun stateIcon(state: ServiceState): String = when (state) {
@@ -199,6 +229,15 @@ object ConsoleFormatter {
                 "${colorize("◆ LB", BRIGHT_BLUE)} started on ${BOLD}${event.bind}:${event.port}${RESET} ${DIM}(${event.strategy})${RESET}"
             is NimbusEvent.LoadBalancerStopped ->
                 "${colorize("◇ LB", BLUE)} stopped ${DIM}(${event.reason})${RESET}"
+            is NimbusEvent.MaintenanceEnabled -> {
+                val scope = if (event.scope == "global") "GLOBAL" else "group ${BOLD}${event.scope}${RESET}"
+                val reason = if (event.reason.isNotEmpty()) " ${DIM}(${event.reason})${RESET}" else ""
+                "${warn("⚠ MAINTENANCE")} $scope enabled$reason"
+            }
+            is NimbusEvent.MaintenanceDisabled -> {
+                val scope = if (event.scope == "global") "GLOBAL" else "group ${BOLD}${event.scope}${RESET}"
+                "${success("✓ MAINTENANCE")} $scope disabled"
+            }
         }
         return "$time $message"
     }
@@ -208,7 +247,7 @@ object ConsoleFormatter {
     /**
      * Strips ANSI escape sequences from a string for width calculation.
      */
-    private fun String.stripAnsi(): String =
+    fun String.stripAnsi(): String =
         replace(Regex("\u001B\\[[;\\d]*m"), "")
 
     fun formatUptime(startedAt: Instant?): String {

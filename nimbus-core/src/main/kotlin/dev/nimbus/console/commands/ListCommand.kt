@@ -21,7 +21,7 @@ class ListCommand(
         }
 
         if (services.isEmpty()) {
-            println(ConsoleFormatter.warn("No services running."))
+            println(ConsoleFormatter.emptyState("No services running."))
             return
         }
 
@@ -59,6 +59,6 @@ class ListCommand(
 
         println(ConsoleFormatter.header("Services"))
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize("${services.size} service(s)", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.count(services.size, "service"))
     }
 }

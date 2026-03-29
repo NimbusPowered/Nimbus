@@ -45,15 +45,15 @@ class LogsCommand(
             val lines = allLines.takeLast(lineCount)
 
             println(ConsoleFormatter.header("Logs: $serviceName"))
-            println(ConsoleFormatter.colorize("Last $lineCount line(s) from $logFile", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.hint("Last $lineCount line(s) from $logFile"))
             println(ConsoleFormatter.separator())
 
             for (line in lines) {
-                println(ConsoleFormatter.colorize(line, ConsoleFormatter.DIM))
+                println(ConsoleFormatter.hint(line))
             }
 
             println(ConsoleFormatter.separator())
-            println(ConsoleFormatter.colorize("${lines.size} of ${allLines.size} line(s)", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.hint("${lines.size} of ${allLines.size} line(s)"))
         } else {
             // Fall back to stdout buffer (best-effort: SharedFlow has no replay)
             println(ConsoleFormatter.warn("Log file not found at $logFile"))

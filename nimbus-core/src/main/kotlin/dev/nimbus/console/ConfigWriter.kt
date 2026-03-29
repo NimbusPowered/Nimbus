@@ -85,9 +85,7 @@ object ConfigWriter {
     }
 
     fun printRestartHint(configPath: Path) {
-        println(ConsoleFormatter.YELLOW + ConsoleFormatter.BOLD +
-            "  Restart Nimbus for changes to take effect." +
-            ConsoleFormatter.RESET)
-        println(ConsoleFormatter.colorize("  Config saved to ${configPath.fileName}", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.warn("  Restart Nimbus for changes to take effect."))
+        println(ConsoleFormatter.hint("  Config saved to ${configPath.fileName}"))
     }
 }

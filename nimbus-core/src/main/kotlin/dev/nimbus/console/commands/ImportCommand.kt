@@ -3,13 +3,9 @@ package dev.nimbus.console.commands
 import dev.nimbus.config.ConfigLoader
 import dev.nimbus.config.ServerSoftware
 import dev.nimbus.console.Command
-import dev.nimbus.console.ConsoleFormatter.BOLD
+import dev.nimbus.console.ConsoleFormatter
 import dev.nimbus.console.ConsoleFormatter.CYAN
-import dev.nimbus.console.ConsoleFormatter.DIM
-import dev.nimbus.console.ConsoleFormatter.GREEN
-import dev.nimbus.console.ConsoleFormatter.RED
 import dev.nimbus.console.ConsoleFormatter.RESET
-import dev.nimbus.console.ConsoleFormatter.YELLOW
 import dev.nimbus.console.NimbusConsole
 import dev.nimbus.group.GroupManager
 import dev.nimbus.service.ServiceManager
@@ -44,9 +40,9 @@ class ImportCommand(
         if (args.isEmpty()) {
             val w = terminal.writer()
             w.println()
-            w.println("${BOLD}Usage:$RESET import <source>")
+            w.println("${ConsoleFormatter.colorize("Usage:", ConsoleFormatter.BOLD)} import <source>")
             w.println()
-            w.println("${DIM}Sources:$RESET")
+            w.println(ConsoleFormatter.hint("Sources:"))
             w.println("  ${CYAN}modrinth URL$RESET    import https://modrinth.com/modpack/adrenaserver")
             w.println("  ${CYAN}modrinth slug$RESET   import adrenaserver")
             w.println("  ${CYAN}local file$RESET      import /path/to/modpack.mrpack")
@@ -65,7 +61,7 @@ class ImportCommand(
             runImport(w, args.joinToString(" "))
         } catch (_: UserInterruptException) {
             w.println()
-            w.println("${DIM}Cancelled.$RESET")
+            w.println(ConsoleFormatter.hint("Cancelled."))
         } finally {
             console.eventsPaused = false
             console.flushBufferedEvents()
@@ -75,28 +71,28 @@ class ImportCommand(
     }
 
     suspend fun runImport(w: java.io.PrintWriter, source: String) {
-        w.println("${BOLD}Import Modpack$RESET")
+        w.println(ConsoleFormatter.colorize("Import Modpack", ConsoleFormatter.BOLD))
         w.println()
 
         // Step 1: Resolve source
-        w.print("${DIM}Resolving modpack...$RESET")
+        w.print(ConsoleFormatter.hint("Resolving modpack..."))
         w.flush()
 
         val tempDir = templatesDir.resolve(".modpack-cache")
         val mrpackPath = installer.resolve(source, tempDir)
         if (mrpackPath == null) {
-            w.println(" ${RED}✗$RESET")
-            w.println("${RED}Could not find or download modpack: $source$RESET")
-            w.println("${DIM}Try a Modrinth URL, slug, or local .mrpack file path.$RESET")
+            w.println(" ${ConsoleFormatter.colorize("✗", ConsoleFormatter.RED)}")
+            w.println(ConsoleFormatter.error("Could not find or download modpack: $source"))
+            w.println(ConsoleFormatter.hint("Try a Modrinth URL, slug, or local .mrpack file path."))
             w.flush()
             return
         }
-        w.println(" ${GREEN}✓$RESET")
+        w.println(" ${ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN)}")
 
         // Step 2: Parse index
         val index = installer.parseIndex(mrpackPath)
         if (index == null) {
-            w.println("${RED}Failed to parse modpack — not a valid .mrpack file.$RESET")
+            w.println(ConsoleFormatter.error("Failed to parse modpack — not a valid .mrpack file."))
             w.flush()
             return
         }
@@ -105,9 +101,9 @@ class ImportCommand(
 
         // Step 3: Display info
         w.println()
-        w.println("${BOLD}${info.name}$RESET ${DIM}v${info.version}$RESET")
-        w.println("${DIM}MC ${info.mcVersion} · ${info.modloader.name} ${info.modloaderVersion}$RESET")
-        w.println("${DIM}${info.serverFiles} server mods (${info.totalFiles - info.serverFiles} client-only skipped)$RESET")
+        w.println("${ConsoleFormatter.colorize(info.name, ConsoleFormatter.BOLD)} ${ConsoleFormatter.hint("v${info.version}")}")
+        w.println(ConsoleFormatter.hint("MC ${info.mcVersion} · ${info.modloader.name} ${info.modloaderVersion}"))
+        w.println(ConsoleFormatter.hint("${info.serverFiles} server mods (${info.totalFiles - info.serverFiles} client-only skipped)"))
         w.println()
 
         // Step 4: Group name
@@ -116,8 +112,8 @@ class ImportCommand(
 
         // Step 5: Static or dynamic
         w.println()
-        w.println("${DIM}Static services keep their data (world, configs) across restarts.$RESET")
-        w.println("${DIM}Dynamic services start fresh from the template every time.$RESET")
+        w.println(ConsoleFormatter.hint("Static services keep their data (world, configs) across restarts."))
+        w.println(ConsoleFormatter.hint("Dynamic services start fresh from the template every time."))
         val isStatic = promptYesNo("Static service", true)
 
         // Step 6: Memory & instances
@@ -126,53 +122,53 @@ class ImportCommand(
         val maxInstances = promptInt("Max instances", 1)
 
         w.println()
-        w.println("${BOLD}Installing...$RESET")
+        w.println(ConsoleFormatter.colorize("Installing...", ConsoleFormatter.BOLD))
         w.println()
 
         // Step 6: Install modloader
         val templateDir = templatesDir.resolve(groupName.lowercase())
         if (!templateDir.exists()) templateDir.toFile().mkdirs()
 
-        w.print("${DIM}↓$RESET ${info.modloader.name} ${info.modloaderVersion} ")
+        w.print("${ConsoleFormatter.hint("↓")} ${info.modloader.name} ${info.modloaderVersion} ")
         w.flush()
         val loaderOk = softwareResolver.ensureJarAvailable(
             info.modloader, info.mcVersion, templateDir,
             modloaderVersion = info.modloaderVersion
         )
-        w.println(if (loaderOk) "${GREEN}✓$RESET" else "${RED}✗$RESET")
+        w.println(if (loaderOk) ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN) else ConsoleFormatter.colorize("✗", ConsoleFormatter.RED))
 
         // Step 7: Download mods
-        w.print("${DIM}↓$RESET Mods 0/${info.serverFiles} ")
+        w.print("${ConsoleFormatter.hint("↓")} Mods 0/${info.serverFiles} ")
         w.flush()
         val result = installer.installFiles(index, templateDir) { current, total, fileName ->
-            w.print("\r${DIM}↓$RESET Mods $current/$total ${DIM}$fileName$RESET${" ".repeat(30)}")
+            w.print("\r${ConsoleFormatter.hint("↓")} Mods $current/$total ${ConsoleFormatter.hint(fileName)}${" ".repeat(30)}")
             w.flush()
         }
         w.println()
         if (result.filesFailed > 0) {
-            w.println("${YELLOW}${result.filesFailed} mod(s) failed to download.$RESET")
+            w.println(ConsoleFormatter.warn("${result.filesFailed} mod(s) failed to download."))
         }
-        w.println("${GREEN}✓$RESET ${result.filesDownloaded} mods downloaded")
+        w.println(ConsoleFormatter.successLine("${result.filesDownloaded} mods downloaded"))
 
         // Step 8: Extract overrides
-        w.print("${DIM}↓$RESET Configs & overrides ")
+        w.print("${ConsoleFormatter.hint("↓")} Configs & overrides ")
         w.flush()
         installer.extractOverrides(mrpackPath, templateDir)
-        w.println("${GREEN}✓$RESET")
+        w.println(ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN))
 
         // Step 9: Proxy mods
         when (info.modloader) {
             ServerSoftware.FABRIC -> {
-                w.print("${DIM}↓$RESET Proxy mods ")
+                w.print("${ConsoleFormatter.hint("↓")} Proxy mods ")
                 w.flush()
                 softwareResolver.ensureFabricProxyMod(templateDir, info.mcVersion)
-                w.println("${GREEN}✓$RESET")
+                w.println(ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN))
             }
             ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> {
-                w.print("${DIM}↓$RESET Proxy mod ")
+                w.print("${ConsoleFormatter.hint("↓")} Proxy mod ")
                 w.flush()
                 softwareResolver.ensureForwardingMod(info.modloader, info.mcVersion, templateDir)
-                w.println("${GREEN}✓$RESET")
+                w.println(ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN))
             }
             else -> {}
         }
@@ -184,24 +180,24 @@ class ImportCommand(
         // Step 11: Write group TOML
         w.println()
         writeGroupToml(groupName, info, minInstances, maxInstances, memory, isStatic)
-        w.println("${GREEN}✓$RESET config/groups/${groupName.lowercase()}.toml")
+        w.println(ConsoleFormatter.successLine("config/groups/${groupName.lowercase()}.toml"))
 
         // Step 12: Reload
         val configs = ConfigLoader.loadGroupConfigs(groupsDir)
         groupManager.reloadGroups(configs)
-        w.println("${GREEN}✓$RESET Group configs reloaded")
+        w.println(ConsoleFormatter.successLine("Group configs reloaded"))
 
         w.println()
-        w.println("${GREEN}${BOLD}Modpack '${info.name}' imported as group '$groupName'!$RESET")
+        w.println(ConsoleFormatter.successLine("Modpack '${info.name}' imported as group '$groupName'!"))
         w.println()
 
         // Step 13: Start?
         if (minInstances > 0 || promptYesNo("Start an instance now?", true)) {
             try {
                 serviceManager.startService(groupName)
-                w.println("${GREEN}✓$RESET Service start initiated.")
+                w.println(ConsoleFormatter.successLine("Service start initiated."))
             } catch (e: Exception) {
-                w.println("${RED}✗$RESET Failed: ${e.message}")
+                w.println(ConsoleFormatter.errorLine("Failed: ${e.message}"))
             }
         }
 
@@ -219,8 +215,8 @@ class ImportCommand(
             .terminal(terminal)
             .let { if (completer != null) it.completer(completer) else it }
             .build()
-        val hint = if (default.isNotEmpty()) " ${DIM}[$default]${RESET}" else ""
-        val line = reader.readLine("$label$hint${DIM}:$RESET ").trim()
+        val hint = if (default.isNotEmpty()) " ${ConsoleFormatter.hint("[$default]")}" else ""
+        val line = reader.readLine("$label$hint${ConsoleFormatter.hint(":")} ").trim()
         return line.ifEmpty { default }
     }
 
@@ -241,8 +237,8 @@ class ImportCommand(
     private fun promptGroupName(w: java.io.PrintWriter, default: String): String? {
         while (true) {
             val name = prompt("Group name", default)
-            if (name.isBlank()) { w.println("${RED}Name cannot be empty.$RESET"); w.flush(); continue }
-            if (groupManager.getGroup(name) != null) { w.println("${RED}Group '$name' already exists.$RESET"); w.flush(); continue }
+            if (name.isBlank()) { w.println(ConsoleFormatter.error("Name cannot be empty.")); w.flush(); continue }
+            if (groupManager.getGroup(name) != null) { w.println(ConsoleFormatter.error("Group '$name' already exists.")); w.flush(); continue }
             return name
         }
     }

@@ -45,7 +45,7 @@ class PlayersCommand(
         }
 
         if (players.isEmpty()) {
-            println(ConsoleFormatter.info("No players online."))
+            println(ConsoleFormatter.emptyState("No players online."))
             return
         }
 
@@ -60,6 +60,6 @@ class PlayersCommand(
 
         println(ConsoleFormatter.header("Players"))
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize("${players.size} player(s) online", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.count(players.size, "player") + " online")
     }
 }

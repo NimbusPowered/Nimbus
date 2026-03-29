@@ -16,7 +16,7 @@ class NodesCommand(
     override suspend fun execute(args: List<String>) {
         val nodes = nodeManager.getAllNodes()
         if (nodes.isEmpty()) {
-            println(ConsoleFormatter.warn("No nodes connected."))
+            println(ConsoleFormatter.emptyState("No nodes connected."))
             return
         }
 
@@ -28,16 +28,16 @@ class NodesCommand(
             }
             // Detailed view
             println(ConsoleFormatter.header("Node: ${node.nodeId}"))
-            println("  Host:       ${node.host}")
-            println("  Status:     ${if (node.isConnected) ConsoleFormatter.success("online") else ConsoleFormatter.error("offline")}")
-            println("  CPU:        ${String.format("%.1f", node.cpuUsage * 100)}%")
-            println("  Memory:     ${node.memoryUsedMb}MB / ${node.memoryTotalMb}MB")
-            println("  Services:   ${node.currentServices} / ${node.maxServices}")
-            println("  Version:    ${node.agentVersion}")
-            println("  OS:         ${node.os} ${node.arch}")
+            println(ConsoleFormatter.field("Host", node.host))
+            println(ConsoleFormatter.field("Status", if (node.isConnected) ConsoleFormatter.success("online") else ConsoleFormatter.error("offline")))
+            println(ConsoleFormatter.field("CPU", "${String.format("%.1f", node.cpuUsage * 100)}%"))
+            println(ConsoleFormatter.field("Memory", "${node.memoryUsedMb}MB / ${node.memoryTotalMb}MB"))
+            println(ConsoleFormatter.field("Services", "${node.currentServices} / ${node.maxServices}"))
+            println(ConsoleFormatter.field("Version", node.agentVersion))
+            println(ConsoleFormatter.field("OS", "${node.os} ${node.arch}"))
             val nodeServices = registry.getAll().filter { it.nodeId == node.nodeId }
             if (nodeServices.isNotEmpty()) {
-                println("  Running:    ${nodeServices.joinToString(", ") { it.name }}")
+                println(ConsoleFormatter.field("Running", nodeServices.joinToString(", ") { it.name }))
             }
             return
         }
@@ -55,7 +55,6 @@ class NodesCommand(
             )
         }
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize(
-            "${nodeManager.getOnlineNodeCount()}/${nodeManager.getNodeCount()} online", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.hint("${nodeManager.getOnlineNodeCount()}/${nodeManager.getNodeCount()} online"))
     }
 }

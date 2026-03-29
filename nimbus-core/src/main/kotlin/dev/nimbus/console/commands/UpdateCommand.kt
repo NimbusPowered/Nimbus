@@ -4,11 +4,7 @@ import dev.nimbus.config.ConfigLoader
 import dev.nimbus.config.ServerSoftware
 import dev.nimbus.console.Command
 import dev.nimbus.console.ConsoleFormatter
-import dev.nimbus.console.ConsoleFormatter.BOLD
 import dev.nimbus.console.ConsoleFormatter.CYAN
-import dev.nimbus.console.ConsoleFormatter.DIM
-import dev.nimbus.console.ConsoleFormatter.GREEN
-import dev.nimbus.console.ConsoleFormatter.RED
 import dev.nimbus.console.ConsoleFormatter.RESET
 import dev.nimbus.console.ConsoleFormatter.YELLOW
 import dev.nimbus.console.NimbusConsole
@@ -23,7 +19,6 @@ import org.jline.terminal.Terminal
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
@@ -75,7 +70,7 @@ class UpdateCommand(
                 val targetSoftware = parseSoftware(targetSoftwareStr)
                 if (targetSoftware == null) {
                     println(ConsoleFormatter.error("Unknown software: $targetSoftwareStr"))
-                    println("${DIM}Available: paper, purpur, forge, neoforge, fabric$RESET")
+                    println(ConsoleFormatter.hint("Available: paper, purpur, forge, neoforge, fabric"))
                     return
                 }
                 val targetVersion = args.getOrNull(3)
@@ -197,7 +192,7 @@ class UpdateCommand(
         // For modded servers, resolve a new modloader version
         var newModloaderVersion = currentModloaderVersion
         if (software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
-            print("${DIM}Fetching modloader versions for $targetVersion...$RESET ")
+            print("${ConsoleFormatter.hint("Fetching modloader versions for $targetVersion...")} ")
             val loaderVersions = when (software) {
                 ServerSoftware.FORGE -> softwareResolver.fetchForgeVersions(targetVersion)
                 ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeVersions(targetVersion)
@@ -205,13 +200,13 @@ class UpdateCommand(
                 else -> SoftwareResolver.VersionList.EMPTY
             }
             if (loaderVersions.latest == null) {
-                println("${RED}!$RESET")
+                println(ConsoleFormatter.colorize("!", ConsoleFormatter.RED))
                 println(ConsoleFormatter.error("No modloader versions found for ${software.name} on MC $targetVersion."))
                 return
             }
-            println("${GREEN}ok$RESET")
+            println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
             newModloaderVersion = loaderVersions.latest!!
-            println("${DIM}Modloader: $currentModloaderVersion -> $newModloaderVersion$RESET")
+            println(ConsoleFormatter.hint("Modloader: $currentModloaderVersion -> $newModloaderVersion"))
         }
 
         // Remove old JAR
@@ -235,7 +230,7 @@ class UpdateCommand(
         warnRunningServices(groupName)
 
         println()
-        println("${GREEN}${BOLD}Updated '$groupName' to version $targetVersion.$RESET")
+        println(ConsoleFormatter.successLine("Updated '$groupName' to version $targetVersion."))
     }
 
     // ── Software update ────────────────────────────────────────
@@ -255,7 +250,7 @@ class UpdateCommand(
             return
         }
         if (compat.warning != null) {
-            println("${YELLOW}[!]$RESET $YELLOW${compat.warning}$RESET")
+            println(ConsoleFormatter.warnLine(compat.warning!!))
             println()
         }
 
@@ -265,7 +260,7 @@ class UpdateCommand(
         // For modded servers, resolve modloader version
         var newModloaderVersion = ""
         if (targetSoftware in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
-            print("${DIM}Fetching modloader versions...$RESET ")
+            print("${ConsoleFormatter.hint("Fetching modloader versions...")} ")
             val loaderVersions = when (targetSoftware) {
                 ServerSoftware.FORGE -> softwareResolver.fetchForgeVersions(targetVersion)
                 ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeVersions(targetVersion)
@@ -273,13 +268,13 @@ class UpdateCommand(
                 else -> SoftwareResolver.VersionList.EMPTY
             }
             if (loaderVersions.latest == null) {
-                println("${RED}!$RESET")
+                println(ConsoleFormatter.colorize("!", ConsoleFormatter.RED))
                 println(ConsoleFormatter.error("No modloader versions found for ${targetSoftware.name} on MC $targetVersion."))
                 return
             }
-            println("${GREEN}ok$RESET")
+            println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
             newModloaderVersion = loaderVersions.latest!!
-            println("${DIM}Modloader version: $newModloaderVersion$RESET")
+            println(ConsoleFormatter.hint("Modloader version: $newModloaderVersion"))
         }
 
         // Remove old JAR
@@ -295,13 +290,13 @@ class UpdateCommand(
 
         // Download forwarding mods if switching to modded
         if (targetSoftware in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE)) {
-            print("${DIM}Ensuring proxy forwarding mod...$RESET ")
+            print("${ConsoleFormatter.hint("Ensuring proxy forwarding mod...")} ")
             softwareResolver.ensureForwardingMod(targetSoftware, targetVersion, templateDir)
-            println("${GREEN}ok$RESET")
+            println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
         } else if (targetSoftware == ServerSoftware.FABRIC) {
-            print("${DIM}Ensuring FabricProxy-Lite...$RESET ")
+            print("${ConsoleFormatter.hint("Ensuring FabricProxy-Lite...")} ")
             softwareResolver.ensureFabricProxyMod(templateDir, targetVersion)
-            println("${GREEN}ok$RESET")
+            println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
         }
 
         // Update TOML
@@ -314,7 +309,7 @@ class UpdateCommand(
         warnRunningServices(groupName)
 
         println()
-        println("${GREEN}${BOLD}Updated '$groupName' to ${targetSoftware.name} $targetVersion.$RESET")
+        println(ConsoleFormatter.successLine("Updated '$groupName' to ${targetSoftware.name} $targetVersion."))
     }
 
     // ── Interactive mode ───────────────────────────────────────
@@ -327,11 +322,10 @@ class UpdateCommand(
         val w = terminal.writer()
 
         try {
-            w.println("${BOLD}Update Group: $groupName$RESET")
+            w.println(ConsoleFormatter.colorize("Update Group: $groupName", ConsoleFormatter.BOLD))
             w.println()
-            w.println("${DIM}Current: ${def.software.name} ${def.version}" +
-                (if (def.modloaderVersion.isNotEmpty()) " (loader ${def.modloaderVersion})" else "") +
-                RESET)
+            w.println(ConsoleFormatter.hint("Current: ${def.software.name} ${def.version}" +
+                (if (def.modloaderVersion.isNotEmpty()) " (loader ${def.modloaderVersion})" else "")))
             w.println()
 
             val action = prompt("What to update?", "version",
@@ -339,16 +333,16 @@ class UpdateCommand(
 
             when (action.lowercase()) {
                 "version" -> {
-                    w.print("${DIM}Fetching available versions...$RESET ")
+                    w.print("${ConsoleFormatter.hint("Fetching available versions...")} ")
                     w.flush()
                     val versions = fetchVersionsFor(def.software, def.version)
-                    w.println("${GREEN}ok$RESET")
+                    w.println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
 
                     if (versions.stable.isNotEmpty()) {
                         val display = versions.stable.take(15).joinToString("  ")
-                        w.println("${DIM}Available: $display$RESET")
+                        w.println(ConsoleFormatter.hint("Available: $display"))
                         if (versions.stable.size > 15) {
-                            w.println("${DIM}... and ${versions.stable.size - 15} more$RESET")
+                            w.println(ConsoleFormatter.hint("... and ${versions.stable.size - 15} more"))
                         }
                     }
 
@@ -360,8 +354,7 @@ class UpdateCommand(
                 }
                 "software" -> {
                     // Show compatible options
-                    val currentFamily = familyOf(def.software)
-                    w.println("${DIM}Compatible software for ${def.software.name}:$RESET")
+                    w.println(ConsoleFormatter.hint("Compatible software for ${def.software.name}:"))
 
                     val options = mutableListOf<String>()
                     for (sw in ServerSoftware.entries) {
@@ -375,7 +368,7 @@ class UpdateCommand(
                     }
 
                     if (options.isEmpty()) {
-                        w.println("${YELLOW}No compatible software switches available for ${def.software.name}.$RESET")
+                        w.println(ConsoleFormatter.warn("No compatible software switches available for ${def.software.name}."))
                         return
                     }
 
@@ -386,17 +379,17 @@ class UpdateCommand(
                     }
 
                     // Optionally pick a new version
-                    w.print("${DIM}Fetching available versions...$RESET ")
+                    w.print("${ConsoleFormatter.hint("Fetching available versions...")} ")
                     w.flush()
                     val versions = fetchVersionsFor(targetSoftware, def.version)
-                    w.println("${GREEN}ok$RESET")
+                    w.println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
 
                     val defaultVersion = if (versions.stable.contains(def.version)) def.version
                         else versions.latest ?: def.version
 
                     if (versions.stable.isNotEmpty()) {
                         val display = versions.stable.take(10).joinToString("  ")
-                        w.println("${DIM}Available: $display$RESET")
+                        w.println(ConsoleFormatter.hint("Available: $display"))
                     }
 
                     val targetVersion = prompt("Minecraft version", defaultVersion, candidates = versions.all)
@@ -405,12 +398,12 @@ class UpdateCommand(
                     updateSoftware(groupName, def.software, targetSoftware, def.version, targetVersion, def.modloaderVersion)
                 }
                 else -> {
-                    w.println("${DIM}Cancelled.$RESET")
+                    w.println(ConsoleFormatter.hint("Cancelled."))
                 }
             }
         } catch (_: UserInterruptException) {
             w.println()
-            w.println("${DIM}Cancelled.$RESET")
+            w.println(ConsoleFormatter.hint("Cancelled."))
         } finally {
             console.eventsPaused = false
             console.flushBufferedEvents()
@@ -472,12 +465,12 @@ class UpdateCommand(
     ): Boolean {
         if (!templateDir.exists()) Files.createDirectories(templateDir)
 
-        print("${DIM}Downloading ${software.name.lowercase()} $version...$RESET ")
+        print("${ConsoleFormatter.hint("Downloading ${software.name.lowercase()} $version...")} ")
         val success = softwareResolver.ensureJarAvailable(software, version, templateDir, modloaderVersion)
         if (success) {
-            println("${GREEN}ok$RESET")
+            println(ConsoleFormatter.colorize("ok", ConsoleFormatter.GREEN))
         } else {
-            println("${RED}failed$RESET")
+            println(ConsoleFormatter.colorize("failed", ConsoleFormatter.RED))
         }
         return success
     }
@@ -532,15 +525,15 @@ class UpdateCommand(
     private fun reloadConfigs() {
         val configs = ConfigLoader.loadGroupConfigs(groupsDir)
         groupManager.reloadGroups(configs)
-        println("${GREEN}ok$RESET Configs reloaded")
+        println(ConsoleFormatter.successLine("Configs reloaded"))
     }
 
     private fun warnRunningServices(groupName: String) {
         val running = registry.getByGroup(groupName)
         if (running.isNotEmpty()) {
             println()
-            println("${YELLOW}[!]$RESET ${running.size} service(s) still running with the old version.")
-            println("${DIM}    Restart them to apply the update: restart ${running.first().name}$RESET")
+            println(ConsoleFormatter.warnLine("${running.size} service(s) still running with the old version."))
+            println(ConsoleFormatter.hint("    Restart them to apply the update: restart ${running.first().name}"))
         }
     }
 
@@ -562,18 +555,18 @@ class UpdateCommand(
             .terminal(terminal)
             .let { if (completer != null) it.completer(completer) else it }
             .build()
-        val hint = if (default.isNotEmpty()) " ${DIM}[$default]${RESET}" else ""
-        val line = reader.readLine("$label$hint${DIM}:$RESET ").trim()
+        val hint = if (default.isNotEmpty()) " ${ConsoleFormatter.hint("[$default]")}" else ""
+        val line = reader.readLine("$label$hint${ConsoleFormatter.hint(":")} ").trim()
         return line.ifEmpty { default }
     }
 
     private fun printUsage() {
         println(ConsoleFormatter.error("Usage: $usage"))
         println()
-        println("${BOLD}Examples:$RESET")
-        println("  ${CYAN}update Lobby$RESET                         ${DIM}— interactive mode$RESET")
-        println("  ${CYAN}update Lobby version 1.21.5$RESET          ${DIM}— update Minecraft version$RESET")
-        println("  ${CYAN}update Lobby software purpur$RESET         ${DIM}— switch Paper -> Purpur$RESET")
-        println("  ${CYAN}update Lobby software purpur 1.21.5$RESET  ${DIM}— switch software + version$RESET")
+        println(ConsoleFormatter.colorize("Examples:", ConsoleFormatter.BOLD))
+        println("  ${CYAN}update Lobby$RESET                         ${ConsoleFormatter.hint("— interactive mode")}")
+        println("  ${CYAN}update Lobby version 1.21.5$RESET          ${ConsoleFormatter.hint("— update Minecraft version")}")
+        println("  ${CYAN}update Lobby software purpur$RESET         ${ConsoleFormatter.hint("— switch Paper -> Purpur")}")
+        println("  ${CYAN}update Lobby software purpur 1.21.5$RESET  ${ConsoleFormatter.hint("— switch software + version")}")
     }
 }

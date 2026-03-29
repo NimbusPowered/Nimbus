@@ -40,22 +40,22 @@ class ClusterCommand(
     private fun printStatus() {
         println(ConsoleFormatter.header("Cluster Mode"))
         if (config.cluster.enabled) {
-            println("  Status:     ${ConsoleFormatter.success("ENABLED")}")
-            println("  Agent Port: ${config.cluster.agentPort}")
-            println("  Bind:       ${config.cluster.bind}")
-            println("  Placement:  ${config.cluster.placementStrategy}")
-            println("  Heartbeat:  ${config.cluster.heartbeatInterval}ms")
-            println("  Timeout:    ${config.cluster.nodeTimeout}ms")
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(true)))
+            println(ConsoleFormatter.field("Agent Port", config.cluster.agentPort.toString()))
+            println(ConsoleFormatter.field("Bind", config.cluster.bind))
+            println(ConsoleFormatter.field("Placement", config.cluster.placementStrategy))
+            println(ConsoleFormatter.field("Heartbeat", "${config.cluster.heartbeatInterval}ms"))
+            println(ConsoleFormatter.field("Timeout", "${config.cluster.nodeTimeout}ms"))
             val tokenMasked = maskToken(config.cluster.token)
-            println("  Token:      $tokenMasked")
+            println(ConsoleFormatter.field("Token", tokenMasked))
             if (nodeManager != null) {
-                println("  Nodes:      ${nodeManager.getOnlineNodeCount()}/${nodeManager.getNodeCount()} online")
+                println(ConsoleFormatter.field("Nodes", "${nodeManager.getOnlineNodeCount()}/${nodeManager.getNodeCount()} online"))
                 val nodeServices = registry.getAll().filter { it.nodeId != "local" }
-                println("  Remote:     ${nodeServices.size} service(s) on remote nodes")
+                println(ConsoleFormatter.field("Remote", "${nodeServices.size} service(s) on remote nodes"))
             }
         } else {
-            println("  Status:     ${ConsoleFormatter.warn("DISABLED")}")
-            println(ConsoleFormatter.colorize("  Use 'cluster enable' to activate", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(false)))
+            println(ConsoleFormatter.hint("  Use 'cluster enable' to activate"))
         }
     }
 
@@ -80,7 +80,7 @@ class ClusterCommand(
         println(ConsoleFormatter.success("Cluster mode enabled."))
         if (config.cluster.token.isBlank()) {
             println("  Generated token: ${ConsoleFormatter.CYAN}$token${ConsoleFormatter.RESET}")
-            println(ConsoleFormatter.colorize("  Save this token — agents need it to connect.", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.hint("  Save this token — agents need it to connect."))
         }
         println()
         ConfigWriter.printRestartHint(configPath)
@@ -112,7 +112,7 @@ class ClusterCommand(
             ConfigWriter.updateValue(configPath, "cluster", "token", "\"$newToken\"")
             println(ConsoleFormatter.success("Token regenerated."))
             println("  New token: ${ConsoleFormatter.CYAN}$newToken${ConsoleFormatter.RESET}")
-            println(ConsoleFormatter.colorize("  Update all agents with this token.", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.hint("  Update all agents with this token."))
             println()
             ConfigWriter.printRestartHint(configPath)
             return
@@ -145,10 +145,10 @@ class ClusterCommand(
     private fun printUsage() {
         println()
         println("  ${ConsoleFormatter.BOLD}Usage:${ConsoleFormatter.RESET}")
-        println("    cluster status              Show cluster status")
-        println("    cluster enable              Enable cluster mode")
-        println("    cluster disable             Disable cluster mode")
-        println("    cluster token               Show auth token")
-        println("    cluster token regenerate    Generate a new auth token")
+        println(ConsoleFormatter.commandEntry("cluster status", "Show cluster status", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("cluster enable", "Enable cluster mode", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("cluster disable", "Disable cluster mode", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("cluster token", "Show auth token", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("cluster token regenerate", "Generate a new auth token", padWidth = 30))
     }
 }

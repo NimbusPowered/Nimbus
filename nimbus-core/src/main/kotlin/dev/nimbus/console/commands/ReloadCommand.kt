@@ -44,11 +44,11 @@ class ReloadCommand(
         // Show instance count per group
         for (group in loadedGroups.sortedBy { it.name }) {
             val instances = registry.getByGroup(group.name).size
-            val icon = if (instances > 0) "${ConsoleFormatter.GREEN}●${ConsoleFormatter.RESET}" else "${ConsoleFormatter.DIM}○${ConsoleFormatter.RESET}"
+            val icon = if (instances > 0) ConsoleFormatter.success("●") else ConsoleFormatter.hint("○")
             val countText = if (instances > 0) {
-                ConsoleFormatter.colorize("$instances running", ConsoleFormatter.GREEN)
+                ConsoleFormatter.success("$instances running")
             } else {
-                ConsoleFormatter.colorize("0 running", ConsoleFormatter.DIM)
+                ConsoleFormatter.hint("0 running")
             }
             println("$icon ${ConsoleFormatter.colorize(group.name, ConsoleFormatter.BOLD)}  $countText")
         }

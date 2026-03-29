@@ -3,11 +3,8 @@ package dev.nimbus.console.commands
 import dev.nimbus.config.ConfigLoader
 import dev.nimbus.config.ServerSoftware
 import dev.nimbus.console.Command
-import dev.nimbus.console.ConsoleFormatter.BOLD
+import dev.nimbus.console.ConsoleFormatter
 import dev.nimbus.console.ConsoleFormatter.CYAN
-import dev.nimbus.console.ConsoleFormatter.DIM
-import dev.nimbus.console.ConsoleFormatter.GREEN
-import dev.nimbus.console.ConsoleFormatter.RED
 import dev.nimbus.console.ConsoleFormatter.RESET
 import dev.nimbus.console.ConsoleFormatter.YELLOW
 import dev.nimbus.console.NimbusConsole
@@ -46,7 +43,7 @@ class CreateGroupCommand(
         w.flush()
 
         try {
-            w.println("${BOLD}Create New Group$RESET")
+            w.println(ConsoleFormatter.colorize("Create New Group", ConsoleFormatter.BOLD))
             w.println()
 
             // Step 1: Group name
@@ -60,7 +57,7 @@ class CreateGroupCommand(
                 val importCmd = ImportCommand(terminal, groupManager, serviceManager, softwareResolver, groupsDir, templatesDir, console)
                 val source = prompt("Modrinth URL or slug", "")
                 if (source.isBlank()) {
-                    w.println("${DIM}Cancelled.$RESET")
+                    w.println(ConsoleFormatter.hint("Cancelled."))
                     return
                 }
                 w.println()
@@ -69,7 +66,7 @@ class CreateGroupCommand(
             }
 
             // Step 3: Version
-            w.print("${DIM}Fetching available versions...$RESET")
+            w.print(ConsoleFormatter.hint("Fetching available versions..."))
             w.flush()
             val versions = when (software) {
                 ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
@@ -80,7 +77,7 @@ class CreateGroupCommand(
                 ServerSoftware.CUSTOM -> SoftwareResolver.VersionList(listOf("1.21.4"), emptyList())
                 else -> softwareResolver.fetchPaperVersions()
             }
-            w.println(" ${GREEN}✓$RESET")
+            w.println(" ${ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN)}")
 
             val stableVersions = versions.stable
             val snapshotVersions = versions.snapshots
@@ -88,9 +85,9 @@ class CreateGroupCommand(
 
             if (stableVersions.isNotEmpty()) {
                 val display = stableVersions.take(15).joinToString("  ")
-                w.println("${DIM}Stable: $display$RESET")
+                w.println(ConsoleFormatter.hint("Stable: $display"))
                 if (stableVersions.size > 15) {
-                    w.println("${DIM}... and ${stableVersions.size - 15} more (tab for all)$RESET")
+                    w.println(ConsoleFormatter.hint("... and ${stableVersions.size - 15} more (tab for all)"))
                 }
             }
             if (snapshotVersions.isNotEmpty()) {
@@ -104,7 +101,7 @@ class CreateGroupCommand(
             // Step 3b: Modloader version
             var modloaderVersion = ""
             if (software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
-                w.print("${DIM}Fetching modloader versions...$RESET")
+                w.print(ConsoleFormatter.hint("Fetching modloader versions..."))
                 w.flush()
                 val loaderVersions = when (software) {
                     ServerSoftware.FORGE -> softwareResolver.fetchForgeVersions(version)
@@ -112,17 +109,17 @@ class CreateGroupCommand(
                     ServerSoftware.FABRIC -> softwareResolver.fetchFabricLoaderVersions()
                     else -> SoftwareResolver.VersionList.EMPTY
                 }
-                w.println(" ${GREEN}✓$RESET")
+                w.println(" ${ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN)}")
 
                 val loaderDefault = loaderVersions.latest ?: ""
                 if (loaderVersions.stable.isNotEmpty()) {
                     val display = loaderVersions.stable.take(10).joinToString("  ")
-                    w.println("${DIM}Available: $display$RESET")
+                    w.println(ConsoleFormatter.hint("Available: $display"))
                 }
                 if (loaderDefault.isNotEmpty()) {
                     modloaderVersion = prompt("Modloader version", loaderDefault, candidates = loaderVersions.all)
                 } else {
-                    w.println("${YELLOW}No modloader versions found for $version$RESET")
+                    w.println(ConsoleFormatter.warn("No modloader versions found for $version"))
                 }
             }
 
@@ -130,13 +127,13 @@ class CreateGroupCommand(
             var customJarName = ""
             if (software == ServerSoftware.CUSTOM) {
                 customJarName = prompt("JAR filename in template", "server.jar")
-                w.println("${DIM}Place your server JAR as '$customJarName' in templates/${groupName.lowercase()}/$RESET")
+                w.println(ConsoleFormatter.hint("Place your server JAR as '$customJarName' in templates/${groupName.lowercase()}/"))
             }
 
             // Step 4: Static or dynamic
             w.println()
-            w.println("${DIM}Static services keep their data (world, configs) across restarts.$RESET")
-            w.println("${DIM}Dynamic services start fresh from the template every time.$RESET")
+            w.println(ConsoleFormatter.hint("Static services keep their data (world, configs) across restarts."))
+            w.println(ConsoleFormatter.hint("Dynamic services start fresh from the template every time."))
             val isStatic = promptYesNo("Static service", false)
 
             // Step 5-7: Instances & memory
@@ -153,17 +150,17 @@ class CreateGroupCommand(
             }
 
             w.println()
-            w.println("${BOLD}Downloading files...$RESET")
+            w.println(ConsoleFormatter.colorize("Downloading files...", ConsoleFormatter.BOLD))
             w.println()
 
             // Step 8: Download/install server
             val templateDir = templatesDir.resolve(groupName.lowercase())
             when (software) {
                 ServerSoftware.CUSTOM -> {
-                    w.println("${DIM}Custom software — skipping download$RESET")
+                    w.println(ConsoleFormatter.hint("Custom software — skipping download"))
                     if (!templateDir.exists()) {
                         Files.createDirectories(templateDir)
-                        w.println("${GREEN}✓$RESET Created template dir: templates/${groupName.lowercase()}/")
+                        w.println(ConsoleFormatter.successLine("Created template dir: templates/${groupName.lowercase()}/"))
                     }
                 }
                 ServerSoftware.FORGE -> {
@@ -210,15 +207,15 @@ class CreateGroupCommand(
             // Step 10: Write TOML
             w.println()
             writeGroupToml(groupName, software, version, modloaderVersion, customJarName, minInstances, maxInstances, memory, isStatic)
-            w.println("${GREEN}✓$RESET config/groups/${groupName.lowercase()}.toml")
+            w.println(ConsoleFormatter.successLine("config/groups/${groupName.lowercase()}.toml"))
 
             // Step 11: Reload
             val configs = ConfigLoader.loadGroupConfigs(groupsDir)
             groupManager.reloadGroups(configs)
-            w.println("${GREEN}✓$RESET Group configs reloaded")
+            w.println(ConsoleFormatter.successLine("Group configs reloaded"))
 
             w.println()
-            w.println("${GREEN}${BOLD}Group '$groupName' created!$RESET")
+            w.println(ConsoleFormatter.successLine("Group '$groupName' created!"))
             w.println()
 
             // Step 12: Start?
@@ -226,13 +223,13 @@ class CreateGroupCommand(
                 if (promptYesNo("Start an instance now?", true)) {
                     try {
                         serviceManager.startService(groupName)
-                        w.println("${GREEN}✓$RESET Service start initiated.")
+                        w.println(ConsoleFormatter.successLine("Service start initiated."))
                     } catch (e: Exception) {
-                        w.println("${RED}✗$RESET Failed: ${e.message}")
+                        w.println(ConsoleFormatter.errorLine("Failed: ${e.message}"))
                     }
                 }
             } else {
-                w.println("${DIM}Place your server JAR in templates/${groupName.lowercase()}/ before starting.$RESET")
+                w.println(ConsoleFormatter.hint("Place your server JAR in templates/${groupName.lowercase()}/ before starting."))
             }
 
             w.println()
@@ -240,7 +237,7 @@ class CreateGroupCommand(
 
         } catch (_: UserInterruptException) {
             w.println()
-            w.println("${DIM}Cancelled.$RESET")
+            w.println(ConsoleFormatter.hint("Cancelled."))
             w.flush()
         } finally {
             console.eventsPaused = false
@@ -258,8 +255,8 @@ class CreateGroupCommand(
             .terminal(terminal)
             .let { if (completer != null) it.completer(completer) else it }
             .build()
-        val hint = if (default.isNotEmpty()) " ${DIM}[$default]${RESET}" else ""
-        val line = reader.readLine("$label$hint${DIM}:$RESET ").trim()
+        val hint = if (default.isNotEmpty()) " ${ConsoleFormatter.hint("[$default]")}" else ""
+        val line = reader.readLine("$label$hint${ConsoleFormatter.hint(":")} ").trim()
         return line.ifEmpty { default }
     }
 
@@ -280,14 +277,14 @@ class CreateGroupCommand(
     private fun promptGroupName(w: java.io.PrintWriter): String? {
         while (true) {
             val name = prompt("Group name", "")
-            if (name.isBlank()) { w.println("${RED}Name cannot be empty.$RESET"); w.flush(); continue }
-            if (groupManager.getGroup(name) != null) { w.println("${RED}Group '$name' already exists.$RESET"); w.flush(); continue }
+            if (name.isBlank()) { w.println(ConsoleFormatter.error("Name cannot be empty.")); w.flush(); continue }
+            if (groupManager.getGroup(name) != null) { w.println(ConsoleFormatter.error("Group '$name' already exists.")); w.flush(); continue }
             return name
         }
     }
 
     private fun promptSoftware(w: java.io.PrintWriter): ServerSoftware? {
-        w.println("${DIM}Available server software:$RESET")
+        w.println(ConsoleFormatter.hint("Available server software:"))
         w.println("  ${CYAN}paper$RESET     — Paper (optimized vanilla, plugins)")
         w.println("  ${CYAN}purpur$RESET    — Purpur (Paper fork, extra features)")
         w.println("  ${CYAN}forge$RESET     — Forge (mods, auto-installs)")
@@ -313,15 +310,15 @@ class CreateGroupCommand(
     private fun promptViaPlugins(w: java.io.PrintWriter, version: String, latestVersion: String?): List<ViaPlugin> {
         val plugins = mutableListOf<ViaPlugin>()
         w.println()
-        w.println("${BOLD}Protocol support:$RESET")
-        w.println("${DIM}ViaVersion allows newer clients, ViaBackwards allows older clients.$RESET")
+        w.println(ConsoleFormatter.colorize("Protocol support:", ConsoleFormatter.BOLD))
+        w.println(ConsoleFormatter.hint("ViaVersion allows newer clients, ViaBackwards allows older clients."))
         w.println()
 
         val minor = version.split(".").getOrNull(1)?.toIntOrNull() ?: 21
         val isLatest = (latestVersion ?: "1.21.4") == version
 
         if (!isLatest) {
-            if (promptYesNo("Install ${CYAN}ViaVersion$RESET? ${DIM}(newer clients can join)$RESET", true)) {
+            if (promptYesNo("Install ${CYAN}ViaVersion$RESET? ${ConsoleFormatter.hint("(newer clients can join)")}", true)) {
                 plugins.add(ViaPlugin.VIA_VERSION)
             }
         } else {
@@ -330,17 +327,17 @@ class CreateGroupCommand(
             }
         }
 
-        if (promptYesNo("Install ${CYAN}ViaBackwards$RESET? ${DIM}(older clients can join)$RESET", minor >= 17)) {
+        if (promptYesNo("Install ${CYAN}ViaBackwards$RESET? ${ConsoleFormatter.hint("(older clients can join)")}", minor >= 17)) {
             plugins.add(ViaPlugin.VIA_BACKWARDS)
-            if (minor >= 9 && promptYesNo("Install ${CYAN}ViaRewind$RESET? ${DIM}(1.7/1.8 clients)$RESET", false)) {
+            if (minor >= 9 && promptYesNo("Install ${CYAN}ViaRewind$RESET? ${ConsoleFormatter.hint("(1.7/1.8 clients)")}", false)) {
                 plugins.add(ViaPlugin.VIA_REWIND)
             }
         }
 
         if (plugins.isNotEmpty()) {
-            w.println("${GREEN}✓$RESET Via plugins: ${plugins.joinToString(", ") { it.slug }}")
+            w.println(ConsoleFormatter.successLine("Via plugins: ${plugins.joinToString(", ") { it.slug }}"))
         } else {
-            w.println("${DIM}No Via plugins selected.$RESET")
+            w.println(ConsoleFormatter.hint("No Via plugins selected."))
         }
         w.flush()
         return plugins
@@ -349,14 +346,14 @@ class CreateGroupCommand(
     // -- Download helper -----------------------------------------------------
 
     private suspend fun download(w: java.io.PrintWriter, label: String, action: suspend () -> Boolean) {
-        w.print("${DIM}↓$RESET $label ")
+        w.print("${ConsoleFormatter.hint("↓")} $label ")
         w.flush()
         val success = action()
         if (success) {
-            w.println("${GREEN}✓$RESET")
+            w.println(ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN))
         } else {
-            w.println("${RED}✗$RESET")
-            w.println("${YELLOW}Download failed. You can place the file manually later.$RESET")
+            w.println(ConsoleFormatter.colorize("✗", ConsoleFormatter.RED))
+            w.println(ConsoleFormatter.warn("Download failed. You can place the file manually later."))
         }
         w.flush()
     }

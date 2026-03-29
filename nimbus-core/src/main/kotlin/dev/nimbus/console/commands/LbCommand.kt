@@ -43,13 +43,13 @@ class LbCommand(
     private fun printStatus() {
         println(ConsoleFormatter.header("Load Balancer"))
         if (config.loadbalancer.enabled) {
-            println("  Status:     ${ConsoleFormatter.success("ENABLED")}")
-            println("  Bind:       ${config.loadbalancer.bind}:${config.loadbalancer.port}")
-            println("  Strategy:   ${config.loadbalancer.strategy}")
-            println("  PROXY v2:   ${if (config.loadbalancer.proxyProtocol) "yes" else "no"}")
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(true)))
+            println(ConsoleFormatter.field("Bind", "${config.loadbalancer.bind}:${config.loadbalancer.port}"))
+            println(ConsoleFormatter.field("Strategy", config.loadbalancer.strategy))
+            println(ConsoleFormatter.field("PROXY v2", ConsoleFormatter.yesNo(config.loadbalancer.proxyProtocol)))
             if (loadBalancer != null) {
-                println("  Active:     ${loadBalancer.activeConnections} connections")
-                println("  Total:      ${loadBalancer.totalConnections} connections")
+                println(ConsoleFormatter.field("Active", "${loadBalancer.activeConnections} connections"))
+                println(ConsoleFormatter.field("Total", "${loadBalancer.totalConnections} connections"))
             }
             println()
 
@@ -75,8 +75,8 @@ class LbCommand(
                 println(ConsoleFormatter.formatTable(headers, rows))
             }
         } else {
-            println("  Status:     ${ConsoleFormatter.warn("DISABLED")}")
-            println(ConsoleFormatter.colorize("  Use 'lb enable' to activate", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(false)))
+            println(ConsoleFormatter.hint("  Use 'lb enable' to activate"))
         }
     }
 
@@ -142,9 +142,9 @@ class LbCommand(
     private fun printUsage() {
         println()
         println("  ${ConsoleFormatter.BOLD}Usage:${ConsoleFormatter.RESET}")
-        println("    lb                          Show load balancer status + backends")
-        println("    lb enable                   Enable load balancer")
-        println("    lb disable                  Disable load balancer")
-        println("    lb strategy <name>          Set strategy (least-players, round-robin)")
+        println(ConsoleFormatter.commandEntry("lb", "Show load balancer status + backends", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("lb enable", "Enable load balancer", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("lb disable", "Disable load balancer", padWidth = 30))
+        println(ConsoleFormatter.commandEntry("lb strategy <name>", "Set strategy (least-players, round-robin)", padWidth = 30))
     }
 }

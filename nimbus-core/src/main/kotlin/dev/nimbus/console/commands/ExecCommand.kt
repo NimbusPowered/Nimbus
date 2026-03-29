@@ -32,7 +32,7 @@ class ExecCommand(
         try {
             serviceManager.executeCommand(serviceName, command)
             println(ConsoleFormatter.success("Sent to $serviceName: ") +
-                    ConsoleFormatter.colorize(command, ConsoleFormatter.DIM))
+                    ConsoleFormatter.hint(command))
         } catch (e: Exception) {
             println(ConsoleFormatter.error("Failed to execute command: ${e.message}"))
         }

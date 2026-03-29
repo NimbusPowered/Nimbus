@@ -31,13 +31,13 @@ class StatusCommand(
         val readyCount = allServices.count { it.state == ServiceState.READY }
         val totalPlayers = allServices.sumOf { it.playerCount }
         println(
-            "${ConsoleFormatter.colorize("Services:", ConsoleFormatter.DIM)} ${ConsoleFormatter.success("$readyCount ready")} ${ConsoleFormatter.colorize("/ ${allServices.size} total", ConsoleFormatter.DIM)}    " +
-                    "${ConsoleFormatter.colorize("Players:", ConsoleFormatter.DIM)} ${ConsoleFormatter.colorize("$totalPlayers", ConsoleFormatter.BOLD)}"
+            "${ConsoleFormatter.hint("Services:")} ${ConsoleFormatter.success("$readyCount ready")} ${ConsoleFormatter.hint("/ ${allServices.size} total")}    " +
+                    "${ConsoleFormatter.hint("Players:")} ${ConsoleFormatter.colorize("$totalPlayers", ConsoleFormatter.BOLD)}"
         )
 
         // Per-group overview
         if (groups.isEmpty()) {
-            println(ConsoleFormatter.warn("No groups configured."))
+            println(ConsoleFormatter.emptyState("No groups configured."))
         } else {
             val headers = listOf("GROUP", "TYPE", "INSTANCES", "MIN/MAX", "PLAYERS", "STATUS")
             val rows = groups.sortedBy { it.name }.map { group ->
@@ -71,17 +71,17 @@ class StatusCommand(
         // Capacity bar
         val maxServices = config.controller.maxServices
         val usedSlots = allServices.size
-        println("${ConsoleFormatter.colorize("Capacity:", ConsoleFormatter.DIM)} ${ConsoleFormatter.progressBar(usedSlots, maxServices)} $usedSlots/$maxServices services")
+        println("${ConsoleFormatter.hint("Capacity:")} ${ConsoleFormatter.progressBar(usedSlots, maxServices)} $usedSlots/$maxServices services")
 
         // Cluster info (if enabled)
         if (nodeManager != null) {
             println()
-            println("${ConsoleFormatter.colorize("Cluster:", ConsoleFormatter.DIM)} ${ConsoleFormatter.success("${nodeManager.getOnlineNodeCount()}")} online / ${nodeManager.getNodeCount()} nodes")
+            println("${ConsoleFormatter.hint("Cluster:")} ${ConsoleFormatter.success("${nodeManager.getOnlineNodeCount()}")} online / ${nodeManager.getNodeCount()} nodes")
         }
 
         // Load Balancer info (if enabled)
         if (loadBalancer != null) {
-            println("${ConsoleFormatter.colorize("Load Balancer:", ConsoleFormatter.DIM)} ${loadBalancer.activeConnections} active / ${loadBalancer.totalConnections} total connections")
+            println("${ConsoleFormatter.hint("Load Balancer:")} ${loadBalancer.activeConnections} active / ${loadBalancer.totalConnections} total connections")
         }
     }
 }

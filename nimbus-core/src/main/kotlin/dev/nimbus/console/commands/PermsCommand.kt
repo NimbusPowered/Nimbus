@@ -117,7 +117,7 @@ class PermsCommand(
     private fun groupList() {
         val groups = permissionManager.getAllGroups()
         if (groups.isEmpty()) {
-            println(ConsoleFormatter.warn("No permission groups configured."))
+            println(ConsoleFormatter.emptyState("No permission groups configured."))
             return
         }
 
@@ -127,17 +127,17 @@ class PermsCommand(
                 ConsoleFormatter.colorize(group.name, ConsoleFormatter.BOLD),
                 if (group.default) ConsoleFormatter.colorize("yes", ConsoleFormatter.GREEN) else "no",
                 group.priority.toString(),
-                if (group.prefix.isEmpty()) ConsoleFormatter.colorize("-", ConsoleFormatter.DIM)
+                if (group.prefix.isEmpty()) ConsoleFormatter.placeholder()
                 else group.prefix,
                 group.permissions.size.toString(),
-                if (group.parents.isEmpty()) ConsoleFormatter.colorize("-", ConsoleFormatter.DIM)
+                if (group.parents.isEmpty()) ConsoleFormatter.placeholder()
                 else group.parents.joinToString(", ")
             )
         }
 
         println(ConsoleFormatter.header("Permission Groups"))
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize("${groups.size} group(s)", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.count(groups.size, "group"))
     }
 
     private fun groupInfo(name: String) {
@@ -148,16 +148,16 @@ class PermsCommand(
         }
 
         println(ConsoleFormatter.header("Permission Group: ${group.name}"))
-        println("  ${ConsoleFormatter.DIM}Default:${ConsoleFormatter.RESET}   ${if (group.default) ConsoleFormatter.success("yes") else "no"}")
-        println("  ${ConsoleFormatter.DIM}Priority:${ConsoleFormatter.RESET}  ${group.priority}")
-        println("  ${ConsoleFormatter.DIM}Prefix:${ConsoleFormatter.RESET}    ${if (group.prefix.isEmpty()) "-" else group.prefix}")
-        println("  ${ConsoleFormatter.DIM}Suffix:${ConsoleFormatter.RESET}    ${if (group.suffix.isEmpty()) "-" else group.suffix}")
-        println("  ${ConsoleFormatter.DIM}Parents:${ConsoleFormatter.RESET}   ${if (group.parents.isEmpty()) "-" else group.parents.joinToString(", ")}")
+        println(ConsoleFormatter.field("Default", if (group.default) ConsoleFormatter.success("yes") else "no"))
+        println(ConsoleFormatter.field("Priority", group.priority.toString()))
+        println(ConsoleFormatter.field("Prefix", if (group.prefix.isEmpty()) ConsoleFormatter.placeholder() else group.prefix))
+        println(ConsoleFormatter.field("Suffix", if (group.suffix.isEmpty()) ConsoleFormatter.placeholder() else group.suffix))
+        println(ConsoleFormatter.field("Parents", if (group.parents.isEmpty()) ConsoleFormatter.placeholder() else group.parents.joinToString(", ")))
         println()
         println(ConsoleFormatter.section("Permissions (${group.permissions.size})"))
 
         if (group.permissions.isEmpty()) {
-            println("  ${ConsoleFormatter.colorize("No permissions set.", ConsoleFormatter.DIM)}")
+            println("  ${ConsoleFormatter.emptyState("No permissions set.")}")
         } else {
             for (perm in group.permissions.sorted()) {
                 val color = if (perm.startsWith("-")) ConsoleFormatter.RED else ConsoleFormatter.GREEN
@@ -296,17 +296,17 @@ class PermsCommand(
         val display = permissionManager.getPlayerDisplay(uuid)
 
         println(ConsoleFormatter.header("Player: $playerName"))
-        println("  ${ConsoleFormatter.DIM}UUID:${ConsoleFormatter.RESET}    $uuid")
-        println("  ${ConsoleFormatter.DIM}Groups:${ConsoleFormatter.RESET}  ${if (groups.isEmpty()) "-" else groups.joinToString(", ")}")
+        println(ConsoleFormatter.field("UUID", uuid))
+        println(ConsoleFormatter.field("Groups", if (groups.isEmpty()) ConsoleFormatter.placeholder() else groups.joinToString(", ")))
         if (defaultGroup != null) {
-            println("  ${ConsoleFormatter.DIM}Default:${ConsoleFormatter.RESET} ${defaultGroup.name}")
+            println(ConsoleFormatter.field("Default", defaultGroup.name))
         }
-        println("  ${ConsoleFormatter.DIM}Display:${ConsoleFormatter.RESET} ${display.prefix}$playerName${display.suffix} ${ConsoleFormatter.DIM}(group: ${display.groupName}, priority: ${display.priority})${ConsoleFormatter.RESET}")
+        println(ConsoleFormatter.field("Display", "${display.prefix}$playerName${display.suffix} ${ConsoleFormatter.hint("(group: ${display.groupName}, priority: ${display.priority})")}"))
         println()
         println(ConsoleFormatter.section("Effective Permissions (${effective.size})"))
 
         if (effective.isEmpty()) {
-            println("  ${ConsoleFormatter.colorize("No permissions.", ConsoleFormatter.DIM)}")
+            println("  ${ConsoleFormatter.emptyState("No permissions.")}")
         } else {
             for (perm in effective.sorted()) {
                 println("  ${ConsoleFormatter.GREEN}$perm${ConsoleFormatter.RESET}")
@@ -339,7 +339,7 @@ class PermsCommand(
     private fun userList() {
         val players = permissionManager.getAllPlayers()
         if (players.isEmpty()) {
-            println(ConsoleFormatter.warn("No player assignments."))
+            println(ConsoleFormatter.emptyState("No player assignments."))
             return
         }
 
@@ -354,7 +354,7 @@ class PermsCommand(
 
         println(ConsoleFormatter.header("Player Assignments"))
         println(ConsoleFormatter.formatTable(headers, rows))
-        println(ConsoleFormatter.colorize("${players.size} player(s)", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.count(players.size, "player"))
     }
 
     private fun resolvePlayer(identifier: String): Pair<String, String>? {
@@ -380,24 +380,25 @@ class PermsCommand(
     // ── Help ────────────────────────────────────────────────
 
     private fun printUsage() {
+        val pad = 44
         println(ConsoleFormatter.header("Permissions"))
-        println("  ${ConsoleFormatter.CYAN}perms group list${ConsoleFormatter.RESET}                         List all groups")
-        println("  ${ConsoleFormatter.CYAN}perms group info <group>${ConsoleFormatter.RESET}                 Show group details")
-        println("  ${ConsoleFormatter.CYAN}perms group create <name>${ConsoleFormatter.RESET}                Create a group")
-        println("  ${ConsoleFormatter.CYAN}perms group delete <name>${ConsoleFormatter.RESET}                Delete a group")
-        println("  ${ConsoleFormatter.CYAN}perms group addperm <group> <perm>${ConsoleFormatter.RESET}      Add permission")
-        println("  ${ConsoleFormatter.CYAN}perms group removeperm <group> <perm>${ConsoleFormatter.RESET}   Remove permission")
-        println("  ${ConsoleFormatter.CYAN}perms group setdefault <group>${ConsoleFormatter.RESET}           Set as default group")
-        println("  ${ConsoleFormatter.CYAN}perms group addparent <group> <parent>${ConsoleFormatter.RESET}  Add inheritance")
-        println("  ${ConsoleFormatter.CYAN}perms group removeparent <group> <parent>${ConsoleFormatter.RESET} Remove inheritance")
-        println("  ${ConsoleFormatter.CYAN}perms group setprefix <group> <prefix...>${ConsoleFormatter.RESET} Set display prefix (MiniMessage)")
-        println("  ${ConsoleFormatter.CYAN}perms group setsuffix <group> <suffix...>${ConsoleFormatter.RESET} Set display suffix (MiniMessage)")
-        println("  ${ConsoleFormatter.CYAN}perms group setpriority <group> <number>${ConsoleFormatter.RESET} Set display priority")
-        println("  ${ConsoleFormatter.CYAN}perms user list${ConsoleFormatter.RESET}                          List all players")
-        println("  ${ConsoleFormatter.CYAN}perms user info <name|uuid>${ConsoleFormatter.RESET}              Show player perms")
-        println("  ${ConsoleFormatter.CYAN}perms user addgroup <name|uuid> <group>${ConsoleFormatter.RESET} Assign group")
-        println("  ${ConsoleFormatter.CYAN}perms user removegroup <name|uuid> <group>${ConsoleFormatter.RESET} Remove group")
-        println("  ${ConsoleFormatter.CYAN}perms reload${ConsoleFormatter.RESET}                             Reload from database")
+        println(ConsoleFormatter.commandEntry("perms group list", "List all groups", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group info <group>", "Show group details", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group create <name>", "Create a group", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group delete <name>", "Delete a group", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group addperm <group> <perm>", "Add permission", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group removeperm <group> <perm>", "Remove permission", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group setdefault <group>", "Set as default group", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group addparent <group> <parent>", "Add inheritance", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group removeparent <group> <parent>", "Remove inheritance", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group setprefix <group> <prefix...>", "Set display prefix (MiniMessage)", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group setsuffix <group> <suffix...>", "Set display suffix (MiniMessage)", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms group setpriority <group> <number>", "Set display priority", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms user list", "List all players", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms user info <name|uuid>", "Show player perms", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms user addgroup <name|uuid> <group>", "Assign group", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms user removegroup <name|uuid> <group>", "Remove group", padWidth = pad))
+        println(ConsoleFormatter.commandEntry("perms reload", "Reload from database", padWidth = pad))
     }
 
     private fun printGroupUsage() {

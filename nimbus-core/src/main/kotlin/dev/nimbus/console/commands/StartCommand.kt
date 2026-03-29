@@ -24,9 +24,8 @@ class StartCommand(
         val group = groupManager.getGroup(groupName)
         if (group == null) {
             println(ConsoleFormatter.error("Group '$groupName' not found."))
-            println(ConsoleFormatter.colorize(
-                "Available groups: ${groupManager.getAllGroups().joinToString(", ") { it.name }}",
-                ConsoleFormatter.DIM
+            println(ConsoleFormatter.hint(
+                "Available groups: ${groupManager.getAllGroups().joinToString(", ") { it.name }}"
             ))
             return
         }

@@ -51,8 +51,8 @@ class SendCommand(
 
         if (success) {
             println(ConsoleFormatter.success("Sent transfer command: ") +
-                    ConsoleFormatter.colorize("$playerName -> $targetService", ConsoleFormatter.DIM) +
-                    ConsoleFormatter.colorize(" (via ${proxy.name})", ConsoleFormatter.DIM))
+                    ConsoleFormatter.hint("$playerName -> $targetService") +
+                    ConsoleFormatter.hint(" (via ${proxy.name})"))
         } else {
             println(ConsoleFormatter.error("Failed to send transfer command to ${proxy.name}."))
         }

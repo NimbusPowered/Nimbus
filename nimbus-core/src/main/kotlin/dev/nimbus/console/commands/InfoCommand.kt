@@ -33,37 +33,32 @@ class InfoCommand(
 
         println(ConsoleFormatter.header("Group: ${group.name}"))
 
-        fun field(label: String, value: String) {
-            val padded = label.padEnd(22)
-            println("  ${ConsoleFormatter.colorize(padded, ConsoleFormatter.DIM)}$value")
-        }
-
-        field("Type", ConsoleFormatter.colorize(def.type.name, ConsoleFormatter.CYAN))
-        field("Software", ConsoleFormatter.colorize(def.software.name, ConsoleFormatter.CYAN))
-        field("Version", def.version)
-        field("Template", def.template.ifEmpty { ConsoleFormatter.colorize("(default)", ConsoleFormatter.DIM) })
+        println(ConsoleFormatter.field("Type", ConsoleFormatter.colorize(def.type.name, ConsoleFormatter.CYAN), labelWidth = 22))
+        println(ConsoleFormatter.field("Software", ConsoleFormatter.colorize(def.software.name, ConsoleFormatter.CYAN), labelWidth = 22))
+        println(ConsoleFormatter.field("Version", def.version, labelWidth = 22))
+        println(ConsoleFormatter.field("Template", def.template.ifEmpty { ConsoleFormatter.placeholder("(default)") }, labelWidth = 22))
 
         println(ConsoleFormatter.section("Resources"))
-        field("Memory", def.resources.memory)
-        field("Max Players", def.resources.maxPlayers.toString())
+        println(ConsoleFormatter.field("Memory", def.resources.memory, labelWidth = 22))
+        println(ConsoleFormatter.field("Max Players", def.resources.maxPlayers.toString(), labelWidth = 22))
 
         println(ConsoleFormatter.section("Scaling"))
-        field("Min Instances", def.scaling.minInstances.toString())
-        field("Max Instances", def.scaling.maxInstances.toString())
-        field("Players/Instance", def.scaling.playersPerInstance.toString())
-        field("Scale Threshold", "${(def.scaling.scaleThreshold * 100).toInt()}%")
+        println(ConsoleFormatter.field("Min Instances", def.scaling.minInstances.toString(), labelWidth = 22))
+        println(ConsoleFormatter.field("Max Instances", def.scaling.maxInstances.toString(), labelWidth = 22))
+        println(ConsoleFormatter.field("Players/Instance", def.scaling.playersPerInstance.toString(), labelWidth = 22))
+        println(ConsoleFormatter.field("Scale Threshold", "${(def.scaling.scaleThreshold * 100).toInt()}%", labelWidth = 22))
         if (def.scaling.idleTimeout > 0) {
-            field("Idle Timeout", "${def.scaling.idleTimeout}ms")
+            println(ConsoleFormatter.field("Idle Timeout", "${def.scaling.idleTimeout}ms", labelWidth = 22))
         }
 
         println(ConsoleFormatter.section("Lifecycle"))
-        field("Stop on Empty", if (def.lifecycle.stopOnEmpty) ConsoleFormatter.success("yes") else ConsoleFormatter.colorize("no", ConsoleFormatter.DIM))
-        field("Restart on Crash", if (def.lifecycle.restartOnCrash) ConsoleFormatter.success("yes") else ConsoleFormatter.colorize("no", ConsoleFormatter.DIM))
-        field("Max Restarts", def.lifecycle.maxRestarts.toString())
+        println(ConsoleFormatter.field("Stop on Empty", ConsoleFormatter.yesNo(def.lifecycle.stopOnEmpty), labelWidth = 22))
+        println(ConsoleFormatter.field("Restart on Crash", ConsoleFormatter.yesNo(def.lifecycle.restartOnCrash), labelWidth = 22))
+        println(ConsoleFormatter.field("Max Restarts", def.lifecycle.maxRestarts.toString(), labelWidth = 22))
 
         println(ConsoleFormatter.section("JVM Args"))
         if (def.jvm.args.isEmpty()) {
-            println("  ${ConsoleFormatter.colorize("(none)", ConsoleFormatter.DIM)}")
+            println("  ${ConsoleFormatter.placeholder("(none)")}")
         } else {
             for (arg in def.jvm.args) {
                 println("  ${ConsoleFormatter.colorize(arg, ConsoleFormatter.DIM)}")
@@ -71,7 +66,7 @@ class InfoCommand(
         }
 
         println(ConsoleFormatter.section("Runtime"))
-        field("Running Instances", if (services.isNotEmpty()) ConsoleFormatter.success(services.size.toString()) else ConsoleFormatter.colorize("0", ConsoleFormatter.DIM))
-        field("Total Players", if (totalPlayers > 0) ConsoleFormatter.colorize("$totalPlayers", ConsoleFormatter.BOLD) else ConsoleFormatter.colorize("0", ConsoleFormatter.DIM))
+        println(ConsoleFormatter.field("Running Instances", if (services.isNotEmpty()) ConsoleFormatter.success(services.size.toString()) else ConsoleFormatter.placeholder("0"), labelWidth = 22))
+        println(ConsoleFormatter.field("Total Players", if (totalPlayers > 0) ConsoleFormatter.colorize("$totalPlayers", ConsoleFormatter.BOLD) else ConsoleFormatter.placeholder("0"), labelWidth = 22))
     }
 }

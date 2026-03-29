@@ -60,14 +60,14 @@ class ApiCommand(
     private fun printStatus() {
         println(ConsoleFormatter.header("REST API"))
         if (api.isRunning) {
-            println("${ConsoleFormatter.success("●")} Status:    ${ConsoleFormatter.success("RUNNING")}")
-            println("${ConsoleFormatter.colorize("Endpoint:", ConsoleFormatter.DIM)}  ${ConsoleFormatter.CYAN}http://${api.currentBind}:${api.currentPort}${ConsoleFormatter.RESET}")
-            println("${ConsoleFormatter.colorize("Auth:", ConsoleFormatter.DIM)}      ${if (api.token().isNotBlank()) "Bearer token" else ConsoleFormatter.warn("NONE (open)")}")
-            println("${ConsoleFormatter.colorize("Health:", ConsoleFormatter.DIM)}    ${ConsoleFormatter.CYAN}http://${api.currentBind}:${api.currentPort}/api/health${ConsoleFormatter.RESET}")
-            println("${ConsoleFormatter.colorize("Events:", ConsoleFormatter.DIM)}    ${ConsoleFormatter.CYAN}ws://${api.currentBind}:${api.currentPort}/api/events${ConsoleFormatter.RESET}")
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(true)))
+            println(ConsoleFormatter.field("Endpoint", "${ConsoleFormatter.CYAN}http://${api.currentBind}:${api.currentPort}${ConsoleFormatter.RESET}"))
+            println(ConsoleFormatter.field("Auth", if (api.token().isNotBlank()) "Bearer token" else ConsoleFormatter.warn("NONE (open)")))
+            println(ConsoleFormatter.field("Health", "${ConsoleFormatter.CYAN}http://${api.currentBind}:${api.currentPort}/api/health${ConsoleFormatter.RESET}"))
+            println(ConsoleFormatter.field("Events", "${ConsoleFormatter.CYAN}ws://${api.currentBind}:${api.currentPort}/api/events${ConsoleFormatter.RESET}"))
         } else {
-            println("${ConsoleFormatter.DIM}○${ConsoleFormatter.RESET} Status:    ${ConsoleFormatter.warn("STOPPED")}")
-            println(ConsoleFormatter.colorize("Use 'api start' to launch or set [api] enabled = true in config/nimbus.toml", ConsoleFormatter.DIM))
+            println(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(false)))
+            println(ConsoleFormatter.hint("  Use 'api start' to launch or set [api] enabled = true in config/nimbus.toml"))
         }
     }
 
