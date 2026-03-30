@@ -112,6 +112,7 @@ class ScalingEngine(
             }
 
             // --- Scale Down ---
+            var currentRoutableCount = routableCount
             for (service in readyServices) {
                 // Never scale down a service with an active custom state (e.g. mid-game)
                 if (service.customState != null) continue
@@ -134,7 +135,7 @@ class ScalingEngine(
                     servicePlayers = service.playerCount,
                     idleTimeout = idleTimeout,
                     serviceIdleSince = idleStart,
-                    currentInstances = routableCount,
+                    currentInstances = currentRoutableCount,
                     minInstances = minInstances
                 )
 
@@ -149,6 +150,7 @@ class ScalingEngine(
                     )
                     serviceManager.stopService(service.name)
                     idleSince.remove(service.name)
+                    currentRoutableCount--
                 }
             }
         }
