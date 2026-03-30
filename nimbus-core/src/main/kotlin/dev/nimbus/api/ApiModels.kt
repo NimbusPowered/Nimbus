@@ -188,6 +188,19 @@ data class CustomStateResponse(
     val customState: String?
 )
 
+// ── Player Count DTOs ───────────────────────────────────────────────
+
+@Serializable
+data class ReportPlayerCountRequest(
+    val playerCount: Int
+)
+
+@Serializable
+data class PlayerCountResponse(
+    val service: String,
+    val playerCount: Int
+)
+
 // ── Messaging DTOs ──────────────────────────────────────────────────
 
 @Serializable

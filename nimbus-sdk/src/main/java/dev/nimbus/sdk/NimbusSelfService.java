@@ -109,6 +109,16 @@ public class NimbusSelfService {
         return client.getCustomState(serviceName);
     }
 
+    // ── Player Count ──────────────────────────────────────────────────
+
+    /**
+     * Report the current player count to the controller.
+     * Called automatically by the SDK plugin on player join/quit.
+     */
+    public CompletableFuture<Void> reportPlayerCount(int playerCount) {
+        return client.reportPlayerCount(serviceName, playerCount);
+    }
+
     // ── Info ──────────────────────────────────────────────────────────
 
     /**

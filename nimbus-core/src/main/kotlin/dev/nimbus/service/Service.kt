@@ -13,6 +13,8 @@ class Service(
     @Volatile var customState: String? = null,
     var pid: Long? = null,
     @Volatile var playerCount: Int = 0,
+    /** When non-null, the SDK on this service is actively reporting player counts — skip SLP ping. */
+    @Volatile var lastSdkPlayerReport: Instant? = null,
     var startedAt: Instant? = null,
     var restartCount: Int = 0,
     var workingDirectory: Path,

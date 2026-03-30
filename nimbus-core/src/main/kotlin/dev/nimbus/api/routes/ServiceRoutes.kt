@@ -153,6 +153,19 @@ fun Route.serviceRoutes(
             call.respond(CustomStateResponse(name, service.customState))
         }
 
+        // PUT /api/services/{name}/players — Report player count (used by SDK on backend servers)
+        put("{name}/players") {
+            val name = call.parameters["name"]!!
+            val service = registry.get(name)
+                ?: return@put call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Service '$name' not found"))
+
+            val request = call.receive<ReportPlayerCountRequest>()
+            service.playerCount = request.playerCount
+            service.lastSdkPlayerReport = java.time.Instant.now()
+
+            call.respond(PlayerCountResponse(name, service.playerCount))
+        }
+
         // GET /api/services/{name}/logs — Get recent log lines (tail-read, not full file)
         get("{name}/logs") {
             val name = call.parameters["name"]!!

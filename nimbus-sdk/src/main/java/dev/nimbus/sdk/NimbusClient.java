@@ -93,6 +93,15 @@ public class NimbusClient {
         return post("/api/services/" + encode(serviceName) + "/exec", body).thenApply(r -> null);
     }
 
+    // ── Player Count ──────────────────────────────────────────────────
+
+    /** Report the current player count for a service (called by SDK on backend servers). */
+    public CompletableFuture<Void> reportPlayerCount(String serviceName, int playerCount) {
+        JsonObject body = new JsonObject();
+        body.addProperty("playerCount", playerCount);
+        return put("/api/services/" + encode(serviceName) + "/players", body).thenApply(r -> null);
+    }
+
     // ── Custom State ──────────────────────────────────────────────────
 
     /** Set a custom state on a service (e.g. "WAITING", "INGAME", "ENDING"). */

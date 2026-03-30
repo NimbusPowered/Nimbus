@@ -96,6 +96,7 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
         if (stressBotManager != null) {
             try { stressBotManager.getClass().getMethod("onPlayerJoin", org.bukkit.entity.Player.class).invoke(stressBotManager, event.getPlayer()); } catch (Exception ignored) {}
         }
+        reportPlayerCount();
     }
 
     @EventHandler
@@ -105,6 +106,17 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
         }
         if (nameTagHandler != null) {
             nameTagHandler.onQuit(event.getPlayer());
+        }
+        // Schedule with 1 tick delay — the quitting player is still in getOnlinePlayers() during the event
+        getServer().getScheduler().runTaskLaterAsynchronously(this, this::reportPlayerCount, 1L);
+    }
+
+    private void reportPlayerCount() {
+        try {
+            int count = getServer().getOnlinePlayers().size();
+            Nimbus.reportPlayerCount(count);
+        } catch (Exception e) {
+            getLogger().fine("Failed to report player count: " + e.getMessage());
         }
     }
 

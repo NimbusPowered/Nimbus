@@ -133,6 +133,14 @@ public final class Nimbus {
         return self.clearCustomState();
     }
 
+    // ── Player Count ──────────────────────────────────────────────────
+
+    /** Report the current player count to the controller. */
+    public static CompletableFuture<Void> reportPlayerCount(int playerCount) {
+        requireSelf();
+        return self.reportPlayerCount(playerCount);
+    }
+
     // ── Routing ───────────────────────────────────────────────────────
 
     /** Route a player to the best server in a group. */

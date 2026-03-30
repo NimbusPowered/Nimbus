@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import dev.nimbus.stress.StressTestManager
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,6 +40,9 @@ class ScalingEngine(
 
     /** Tracks consecutive zero-player readings per service to avoid acting on transient empties. */
     private val consecutiveZeroReadings = ConcurrentHashMap<String, Int>()
+
+    /** Services whose last ping was successful — only these are eligible for idle tracking. */
+    private val lastPingSucceeded = ConcurrentHashMap<String, Boolean>()
 
     /**
      * Starts the scaling loop. Runs periodically every [checkIntervalMs].
@@ -117,6 +121,13 @@ class ScalingEngine(
                 // Never scale down a service with an active custom state (e.g. mid-game)
                 if (service.customState != null) continue
 
+                // Only consider idle if last ping was successful — failed pings leave playerCount stale
+                if (lastPingSucceeded[service.name] != true) {
+                    idleSince.remove(service.name)
+                    consecutiveZeroReadings.remove(service.name)
+                    continue
+                }
+
                 if (service.playerCount > 0) {
                     // Service has players; remove from idle tracking if present
                     idleSince.remove(service.name)
@@ -159,6 +170,7 @@ class ScalingEngine(
         val activeServiceNames = registry.getAll().map { it.name }.toSet()
         idleSince.keys.removeAll { it !in activeServiceNames }
         consecutiveZeroReadings.keys.removeAll { it !in activeServiceNames }
+        lastPingSucceeded.keys.removeAll { it !in activeServiceNames }
     }
 
     /**
@@ -178,11 +190,20 @@ class ScalingEngine(
                     // Skip services with simulated player counts from stress testing
                     if (stressTestManager?.isOverridden(service.name) == true) return@async
 
+                    // Skip services that report player counts via SDK (more reliable than SLP)
+                    val sdkReport = service.lastSdkPlayerReport
+                    if (sdkReport != null && Duration.between(sdkReport, Instant.now()).seconds < 30) {
+                        lastPingSucceeded[service.name] = true
+                        return@async
+                    }
+
                     val result = ServerListPing.ping(service.host, service.port, timeout = 3000)
                     if (result != null) {
                         service.playerCount = result.onlinePlayers
+                        lastPingSucceeded[service.name] = true
                         logger.debug("Pinged '${service.name}': ${result.onlinePlayers}/${result.maxPlayers} players")
                     } else {
+                        lastPingSucceeded[service.name] = false
                         logger.debug("Ping failed for '${service.name}' on port ${service.port}")
                     }
                 }
