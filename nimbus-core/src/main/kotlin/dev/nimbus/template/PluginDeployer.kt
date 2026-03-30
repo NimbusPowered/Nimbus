@@ -30,6 +30,9 @@ class PluginDeployer(private val baseDir: Path) {
         // Auto-update Nimbus plugins where the user has placed them (templates + static services)
         autoUpdateNimbusPlugins(templatesDir, staticDir)
 
+        // Deploy server icon to global_proxy (Velocity picks it up automatically)
+        deployServerIcon(globalProxyTemplateDir)
+
         // Deploy bridge config so the plugin can connect to the API
         deployBridgeConfig(globalProxyTemplateDir, config)
 
@@ -142,6 +145,22 @@ class PluginDeployer(private val baseDir: Path) {
             count++
         }
         return count
+    }
+
+    private fun deployServerIcon(globalProxyDir: Path) {
+        val targetFile = globalProxyDir.resolve("server-icon.png")
+        if (targetFile.exists()) return
+
+        val resource = object {}.javaClass.classLoader.getResourceAsStream("server-icon.png")
+        if (resource == null) {
+            logger.debug("server-icon.png not found in resources, skipping")
+            return
+        }
+
+        resource.use { input ->
+            Files.copy(input, targetFile)
+        }
+        logger.info("Deployed default server-icon.png to {}", globalProxyDir)
     }
 
     private fun deployBridgeConfig(globalProxyDir: Path, config: NimbusConfig) {
