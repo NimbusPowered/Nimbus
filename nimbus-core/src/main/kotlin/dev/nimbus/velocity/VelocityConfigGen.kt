@@ -98,19 +98,27 @@ class VelocityConfigGen(
     }
 
     fun findVelocityWorkDir(): Path? {
-        return registry.getAll().firstOrNull { service ->
-            (service.state == ServiceState.READY || service.state == ServiceState.STARTING) &&
-                groupManager.getGroup(service.groupName)
-                    ?.config?.group?.software == ServerSoftware.VELOCITY
-        }?.workingDirectory
+        return findAllVelocityWorkDirs().firstOrNull()
+    }
+
+    fun findAllVelocityWorkDirs(): List<Path> {
+        return registry.getAll()
+            .filter { service ->
+                (service.state == ServiceState.READY || service.state == ServiceState.STARTING) &&
+                    groupManager.getGroup(service.groupName)
+                        ?.config?.group?.software == ServerSoftware.VELOCITY
+            }
+            .map { it.workingDirectory }
     }
 
     fun updateProxyServerList() {
-        val workDir = findVelocityWorkDir()
-        if (workDir == null) {
+        val workDirs = findAllVelocityWorkDirs()
+        if (workDirs.isEmpty()) {
             logger.debug("No running Velocity proxy found, skipping server list update")
             return
         }
-        regenerateServerList(workDir)
+        for (workDir in workDirs) {
+            regenerateServerList(workDir)
+        }
     }
 }

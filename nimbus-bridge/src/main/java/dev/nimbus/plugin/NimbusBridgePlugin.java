@@ -5,6 +5,7 @@ import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
+import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.permission.PermissionsSetupEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
@@ -297,11 +298,34 @@ public class NimbusBridgePlugin {
         private final Logger logger;
         private final java.util.function.Supplier<MaintenanceHandler> maintenanceSupplier;
         private final net.kyori.adventure.text.minimessage.MiniMessage miniMessage = net.kyori.adventure.text.minimessage.MiniMessage.miniMessage();
+        private final boolean loadBalancerEnabled;
+        private final int servicePort;
 
         ConnectionListener(ProxyServer server, Logger logger, java.util.function.Supplier<MaintenanceHandler> maintenanceSupplier) {
             this.server = server;
             this.logger = logger;
             this.maintenanceSupplier = maintenanceSupplier;
+            this.loadBalancerEnabled = Boolean.getBoolean("nimbus.loadbalancer.enabled");
+            this.servicePort = Integer.getInteger("nimbus.service.port", -1);
+        }
+
+        /**
+         * Blocks direct connections that bypass the load balancer.
+         * When the LB is active, the Minecraft handshake contains the port the client connected to.
+         * If that port matches this proxy's service port, the player connected directly (not via LB).
+         */
+        @Subscribe
+        public void onPreLogin(PreLoginEvent event) {
+            if (!loadBalancerEnabled || servicePort <= 0) return;
+
+            var virtualHost = event.getConnection().getVirtualHost();
+            if (virtualHost.isPresent() && virtualHost.get().getPort() == servicePort) {
+                var address = event.getConnection().getRemoteAddress().getAddress().getHostAddress();
+                logger.info("Blocked direct connection from {} on port {} (bypassing load balancer)", address, servicePort);
+                event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                    Component.text("Please connect via the correct address.", NamedTextColor.RED)
+                ));
+            }
         }
 
         @Subscribe

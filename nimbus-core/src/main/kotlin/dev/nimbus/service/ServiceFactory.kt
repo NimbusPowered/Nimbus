@@ -213,6 +213,11 @@ class ServiceFactory(
                 }
             }
 
+            // Tell proxy services whether the load balancer is active so they can block direct connections
+            if (software == ServerSoftware.VELOCITY && config.loadbalancer.enabled) {
+                command.add("-Dnimbus.loadbalancer.enabled=true")
+            }
+
             // Build startup command based on software type
             val isModded = software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC, ServerSoftware.CUSTOM)
             if (isModded) {
