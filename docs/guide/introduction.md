@@ -115,7 +115,7 @@ Nimbus is built from several modules:
 | **nimbus-protocol** | Shared message definitions for controller-agent communication (internal, not user-facing). |
 | **nimbus-bridge** | Velocity plugin that provides hub commands and connects the proxy to the Nimbus API. Auto-deployed to all proxy instances. |
 | **nimbus-sdk** | Backend server plugin (Paper/Purpur) that connects game servers to the Nimbus API. Auto-deployed to all backend instances (excluded on Folia). |
-| **nimbus-signs** | Optional plugin for dynamic server-selector signs on lobby servers. |
+| **nimbus-display** | Display plugin for server-selector signs and NPCs (FancyNpcs-powered player skins, entity types, holograms, equipment, floating items, server inventory). Auto-deployed with FancyNpcs. |
 
 ## What's Next?
 

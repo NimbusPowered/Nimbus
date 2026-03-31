@@ -63,8 +63,12 @@ nimbus-perms (Paper Plugin)
 ├── ChatRenderer           → Prefix/suffix chat display
 └── NameTagHandler         → Tab list name tag formatting
 
-nimbus-signs (Paper Plugin)
-├── SignCommand            → /nsign command
+nimbus-display (Paper Plugin)
+├── DisplayCommand         → /ndisplay command (signs + NPCs)
+├── NpcRenderer            → FancyNpcs integration, holograms, floating items
+├── NpcManager             → NPC lifecycle + hologram updates
+├── NpcListener            → FancyNpcs NpcInteractEvent handling
+├── NpcInventory           → Server selector GUI (InventoryHolder)
 ├── SignManager            → Sign lifecycle + rendering
 ├── SignConfig             → YAML persistence
 └── SignListener           → Click-to-join handling
@@ -218,7 +222,8 @@ Nimbus embeds plugin JARs as classpath resources and deploys them at boot:
 |---|---|---|
 | `nimbus-bridge.jar` | `templates/global_proxy/plugins/` | Always |
 | `nimbus-sdk.jar` | `templates/global/plugins/` | Always |
-| `nimbus-signs.jar` | `plugins/` (root) | Extracted for manual use |
+| `nimbus-display.jar` | `plugins/` (root) | Extracted for manual use |
+| `FancyNpcs.jar` | `templates/global/plugins/` | Always (required by nimbus-display) |
 
 Plugin tracking (`.nimbus-plugins` file) ensures:
 - If a user removes a plugin JAR, Nimbus won't re-deploy it

@@ -220,15 +220,15 @@ GET /api/displays/BedWars
 
 ---
 
-## Signs Plugin
+## Display Plugin
 
-To use sign displays in your lobby, install the `nimbus-signs` plugin on your Paper/Purpur lobby servers. The plugin:
+The `nimbus-display` plugin provides server-selector signs and NPCs on your lobby servers. It is auto-deployed along with FancyNpcs. The plugin:
 
 1. Connects to the Nimbus API to fetch display configs and live service data
-2. Updates signs at regular intervals with current player counts and states
+2. Updates signs and NPC holograms with current player counts and states
 3. Handles player clicks to send them to the appropriate server group
-4. Switches between `line4_online` and `line4_offline` based on group availability
+4. Supports FancyNpcs-powered NPCs with player skins, entity types, equipment, floating items, look-at-player, poses, and a server selector inventory
 
 ::: tip
-Place signs in your lobby world and use the setup command provided by nimbus-signs to link them to a group. The sign text is automatically formatted using the display config.
+Use `/ndisplay sign set <group>` to create signs and `/ndisplay npc set <group> [strategy] [type] [skin]` to create NPCs. All NPC properties can be live-edited with `/ndisplay npc edit <property> <value>`.
 :::

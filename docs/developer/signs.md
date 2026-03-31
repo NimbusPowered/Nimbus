@@ -1,184 +1,190 @@
-# Signs Plugin
+# Display Plugin
 
-The Nimbus Signs plugin adds clickable server signs to lobby and hub servers. Players can click a sign to join a specific server or be routed to the best available server in a group.
+The Nimbus Display plugin adds clickable server signs and interactive NPCs to lobby and hub servers. Players can click a sign or NPC to join a server, open a server selector inventory, or execute custom commands.
 
 ## Installation
 
-The signs plugin is bundled with Nimbus but **not auto-deployed** to servers. It's extracted to the `plugins/` directory at the Nimbus root for convenience:
+The display plugin is auto-deployed to all backend servers along with its dependency **FancyNpcs**. Both JARs are embedded in nimbus-core and deployed on startup:
 
 ```
-plugins/
-  nimbus-sdk.jar        # Auto-deployed (you don't need this copy)
-  nimbus-signs.jar      # Copy this to your lobby server's plugins/
-```
-
-To install, copy `nimbus-signs.jar` into the `plugins/` folder of the template for your lobby group:
-
-```
-templates/
-  Lobby/
-    plugins/
-      nimbus-signs.jar
+templates/global/plugins/
+  nimbus-display.jar     # Auto-deployed
+  FancyNpcs.jar          # Auto-deployed (required for NPCs)
+  nimbus-sdk.jar         # Auto-deployed (required)
 ```
 
 ::: tip
-Once placed in a template directory, Nimbus will auto-update the signs plugin JAR on every boot, keeping it in sync with your Nimbus version.
+Nimbus auto-updates `nimbus-display.jar` in templates and static services on every boot.
 :::
-
-The signs plugin **requires the SDK plugin** (`nimbus-sdk.jar`) to be present. The SDK is auto-deployed to all backend servers, so this is already handled.
 
 ## Commands
 
-The command is `/nsign`. All subcommands require the player to be looking at a sign block within 5 blocks.
+The unified command is `/ndisplay` (alias: `/nimbusdisplay`).
+
+### Signs
 
 | Command | Permission | Description |
 |---|---|---|
-| `/nsign set <target> [strategy]` | `nimbus.signs.create` | Create a Nimbus sign |
-| `/nsign remove` | `nimbus.signs.remove` | Remove the sign you're looking at |
-| `/nsign list` | `nimbus.signs.create` | List all configured signs |
-| `/nsign reload` | `nimbus.signs.reload` | Reload sign configuration |
+| `/ndisplay sign set <target> [strategy]` | `nimbus.display.sign` | Create a sign (look at a sign block) |
+| `/ndisplay sign remove` | `nimbus.display.sign` | Remove the sign you're looking at |
 
-### Creating signs
+### NPCs
 
-```
-/nsign set BedWars
-/nsign set BedWars least
-/nsign set BedWars fill
-/nsign set BedWars random
-/nsign set BedWars-1
-```
-
-The `target` can be either a **group name** or a **service name**:
-
-| Target | Behavior |
-|---|---|
-| `BedWars` | Routes to the best available server in the group using the specified strategy |
-| `BedWars-1` | Connects directly to the specific service |
-
-Service targets are detected automatically when the name matches the `*-N` pattern.
-
-### Routing strategies
-
-| Strategy | Keyword | Description |
+| Command | Permission | Description |
 |---|---|---|
-| Least players | `least` (default) | Send to the server with the fewest players |
-| Fill first | `fill` | Send to the server with the most players |
-| Random | `random` | Send to a random server |
+| `/ndisplay npc set <target> [strategy] [type] [skin]` | `nimbus.display.npc` | Spawn NPC at your position |
+| `/ndisplay npc remove` | `nimbus.display.npc` | Remove nearest NPC (5 blocks) |
+| `/ndisplay npc edit <property> <value>` | `nimbus.display.npc` | Live-edit NPC property |
+| `/ndisplay npc info` | `nimbus.display.npc` | Show all properties of nearest NPC |
 
-## Sign display
+### Global
 
-Each sign shows 4 lines with dynamic content. The display is customizable through the [Display system](/config/display).
+| Command | Permission | Description |
+|---|---|---|
+| `/ndisplay list` | `nimbus.display.list` | List all signs and NPCs |
+| `/ndisplay reload` | `nimbus.display.reload` | Reload config and respawn all |
 
-### Default layout
-
-```
-+---------------------+
-|  * BedWars *        |  Line 1: Name
-|  24 playing         |  Line 2: Player count
-|  3 server(s)        |  Line 3: Server count or state
-|  > Click to join!   |  Line 4: Status (online/offline)
-+---------------------+
-```
-
-When the target is offline:
+## Creating NPCs
 
 ```
-+---------------------+
-|  * BedWars *        |
-|  0 playing          |
-|  0 server(s)        |
-|  x Offline          |  Line 4 changes
-+---------------------+
+/ndisplay npc set BedWars                         # Villager NPC
+/ndisplay npc set BedWars least PLAYER Notch       # Player NPC with skin
+/ndisplay npc set BedWars fill ZOMBIE              # Zombie NPC
 ```
 
-### Placeholders
+**Entity types:** `PLAYER`, `VILLAGER`, `ZOMBIE`, `SKELETON`, `PILLAGER`, `WANDERING_TRADER`, `IRON_GOLEM`, `ALLAY`, `ARMOR_STAND`, and any other living entity type.
+
+For `PLAYER` type, the optional skin argument sets the player name whose skin to use.
+
+## Live-editing NPCs
+
+All properties can be changed live with `/ndisplay npc edit`. The NPC respawns immediately with new settings and the config is saved.
+
+| Property | Example | Description |
+|---|---|---|
+| `type` | `PLAYER`, `ZOMBIE` | Entity type |
+| `skin` | `Notch` | Player skin (PLAYER type) |
+| `target` | `BedWars` | Target group or service |
+| `strategy` | `least`, `fill`, `random` | Routing strategy |
+| `lookat` | `true`, `false` | Turn head toward player |
+| `left_click` | `CONNECT`, `COMMAND /menu`, `INVENTORY`, `NONE` | Left-click action |
+| `right_click` | `INVENTORY`, `CONNECT`, `NONE` | Right-click action |
+| `hologram` | `&b&lBedWars\|&7{players} online` | Hologram lines (`\|` = line break) |
+| `floating_item` | `true`, `RED_BED`, `off` | Floating item (true = from display config) |
+| `mainhand` | `DIAMOND_SWORD`, `none` | Main hand item |
+| `offhand` | `SHIELD`, `none` | Off hand item |
+| `head` | `DIAMOND_HELMET`, `none` | Helmet slot |
+| `chest` | `DIAMOND_CHESTPLATE`, `none` | Chestplate slot |
+| `legs` | `DIAMOND_LEGGINGS`, `none` | Leggings slot |
+| `feet` | `DIAMOND_BOOTS`, `none` | Boots slot |
+| `burning` | `true`, `false` | Visual fire effect |
+| `pose` | `crouching`, `sleeping`, `swimming`, `spin_attack`, `none` | Entity pose |
+| `position` | `here` | Move NPC to your position |
+
+## Click actions
+
+| Action | Description |
+|---|---|
+| `CONNECT` | Route player to best server in group (or specific service) |
+| `INVENTORY` | Open server selector GUI with all services as clickable items |
+| `COMMAND <cmd>` | Execute a command as the player (e.g., `COMMAND /menu open`) |
+| `NONE` | Do nothing |
+
+## Hologram placeholders
 
 | Placeholder | Description |
 |---|---|
 | `{name}` / `{target}` | Target name (group or service) |
 | `{players}` | Current player count |
-| `{max_players}` | Maximum players |
-| `{servers}` | Number of running services (group targets) |
+| `{max_players}` | Maximum players per instance |
+| `{servers}` | Number of running services |
 | `{state}` | Current state (resolved through display config) |
 
-### Display config integration
+## Display config integration
 
-Signs pull their line templates and state labels from the [Display system](/config/display). Each group can have custom sign lines defined in `config/modules/display/<group>.toml`:
+Signs and NPC holograms pull their templates from `config/modules/display/<group>.toml`. The floating item material is also defined per group:
 
 ```toml
-[sign]
-line1 = "&1&l* {name} *"
-line2 = "&8{players} playing"
-line3 = "&8{servers} server(s)"
-line4_online = "&2> Click to join!"
-line4_offline = "&4x Offline"
+[display.npc]
+display_name = "&b&lBedWars"
+subtitle = "&7{players}/{max_players} online &8| &7{state}"
+subtitle_offline = "&c✖ Offline"
+floating_item = "RED_BED"
 
-[states]
-READY = "&aOnline"
-INGAME = "&6In Game"
-ENDING = "&cEnding"
-STOPPED = "&4Offline"
+[display.npc.status_items]
+ONLINE = "LIME_WOOL"
+OFFLINE = "GRAY_WOOL"
+INGAME = "ORANGE_WOOL"
 ```
 
-State labels are resolved through `NimbusDisplay.resolveState()` -- the raw state (e.g., `"INGAME"`) is mapped to a display label (e.g., `"In Game"`).
+## Server selector inventory
 
-## Click behavior
+When a player triggers the `INVENTORY` action, a chest GUI opens showing all services in the target group. Each service is represented by a wool item colored by status (configurable via `status_items`). Clicking a service connects the player.
 
-When a player clicks a Nimbus sign:
+Inventory appearance is configurable in the display config:
 
-**Group target** (e.g., `BedWars`):
-1. Find all routable services in the group (READY + no custom state)
-2. Apply the routing strategy to select the best server
-3. Send the player via the Nimbus API
-
-**Service target** (e.g., `BedWars-1`):
-1. Check if the service is online and READY
-2. Send the player directly to that service
-
-## Sign updates
-
-Signs are refreshed periodically by the `SignManager`. On each update cycle:
-
-1. Query the `ServiceCache` for current service data
-2. Fetch display configs from the Nimbus API
-3. Replace placeholders with live values
-4. Update the sign block text using Bukkit's Adventure API
-
-Updates run on the main server thread (via `Scheduler.runTask()`) to ensure thread safety with Bukkit's block API.
+```toml
+[display.npc.inventory]
+title = "&8» &b&lBedWars Servers"
+size = 27
+item_name = "&b{name}"
+item_lore = ["&7Players: &f{players}/{max_players}", "&7State: &f{state}", "", "&aClick to join!"]
+```
 
 ## Data storage
 
-Sign locations and configurations are stored in the plugin's `config.yml`:
+NPC and sign configurations are stored in the plugin's `config.yml`:
 
 ```yaml
+npcs:
+  bedwars-npc-10-65-5:
+    target: BedWars
+    strategy: least
+    entity_type: PLAYER
+    skin: Notch
+    look_at_player: true
+    left_click: CONNECT
+    right_click: INVENTORY
+    hologram:
+      - "&b&lBedWars"
+      - "&7{players}/{max_players} online"
+      - "&7{state}"
+    floating_item: "true"
+    equipment:
+      mainhand: DIAMOND_SWORD
+      offhand: SHIELD
+    burning: false
+    pose: null
+    location:
+      world: world
+      x: 10.5
+      y: 65.0
+      z: 5.5
+      yaw: 90.0
+      pitch: 0.0
+
 signs:
   bedwars-100-64-200:
     target: BedWars
-    service: false
-    strategy: LEAST_PLAYERS
-    world: world
-    x: 100
-    y: 64
-    z: 200
-    line1: "&1&l* BedWars *"
-    line2: "&8{players} playing"
-    line3: "&8{servers} server(s)"
-    line4_online: "&2> Click to join!"
-    line4_offline: "&4x Offline"
+    strategy: least
+    location:
+      world: world
+      x: 100
+      y: 64
+      z: 200
 ```
-
-The sign ID is generated from the target name and block coordinates.
 
 ## Permissions
 
 | Permission | Description |
 |---|---|
-| `nimbus.signs.create` | Create and list Nimbus signs |
-| `nimbus.signs.remove` | Remove Nimbus signs |
-| `nimbus.signs.reload` | Reload sign configuration |
+| `nimbus.display.sign` | Create and manage signs |
+| `nimbus.display.npc` | Create, edit, and remove NPCs |
+| `nimbus.display.list` | List all signs and NPCs |
+| `nimbus.display.reload` | Reload display config |
 
 ## Next steps
 
-- [SDK](/developer/sdk) -- Backend server plugin API
-- [Display Config](/config/display) -- Customize sign appearance
-- [Server Groups](/guide/server-groups) -- Group configuration
+- [SDK](/developer/sdk) — Backend server plugin API
+- [Display Config](/config/display) — Customize sign + NPC appearance
+- [Server Groups](/guide/server-groups) — Group configuration
