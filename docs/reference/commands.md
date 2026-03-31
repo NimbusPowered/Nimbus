@@ -1080,11 +1080,13 @@ With no arguments, shows status and backend proxy table:
   Strategy:   least-players
   Active:     36 connections
   Total:      1,247 connections
+  Rejected:   3 connections
+  Failed:     1 connections
 
-<span class="t-bold t-bright-cyan">BACKEND         HOST          PORT    PLAYERS  STATE</span>
-<span class="t-dim">──────────────────────────────────────────────────────────</span>
-<span class="t-bold">Proxy-1</span>         127.0.0.1     30010   18       <span class="t-green">● READY</span>
-<span class="t-bold">Proxy-2</span>         10.0.0.2      30010   18       <span class="t-green">● READY</span>
+<span class="t-bold t-bright-cyan">BACKEND         HOST          PORT    PLAYERS  STATE          HEALTH     CONNS</span>
+<span class="t-dim">─────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="t-bold">Proxy-1</span>         127.0.0.1     30010   18       <span class="t-green">● READY</span>       <span class="t-green">HEALTHY</span>    12
+<span class="t-bold">Proxy-2</span>         10.0.0.2      30010   18       <span class="t-green">● READY</span>       <span class="t-green">HEALTHY</span>    14
 </pre>
 </div>
 

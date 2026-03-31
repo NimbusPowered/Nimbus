@@ -238,6 +238,8 @@ object ConsoleFormatter {
                 "${colorize("◆ LB", BRIGHT_BLUE)} started on ${BOLD}${event.bind}:${event.port}${RESET} ${DIM}(${event.strategy})${RESET}"
             is NimbusEvent.LoadBalancerStopped ->
                 "${colorize("◇ LB", BLUE)} stopped ${DIM}(${event.reason})${RESET}"
+            is NimbusEvent.LoadBalancerBackendHealthChanged ->
+                "${colorize("◆ LB", if (event.newStatus == "HEALTHY") GREEN else RED)} backend ${BOLD}${event.host}:${event.port}${RESET} ${event.oldStatus} → ${event.newStatus}"
             is NimbusEvent.StressTestUpdated -> {
                 if (event.simulatedPlayers > 0)
                     "${colorize("⚡ STRESS", MAGENTA)} ${BOLD}${event.simulatedPlayers}${RESET}/${event.targetPlayers} simulated players"

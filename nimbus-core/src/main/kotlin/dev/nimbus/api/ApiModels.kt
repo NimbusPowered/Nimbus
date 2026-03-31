@@ -619,6 +619,7 @@ data class LoadBalancerResponse(
     val proxyProtocol: Boolean,
     val totalConnections: Long,
     val activeConnections: Int,
+    val rejectedConnections: Long,
     val backends: List<LbBackendResponse>
 )
 
@@ -627,7 +628,9 @@ data class LbBackendResponse(
     val name: String,
     val host: String,
     val port: Int,
-    val playerCount: Int
+    val playerCount: Int,
+    val health: String,
+    val connectionCount: Int
 )
 
 // ── Maintenance DTOs ───────────────────────────────────────────────

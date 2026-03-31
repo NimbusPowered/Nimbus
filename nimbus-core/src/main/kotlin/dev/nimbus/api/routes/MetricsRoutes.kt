@@ -106,6 +106,28 @@ fun Route.metricsRoutes(
                 "Total connections handled by load balancer", loadBalancer.totalConnections)
             sb.metric("nimbus_loadbalancer_connections_active", "gauge",
                 "Active load balancer connections", loadBalancer.activeConnections)
+            sb.metric("nimbus_loadbalancer_connections_rejected", "counter",
+                "Connections rejected due to limit", loadBalancer.rejectedConnections)
+            sb.metric("nimbus_loadbalancer_connections_failed", "counter",
+                "Connections failed to reach backend", loadBalancer.failedConnections)
+
+            val backendStates = loadBalancer.healthManager.getAll()
+            if (backendStates.isNotEmpty()) {
+                sb.help("nimbus_loadbalancer_backend_connections_active", "gauge",
+                    "Active connections per backend")
+                sb.help("nimbus_loadbalancer_backend_health", "gauge",
+                    "Backend health status (1=healthy, 0=unhealthy)")
+                for (backend in backendStates) {
+                    val service = registry.getAll().firstOrNull { it.host == backend.host && it.port == backend.port }
+                    val name = service?.name ?: "${backend.host}:${backend.port}"
+                    sb.value("nimbus_loadbalancer_backend_connections_active",
+                        backend.activeConnections.get(),
+                        "backend" to name, "host" to backend.host, "port" to backend.port.toString())
+                    sb.value("nimbus_loadbalancer_backend_health",
+                        if (backend.status.get() == dev.nimbus.loadbalancer.BackendHealthManager.HealthStatus.HEALTHY) 1 else 0,
+                        "backend" to name, "host" to backend.host, "port" to backend.port.toString())
+                }
+            }
         }
 
         // ── Maintenance ──

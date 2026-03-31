@@ -103,7 +103,19 @@ data class LoadBalancerConfig(
     @SerialName("connection_timeout")
     val connectionTimeout: Int = 5000,
     @SerialName("buffer_size")
-    val bufferSize: Int = 16384
+    val bufferSize: Int = 16384,
+    @SerialName("max_connections")
+    val maxConnections: Int = 10000,
+    @SerialName("idle_timeout")
+    val idleTimeout: Int = 30000,
+    @SerialName("health_check_interval")
+    val healthCheckInterval: Int = 10,
+    @SerialName("health_check_timeout")
+    val healthCheckTimeout: Int = 3000,
+    @SerialName("unhealthy_threshold")
+    val unhealthyThreshold: Int = 3,
+    @SerialName("healthy_threshold")
+    val healthyThreshold: Int = 2
 )
 
 @Serializable

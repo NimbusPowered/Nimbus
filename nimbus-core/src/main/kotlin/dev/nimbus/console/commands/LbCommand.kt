@@ -50,6 +50,8 @@ class LbCommand(
             if (loadBalancer != null) {
                 println(ConsoleFormatter.field("Active", "${loadBalancer.activeConnections} connections"))
                 println(ConsoleFormatter.field("Total", "${loadBalancer.totalConnections} connections"))
+                println(ConsoleFormatter.field("Rejected", "${loadBalancer.rejectedConnections} connections"))
+                println(ConsoleFormatter.field("Failed", "${loadBalancer.failedConnections} connections"))
             }
             println()
 
@@ -62,14 +64,24 @@ class LbCommand(
             if (proxyServices.isEmpty()) {
                 println(ConsoleFormatter.warn("  No backend proxies available"))
             } else {
-                val headers = listOf("BACKEND", "HOST", "PORT", "PLAYERS", "STATE")
+                val headers = listOf("BACKEND", "HOST", "PORT", "PLAYERS", "STATE", "HEALTH", "CONNS")
                 val rows = proxyServices.map { svc ->
+                    val health = loadBalancer?.healthManager?.get(svc.host, svc.port)
+                    val healthStr = when {
+                        health == null -> "${ConsoleFormatter.GRAY}N/A${ConsoleFormatter.RESET}"
+                        health.draining -> "${ConsoleFormatter.YELLOW}DRAINING${ConsoleFormatter.RESET}"
+                        health.status.get() == dev.nimbus.loadbalancer.BackendHealthManager.HealthStatus.HEALTHY ->
+                            "${ConsoleFormatter.GREEN}HEALTHY${ConsoleFormatter.RESET}"
+                        else -> "${ConsoleFormatter.RED}UNHEALTHY${ConsoleFormatter.RESET}"
+                    }
                     listOf(
                         ConsoleFormatter.colorize(svc.name, ConsoleFormatter.BOLD),
                         svc.host,
                         svc.port.toString(),
                         svc.playerCount.toString(),
-                        ConsoleFormatter.coloredState(svc.state)
+                        ConsoleFormatter.coloredState(svc.state),
+                        healthStr,
+                        (health?.activeConnections?.get() ?: 0).toString()
                     )
                 }
                 println(ConsoleFormatter.formatTable(headers, rows))

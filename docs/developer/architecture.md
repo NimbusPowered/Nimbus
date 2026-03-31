@@ -84,10 +84,12 @@ When Nimbus starts (`Nimbus.kt` → `nimbusMain()`), components are initialized 
 12. NodeManager           → If cluster.enabled: init cluster coordination
 13. ClusterServer         → If cluster.enabled: separate Ktor server on agent_port for agent WebSocket connections
 14. TcpLoadBalancer       → If loadbalancer.enabled: init Layer-4 TCP proxy
+                            with BackendHealthManager (health checks, circuit breaker,
+                            connection draining, idle timeout, connection limit)
 14. Shutdown hook         → Register SIGTERM/SIGINT handler
 15. NimbusConsole.init()  → Banner, event listener
 16. Api.start()           → Start Ktor HTTP server (+ /cluster WS if cluster enabled)
-17. LoadBalancer.start()  → If enabled: start TCP listener on LB port
+17. LoadBalancer.start()  → If enabled: start TCP listener on LB port + health check loop
 18. VelocityUpdater       → Start periodic update check (first check after 60s)
 19. startMinimumInstances → Start min_instances for all groups
 20. Console.start()       → JLine3 REPL (blocks until shutdown)
@@ -154,7 +156,7 @@ Events are modeled as a `sealed class NimbusEvent`:
 | Config | `ConfigReloaded` |
 | API | `ApiStarted`, `ApiStopped`, `ApiWarning`, `ApiError` |
 | Cluster | `NodeConnected`, `NodeDisconnected`, `NodeHeartbeat` |
-| Load balancer | `LoadBalancerStarted`, `LoadBalancerStopped` |
+| Load balancer | `LoadBalancerStarted`, `LoadBalancerStopped`, `LoadBalancerBackendHealthChanged` |
 
 Events are broadcast via the REST API's WebSocket endpoint (`/api/events`) so external systems and plugins can react to them.
 

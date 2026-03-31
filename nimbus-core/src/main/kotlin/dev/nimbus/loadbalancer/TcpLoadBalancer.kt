@@ -2,21 +2,27 @@ package dev.nimbus.loadbalancer
 
 import dev.nimbus.config.LoadBalancerConfig
 import dev.nimbus.config.ServerSoftware
+import dev.nimbus.event.EventBus
+import dev.nimbus.event.NimbusEvent
 import dev.nimbus.group.GroupManager
 import dev.nimbus.service.ServiceRegistry
 import dev.nimbus.service.ServiceState
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
 import org.slf4j.LoggerFactory
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.AsynchronousServerSocketChannel
 import java.nio.channels.AsynchronousSocketChannel
 import java.nio.channels.CompletionHandler
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class TcpLoadBalancer(
-    private val config: LoadBalancerConfig,
+    val config: LoadBalancerConfig,
     private val registry: ServiceRegistry,
     private val groupManager: GroupManager,
+    private val eventBus: EventBus,
     private val scope: CoroutineScope
 ) {
     private val logger = LoggerFactory.getLogger(TcpLoadBalancer::class.java)
@@ -27,31 +33,69 @@ class TcpLoadBalancer(
         else -> LeastPlayersStrategy()
     }
 
+    val healthManager = BackendHealthManager(config, eventBus, scope)
+
     @Volatile private var running = false
-    @Volatile var totalConnections: Long = 0; private set
-    @Volatile var activeConnections: Int = 0; private set
+    private val _totalConnections = AtomicLong(0)
+    private val _activeConnections = AtomicInteger(0)
+    private val _rejectedConnections = AtomicLong(0)
+    private val _failedConnections = AtomicLong(0)
+    private val connectionSemaphore = Semaphore(config.maxConnections)
 
-    fun start(): Job = scope.launch(Dispatchers.IO) {
-        val address = InetSocketAddress(config.bind, config.port)
-        serverChannel = AsynchronousServerSocketChannel.open().bind(address)
-        running = true
-        logger.info("TCP Load Balancer started on {}:{} (strategy: {})",
-            config.bind, config.port, config.strategy)
+    val totalConnections: Long get() = _totalConnections.get()
+    val activeConnections: Int get() = _activeConnections.get()
+    val rejectedConnections: Long get() = _rejectedConnections.get()
+    val failedConnections: Long get() = _failedConnections.get()
 
-        while (running && isActive) {
-            try {
-                val clientChannel = acceptAsync(serverChannel!!)
-                launch {
-                    handleConnection(clientChannel)
+    fun start(): Job {
+        // Subscribe to service lifecycle for connection draining
+        eventBus.on<NimbusEvent.ServiceStopping> { event ->
+            val service = registry.get(event.serviceName)
+            if (service != null) {
+                healthManager.markDraining(service.host, service.port)
+            }
+        }
+        eventBus.on<NimbusEvent.ServiceStopped> { event ->
+            val service = registry.get(event.serviceName)
+            if (service != null) {
+                healthManager.remove(service.host, service.port)
+            }
+        }
+
+        healthManager.start()
+
+        return scope.launch(Dispatchers.IO) {
+            val address = InetSocketAddress(config.bind, config.port)
+            serverChannel = AsynchronousServerSocketChannel.open().bind(address)
+            running = true
+            logger.info("TCP Load Balancer started on {}:{} (strategy: {}, max connections: {})",
+                config.bind, config.port, config.strategy, config.maxConnections)
+
+            while (running && isActive) {
+                try {
+                    val clientChannel = acceptAsync(serverChannel!!)
+                    if (!connectionSemaphore.tryAcquire()) {
+                        clientChannel.closeSilently()
+                        _rejectedConnections.incrementAndGet()
+                        continue
+                    }
+                    launch {
+                        try {
+                            handleConnection(clientChannel)
+                        } finally {
+                            connectionSemaphore.release()
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (running) logger.error("Error accepting connection: {}", e.message)
                 }
-            } catch (e: Exception) {
-                if (running) logger.error("Error accepting connection: {}", e.message)
             }
         }
     }
 
     fun stop() {
         running = false
+        healthManager.stop()
         try {
             serverChannel?.close()
         } catch (e: Exception) {
@@ -74,26 +118,30 @@ class TcpLoadBalancer(
     }
 
     private suspend fun handleConnection(client: AsynchronousSocketChannel) {
-        totalConnections++
-        activeConnections++
+        _totalConnections.incrementAndGet()
+        _activeConnections.incrementAndGet()
+        var backendChannel: AsynchronousSocketChannel? = null
+        var backend: BackendTarget? = null
         try {
-            // Read initial bytes to parse Minecraft handshake (for logging/future use)
-            // But we are Layer-4 — we just pick a backend and relay bytes
-            val backend = selectBackend()
+            backend = selectBackend()
             if (backend == null) {
                 logger.warn("No backend proxy available for incoming connection")
-                client.close()
                 return
             }
 
-            val backendChannel = AsynchronousSocketChannel.open()
+            backendChannel = AsynchronousSocketChannel.open()
             try {
-                connectAsync(backendChannel, InetSocketAddress(backend.host, backend.port))
+                withTimeout(config.connectionTimeout.toLong()) {
+                    connectAsync(backendChannel, InetSocketAddress(backend.host, backend.port))
+                }
             } catch (e: Exception) {
                 logger.warn("Failed to connect to backend {}:{}: {}", backend.host, backend.port, e.message)
-                client.close()
+                _failedConnections.incrementAndGet()
+                healthManager.recordFailure(backend.host, backend.port)
                 return
             }
+
+            healthManager.incrementConnections(backend.host, backend.port)
 
             // If PROXY protocol is enabled, send PROXY protocol v2 header
             if (config.proxyProtocol) {
@@ -104,17 +152,31 @@ class TcpLoadBalancer(
                 }
             }
 
-            // Relay bytes bidirectionally
+            // Relay bytes bidirectionally with idle timeout watchdog
+            val lastActivity = AtomicLong(System.currentTimeMillis())
+
             coroutineScope {
-                val bufSize = config.bufferSize
-                launch { relay(client, backendChannel, bufSize) }
-                launch { relay(backendChannel, client, bufSize) }
+                launch { relay(client, backendChannel, config.bufferSize, lastActivity) }
+                launch { relay(backendChannel, client, config.bufferSize, lastActivity) }
+                launch {
+                    // Idle timeout watchdog
+                    while (isActive) {
+                        delay(config.idleTimeout.toLong() / 2)
+                        if (System.currentTimeMillis() - lastActivity.get() > config.idleTimeout) {
+                            cancel()
+                        }
+                    }
+                }
             }
         } catch (_: Exception) {
-            // Connection closed
+            // Connection closed or timed out
         } finally {
-            activeConnections--
-            try { client.close() } catch (_: Exception) {}
+            _activeConnections.decrementAndGet()
+            if (backend != null) {
+                healthManager.decrementConnections(backend.host, backend.port)
+            }
+            client.closeSilently()
+            backendChannel?.closeSilently()
         }
     }
 
@@ -125,7 +187,20 @@ class TcpLoadBalancer(
                     ?.config?.group?.software == ServerSoftware.VELOCITY
         }
         if (proxyServices.isEmpty()) return null
-        val chosen = strategy.select(proxyServices)
+
+        // Register any new backends with health manager
+        proxyServices.forEach { healthManager.ensureTracked(it.host, it.port) }
+
+        // Filter to healthy backends only
+        val healthy = proxyServices.filter { healthManager.isHealthy(it.host, it.port) }
+
+        // Fallback: if ALL backends are unhealthy, try any READY one (avoid total outage)
+        val candidates = healthy.ifEmpty {
+            logger.warn("All backends unhealthy — falling back to any READY backend")
+            proxyServices
+        }
+
+        val chosen = strategy.select(candidates)
         return BackendTarget(chosen.host, chosen.port)
     }
 
@@ -142,21 +217,20 @@ class TcpLoadBalancer(
         }
     }
 
-    private suspend fun relay(from: AsynchronousSocketChannel, to: AsynchronousSocketChannel, bufferSize: Int) {
+    private suspend fun relay(
+        from: AsynchronousSocketChannel,
+        to: AsynchronousSocketChannel,
+        bufferSize: Int,
+        lastActivity: AtomicLong
+    ) {
         val buffer = ByteBuffer.allocate(bufferSize)
-        try {
-            while (from.isOpen && to.isOpen) {
-                buffer.clear()
-                val read = readAsync(from, buffer)
-                if (read <= 0) break
-                buffer.flip()
-                writeAsync(to, buffer)
-            }
-        } catch (_: Exception) {
-            // Connection closed
-        } finally {
-            try { from.close() } catch (_: Exception) {}
-            try { to.close() } catch (_: Exception) {}
+        while (from.isOpen && to.isOpen) {
+            buffer.clear()
+            val read = readAsync(from, buffer)
+            if (read <= 0) break
+            lastActivity.set(System.currentTimeMillis())
+            buffer.flip()
+            writeAsync(to, buffer)
         }
     }
 
@@ -186,6 +260,10 @@ class TcpLoadBalancer(
                 })
             }
         }
+    }
+
+    private fun AsynchronousSocketChannel.closeSilently() {
+        try { close() } catch (_: Exception) {}
     }
 
     data class BackendTarget(val host: String, val port: Int)

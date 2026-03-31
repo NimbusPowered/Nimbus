@@ -211,7 +211,7 @@ fun nimbusMain() = runBlocking {
 
     // ── Load Balancer ──────────────────────────────────
     val loadBalancer: TcpLoadBalancer? = if (config.loadbalancer.enabled) {
-        TcpLoadBalancer(config.loadbalancer, registry, groupManager, scope)
+        TcpLoadBalancer(config.loadbalancer, registry, groupManager, eventBus, scope)
     } else null
 
     val lbJob: Job? = loadBalancer?.start()

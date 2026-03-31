@@ -44,7 +44,28 @@ fun Route.clusterRoutes(
         if (loadBalancer == null) {
             return@get call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Load balancer not enabled"))
         }
-        // Build response with current backends
-        call.respond(ApiMessage(true, "Load balancer status"))
+        val healthStates = loadBalancer.healthManager.getAll()
+        val backends = healthStates.map { state ->
+            val service = registry.getAll().firstOrNull { it.host == state.host && it.port == state.port }
+            LbBackendResponse(
+                name = service?.name ?: "${state.host}:${state.port}",
+                host = state.host,
+                port = state.port,
+                playerCount = service?.playerCount ?: 0,
+                health = state.status.get().name,
+                connectionCount = state.activeConnections.get()
+            )
+        }
+        call.respond(LoadBalancerResponse(
+            enabled = true,
+            bind = loadBalancer.config.bind,
+            port = loadBalancer.config.port,
+            strategy = loadBalancer.config.strategy,
+            proxyProtocol = loadBalancer.config.proxyProtocol,
+            totalConnections = loadBalancer.totalConnections,
+            activeConnections = loadBalancer.activeConnections,
+            rejectedConnections = loadBalancer.rejectedConnections,
+            backends = backends
+        ))
     }
 }

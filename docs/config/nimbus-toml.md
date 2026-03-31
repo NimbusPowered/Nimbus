@@ -51,6 +51,12 @@ strategy = "least-players"
 proxy_protocol = false
 connection_timeout = 5000
 buffer_size = 16384
+max_connections = 10000
+idle_timeout = 30000
+health_check_interval = 10
+health_check_timeout = 3000
+unhealthy_threshold = 3
+healthy_threshold = 2
 
 [permissions]
 deploy_plugin = true
@@ -264,6 +270,12 @@ The load balancer is **disabled by default**. Single-node setups do not need it.
 | `proxy_protocol` | Boolean | `false` | Send HAProxy PROXY protocol v2 headers to backend Velocity instances, preserving real client IPs. Velocity must have `haproxy-protocol = true` in its config. |
 | `connection_timeout` | Int | `5000` | Timeout in milliseconds for connecting to a backend proxy. |
 | `buffer_size` | Int | `16384` | TCP relay buffer size in bytes. |
+| `max_connections` | Int | `10000` | Maximum number of simultaneous connections. Connections beyond this limit are rejected immediately. |
+| `idle_timeout` | Int | `30000` | Idle timeout in milliseconds. Connections with no traffic in either direction for this duration are closed. Prevents half-open TCP connections from lingering. |
+| `health_check_interval` | Int | `10` | Interval in seconds between health checks for each backend proxy. Uses Minecraft Server List Ping to verify the backend is responsive. |
+| `health_check_timeout` | Int | `3000` | Timeout in milliseconds for each health check ping. |
+| `unhealthy_threshold` | Int | `3` | Number of consecutive health check failures before a backend is marked `UNHEALTHY` and removed from rotation. |
+| `healthy_threshold` | Int | `2` | Number of consecutive health check successes before an `UNHEALTHY` backend is restored to `HEALTHY`. |
 
 ```toml
 [loadbalancer]
@@ -272,7 +284,19 @@ bind = "0.0.0.0"
 port = 25565
 strategy = "least-players"
 proxy_protocol = true
+max_connections = 10000
+health_check_interval = 10
+unhealthy_threshold = 3
 ```
+
+### Health Checks
+
+When the load balancer is running, it periodically pings each backend Velocity proxy using the Minecraft Server List Ping protocol. This verifies that the proxy is actually responding to game traffic, not just accepting TCP connections.
+
+- A backend that fails `unhealthy_threshold` consecutive checks is marked **UNHEALTHY** and removed from the rotation — no new connections are routed to it.
+- Once it passes `healthy_threshold` consecutive checks again, it is restored to **HEALTHY**.
+- If **all** backends are unhealthy (e.g., during a transient network blip), the LB falls back to trying any `READY` backend to avoid a total outage.
+- When a Velocity service is being stopped, the LB automatically marks it as **DRAINING** — existing connections continue but no new ones are routed there.
 
 ::: warning
 When the load balancer is enabled, Velocity proxies are allocated backend ports (30000+) instead of 25565. The LB owns port 25565. Make sure your firewall allows connections to the LB port.

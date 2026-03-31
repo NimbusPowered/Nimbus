@@ -43,6 +43,7 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 ├── database/              # Exposed ORM: DatabaseManager, Tables, MetricsCollector
 ├── event/                 # Coroutine-based EventBus + sealed Events
 ├── group/                 # ServerGroup runtime state, GroupManager
+├── loadbalancer/          # TcpLoadBalancer, BackendHealthManager, strategies
 ├── scaling/               # ScalingEngine + ScalingRule (auto-scale by player count)
 ├── proxy/                 # ProxySyncManager (tab list, MOTD, chat, maintenance)
 ├── service/               # Service lifecycle, ProcessHandle, PortAllocator, ServerListPing
@@ -94,7 +95,7 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 ## API (v0.2)
 
 - Bearer token auth (`Authorization: Bearer <token>`)
-- REST: `/api/services`, `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`
+- REST: `/api/services`, `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`
 - WebSocket: `/api/events` (live events), `/api/services/{name}/console` (bidirectional)
 - `/api/health` is always public (no auth)
 

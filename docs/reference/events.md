@@ -744,6 +744,36 @@ Emitted when the TCP load balancer stops.
 
 ---
 
+### LOAD_BALANCER_BACKEND_HEALTH_CHANGED
+
+Emitted when a backend proxy's health status changes (e.g., from `HEALTHY` to `UNHEALTHY` or back).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `host` | string | Backend host address |
+| `port` | string | Backend port |
+| `oldStatus` | string | Previous health status (`HEALTHY` or `UNHEALTHY`) |
+| `newStatus` | string | New health status (`HEALTHY` or `UNHEALTHY`) |
+
+```json
+{
+  "type": "LOAD_BALANCER_BACKEND_HEALTH_CHANGED",
+  "timestamp": "2025-01-15T12:30:00.000Z",
+  "data": {
+    "host": "127.0.0.1",
+    "port": "30010",
+    "oldStatus": "HEALTHY",
+    "newStatus": "UNHEALTHY"
+  }
+}
+```
+
+::: tip
+This event is useful for monitoring dashboards to track backend availability. A backend is marked `UNHEALTHY` after `unhealthy_threshold` consecutive failed health checks, and restored to `HEALTHY` after `healthy_threshold` successes.
+:::
+
+---
+
 ## System Events
 
 ### CONFIG_RELOADED
@@ -964,6 +994,32 @@ Emitted when the TCP load balancer shuts down.
   "timestamp": "2025-01-15T20:00:00.000Z",
   "data": {
     "reason": "shutdown"
+  }
+}
+```
+
+---
+
+### LOAD_BALANCER_BACKEND_HEALTH_CHANGED
+
+Emitted when a backend proxy's health status transitions.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `host` | string | Backend host address |
+| `port` | string | Backend port |
+| `oldStatus` | string | Previous status (`HEALTHY` or `UNHEALTHY`) |
+| `newStatus` | string | New status (`HEALTHY` or `UNHEALTHY`) |
+
+```json
+{
+  "type": "LOAD_BALANCER_BACKEND_HEALTH_CHANGED",
+  "timestamp": "2025-01-15T12:30:00.000Z",
+  "data": {
+    "host": "127.0.0.1",
+    "port": "30010",
+    "oldStatus": "HEALTHY",
+    "newStatus": "UNHEALTHY"
   }
 }
 ```

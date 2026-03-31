@@ -1468,7 +1468,7 @@ List all connected cluster nodes. Returns `404` if cluster mode is not enabled.
 
 ### GET /api/loadbalancer
 
-Get load balancer status including backend proxy list. Returns `404` if the load balancer is not enabled.
+Get load balancer status including backend proxy list with health information. Returns `404` if the load balancer is not enabled.
 
 **Response:**
 
@@ -1481,17 +1481,33 @@ Get load balancer status including backend proxy list. Returns `404` if the load
   "proxyProtocol": true,
   "totalConnections": 1247,
   "activeConnections": 36,
+  "rejectedConnections": 3,
   "backends": [
     {
       "name": "Proxy-1",
       "host": "127.0.0.1",
       "port": 30010,
-      "players": 18,
-      "state": "READY"
+      "playerCount": 18,
+      "health": "HEALTHY",
+      "connectionCount": 12
+    },
+    {
+      "name": "Proxy-2",
+      "host": "127.0.0.1",
+      "port": 30011,
+      "playerCount": 14,
+      "health": "UNHEALTHY",
+      "connectionCount": 0
     }
   ]
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rejectedConnections` | Long | Total connections rejected because `max_connections` limit was reached |
+| `backends[].health` | String | Health status: `HEALTHY`, `UNHEALTHY`, or `UNKNOWN` |
+| `backends[].connectionCount` | Int | Number of active connections currently routed to this backend |
 
 | Status Code | Description |
 |-------------|-------------|

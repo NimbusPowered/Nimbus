@@ -315,6 +315,11 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("reason" to reason)
         )
+        is NimbusEvent.LoadBalancerBackendHealthChanged -> EventMessage(
+            type = "LOAD_BALANCER_BACKEND_HEALTH_CHANGED",
+            timestamp = timestamp.toString(),
+            data = mapOf("host" to host, "port" to port.toString(), "oldStatus" to oldStatus, "newStatus" to newStatus)
+        )
         is NimbusEvent.StressTestUpdated -> EventMessage(
             type = "STRESS_TEST_UPDATED",
             timestamp = timestamp.toString(),
