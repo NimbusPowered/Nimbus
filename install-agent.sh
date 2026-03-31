@@ -67,7 +67,7 @@ detect_os() {
 check_java() {
     if command -v java &>/dev/null; then
         local java_ver
-        java_ver=$(java -version 2>&1 | head -1 | grep -oP '"\K[^"]+' | cut -d. -f1)
+        java_ver=$(java -version 2>&1 | head -1 | grep -oP '"(\d+)' | grep -oP '\d+')
         if [[ "$java_ver" -ge "$JAVA_VERSION" ]]; then
             success "Java $java_ver found"
             return 0
