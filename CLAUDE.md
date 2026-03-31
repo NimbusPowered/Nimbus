@@ -69,9 +69,12 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 - Proxy ports: 25565+, backend ports: 30000+
 - Velocity forwarding: `modern` if all backends >=1.13, else `legacy` (BungeeCord)
 - Via plugins (ViaVersion/ViaBackwards) only on backend servers, never on proxy
-- EULA auto-accepted for Paper/Purpur/Folia templates
+- Via plugin dependencies enforced: ViaBackwards auto-includes ViaVersion, ViaRewind requires ViaBackwards
+- EULA auto-accepted for Paper/Purpur/Pufferfish/Folia templates
+- Pufferfish support: downloads from Jenkins CI (`ci.pufferfish.host`), treated as Paper-based (plugins, Via, performance optimizer)
+- Cardboard (BETA): optional Bukkit/Paper plugin support for Fabric servers, auto-downloads with iCommon dependency from Modrinth
 - Folia: SDK + NimbusPerms + ProtocolLib auto-excluded (incompatible with regionized threading)
-- Performance optimizer: Aikar's JVM flags + Paper/Purpur/Folia config tuning (optimize=true default)
+- Performance optimizer: Aikar's JVM flags + Paper/Purpur/Pufferfish/Folia config tuning (optimize=true default)
 - Process ready detection: watches stdout for "Done" pattern
 - Graceful shutdown order: game servers → lobbies → proxies
 - Shutdown requires confirmation: `shutdown` then `shutdown confirm` within 30s

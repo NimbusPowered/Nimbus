@@ -50,7 +50,7 @@ Nimbus takes a different approach:
 | **Dependencies** | Many | Database, web server | Just Java 21 |
 | **Configuration** | Per-server | YAML/JSON + web UI | Simple TOML files |
 | **Scaling** | Manual | Configurable | Automatic, player-based |
-| **Server software** | Download yourself | Limited options | Auto-downloads Paper, Purpur, Folia, Velocity, Forge, Fabric, NeoForge |
+| **Server software** | Download yourself | Limited options | Auto-downloads Paper, Pufferfish, Purpur, Folia, Velocity, Forge, Fabric, NeoForge |
 | **Proxy management** | Manual | Semi-automatic | Fully automatic |
 
 ## Key Features
@@ -58,10 +58,11 @@ Nimbus takes a different approach:
 - **Multi-Node Cluster** — [Distribute services across multiple machines](/guide/multi-node). Agent nodes connect via WebSocket with automatic placement, failover, and template distribution. Built-in TCP load balancer for proxy redundancy.
 - **Single JAR** — One file runs your entire cloud. No external services needed. Scale to multi-node when you're ready.
 - **Auto-scaling** — Dynamically starts and stops server instances based on player count and configurable thresholds — across one or many machines.
-- **Software auto-download** — Automatically fetches Paper, Purpur, Folia, Velocity, Forge, Fabric, and NeoForge server JARs.
+- **Software auto-download** — Automatically fetches Paper, Pufferfish, Purpur, Folia, Velocity, Forge, Fabric, and NeoForge server JARs.
 - **Performance optimization** — Automatically applies [Aikar's JVM flags](https://docs.papermc.io/paper/aikars-flags) and optimized server configs out of the box. Tuned for both standard and large heaps (12G+).
 - **Bedrock Edition support** — Optional [Geyser + Floodgate](/guide/proxy-setup#bedrock-support) integration lets Bedrock players (mobile, console, Windows) join your Java network. Plugins are auto-downloaded and configured.
 - **Full modded server support** — Forge, Fabric, NeoForge, and Quilt (via Fabric) all work out of the box. Proxy forwarding mods are [auto-installed](/guide/proxy-setup#auto-forwarding-mods) so players connect through Velocity seamlessly.
+- **Cardboard for Fabric** — Optionally install [Cardboard](https://modrinth.com/mod/cardboard) (BETA) on Fabric servers to run Bukkit/Paper plugins alongside mods. Auto-downloaded with its iCommon dependency.
 - **Automatic JDK management** — Nimbus [detects installed Java versions](/guide/concepts#automatic-jdk-management) and downloads missing ones from Adoptium automatically. No manual JDK setup needed.
 - **Velocity auto-patching** — Checks for new Velocity versions [every 6 hours](/guide/proxy-setup#auto-patching) and stages updates automatically. No downtime.
 - **Adaptive forwarding** — [Automatically selects](/guide/proxy-setup#adaptive-forwarding) modern or legacy forwarding based on your server versions. Configures every backend (Paper, Fabric, Forge, NeoForge) with zero manual work.
@@ -70,7 +71,7 @@ Nimbus takes a different approach:
 - **Built-in permissions** — Permission system included out of the box.
 - **Interactive console** — JLine3-powered REPL with tab completion, command history, and live event streaming.
 - **Template system** — Global and per-group templates for consistent server configuration.
-- **Via plugin support** — ViaVersion, ViaBackwards, and ViaRewind managed automatically on backend servers.
+- **Via plugin support** — ViaVersion, ViaBackwards, and ViaRewind managed automatically on backend servers. Dependencies are enforced (ViaBackwards auto-includes ViaVersion).
 
 ## Architecture
 

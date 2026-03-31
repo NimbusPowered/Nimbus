@@ -64,7 +64,7 @@ class PerformanceOptimizer {
      * Only touches settings that reduce server load without noticeably affecting gameplay.
      */
     fun optimizeServerConfigs(workDir: Path, software: ServerSoftware) {
-        if (software !in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA)) return
+        if (software !in listOf(ServerSoftware.PAPER, ServerSoftware.PUFFERFISH, ServerSoftware.PURPUR, ServerSoftware.FOLIA)) return
 
         optimizeSpigotYml(workDir)
         optimizePaperWorldDefaults(workDir)

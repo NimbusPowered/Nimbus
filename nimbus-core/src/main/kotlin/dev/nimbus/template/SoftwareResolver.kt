@@ -78,6 +78,19 @@ private data class GeyserBuild(val build: Int, val downloads: Map<String, Geyser
 @Serializable
 private data class GeyserDownload(val name: String, val sha256: String = "")
 
+// Pufferfish CI API models
+@Serializable
+private data class PufferfishCIResponse(val jobs: List<PufferfishJob> = emptyList())
+
+@Serializable
+private data class PufferfishJob(val name: String, val url: String = "")
+
+@Serializable
+private data class PufferfishBuildResponse(val url: String = "", val artifacts: List<PufferfishArtifact> = emptyList())
+
+@Serializable
+private data class PufferfishArtifact(val fileName: String, val relativePath: String)
+
 // Hangar API models (for Via plugins)
 @Serializable
 private data class HangarVersionsResponse(val result: List<HangarVersion>)
@@ -140,6 +153,28 @@ class SoftwareResolver {
             categorizeVersions(data.versions)
         } catch (e: Exception) {
             logger.error("Failed to fetch Purpur versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    /**
+     * Fetches available Pufferfish versions from the CI server.
+     * Pufferfish uses Jenkins CI with jobs named Pufferfish-{majorVersion}.
+     */
+    suspend fun fetchPufferfishVersions(): VersionList {
+        return try {
+            val response = client.get("https://ci.pufferfish.host/api/json?tree=jobs[name]")
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<PufferfishCIResponse>(response.bodyAsText())
+            // Extract MC major versions from job names like "Pufferfish-1.21"
+            val versions = data.jobs
+                .map { it.name }
+                .filter { it.startsWith("Pufferfish-") && !it.contains("Purpur") }
+                .map { it.removePrefix("Pufferfish-") }
+                .sortedDescending()
+            VersionList(stable = versions, snapshots = emptyList())
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Pufferfish versions: {}", e.message)
             VersionList.EMPTY
         }
     }
@@ -407,6 +442,35 @@ class SoftwareResolver {
         }
     }
 
+    /**
+     * Auto-downloads Cardboard mod and its dependency iCommon for Fabric servers.
+     * Cardboard enables Bukkit/Paper plugin support on Fabric — BETA software.
+     */
+    suspend fun ensureCardboardMod(templateDir: Path, mcVersion: String): Boolean {
+        val modsDir = templateDir.resolve("mods")
+        if (!modsDir.exists()) modsDir.createDirectories()
+
+        // iCommon is required by Cardboard — install first
+        val hasICommon = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains("icommon") && name.endsWith(".jar")
+        } ?: false
+        if (!hasICommon) {
+            downloadModrinthMod("icommon", "fabric", modsDir, "iCommon API", mcVersion)
+        }
+
+        val hasCardboard = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains("cardboard") && name.endsWith(".jar")
+        } ?: false
+        if (hasCardboard) {
+            logger.debug("Cardboard mod already present")
+            return true
+        }
+
+        return downloadModrinthMod("cardboard", "fabric", modsDir, "Cardboard", mcVersion)
+    }
+
     // ── Bedrock plugin downloads (Geyser + Floodgate) ───────────
 
     /**
@@ -589,6 +653,7 @@ class SoftwareResolver {
     suspend fun downloadJar(software: ServerSoftware, version: String, targetDir: Path): Path? {
         return when (software) {
             ServerSoftware.PURPUR -> downloadPurpur(version, targetDir)
+            ServerSoftware.PUFFERFISH -> downloadPufferfish(version, targetDir)
             ServerSoftware.PAPER, ServerSoftware.FOLIA, ServerSoftware.VELOCITY -> downloadPaperMC(software, version, targetDir)
             else -> null
         }
@@ -845,6 +910,44 @@ class SoftwareResolver {
             downloadFile(downloadUrl, targetDir, ServerSoftware.PURPUR, version, "build $latestBuild")
         } catch (e: Exception) {
             logger.error("Failed to download Purpur {}: {}", version, e.message, e)
+            null
+        }
+    }
+
+    private suspend fun downloadPufferfish(version: String, targetDir: Path): Path? {
+        return try {
+            // Pufferfish CI uses major version branches (1.17, 1.18, 1.19, 1.20, 1.21)
+            val majorVersion = version.split(".").take(2).joinToString(".")
+            val buildUrl = "https://ci.pufferfish.host/job/Pufferfish-$majorVersion/lastSuccessfulBuild/api/json"
+
+            val buildResponse = client.get(buildUrl)
+            if (buildResponse.status != HttpStatusCode.OK) {
+                logger.error("Failed to fetch Pufferfish build for {}: HTTP {}", majorVersion, buildResponse.status)
+                return null
+            }
+
+            val buildData = json.decodeFromString<PufferfishBuildResponse>(buildResponse.bodyAsText())
+            val artifact = buildData.artifacts.firstOrNull { it.fileName.endsWith(".jar") } ?: run {
+                logger.error("No JAR artifact found for Pufferfish {}", majorVersion)
+                return null
+            }
+
+            val downloadUrl = "${buildData.url}artifact/${artifact.relativePath}"
+            val jarResponse = client.get(downloadUrl)
+            if (jarResponse.status != HttpStatusCode.OK) {
+                logger.error("Failed to download Pufferfish {}: HTTP {}", majorVersion, jarResponse.status)
+                return null
+            }
+
+            Files.createDirectories(targetDir)
+            val targetFile = targetDir.resolve("server.jar")
+            Files.write(targetFile, jarResponse.readRawBytes())
+
+            val sizeMb = String.format("%.1f", targetFile.fileSize() / 1024.0 / 1024.0)
+            logger.info("Downloaded Pufferfish {} ({} MB)", artifact.fileName, sizeMb)
+            targetFile
+        } catch (e: Exception) {
+            logger.error("Failed to download Pufferfish {}: {}", version, e.message, e)
             null
         }
     }

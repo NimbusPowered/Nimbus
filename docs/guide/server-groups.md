@@ -122,11 +122,12 @@ Service names are auto-generated. The number is the next available integer for t
 | Value | Description |
 |---|---|
 | `PAPER` | Paper server (most common) |
+| `PUFFERFISH` | Pufferfish server (Paper fork, optimized for high player counts) |
 | `PURPUR` | Purpur server (Paper fork with extra features) |
 | `FOLIA` | Folia server (Paper fork with regionized multithreading, 1.19.4+) |
 | `VELOCITY` | Velocity proxy |
 | `FORGE` | Forge modded server |
-| `FABRIC` | Fabric modded server |
+| `FABRIC` | Fabric modded server (optionally with [Cardboard](https://modrinth.com/mod/cardboard) for plugin support) |
 | `NEOFORGE` | NeoForge modded server |
 | `CUSTOM` | Custom server JAR (requires `jar_name`) |
 

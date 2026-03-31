@@ -45,7 +45,7 @@ Core group identity and server software settings.
 | `name` | String | *required* | Group name in PascalCase. Services are named `<Name>-<N>` (e.g., `BedWars-1`). |
 | `type` | Enum | `"DYNAMIC"` | `STATIC` or `DYNAMIC`. See [Static vs Dynamic](#static-vs-dynamic) below. |
 | `template` | String | *required* | Template directory name inside `templates/`. Must not be blank. |
-| `software` | Enum | `"PAPER"` | Server software. One of: `PAPER`, `PURPUR`, `FOLIA`, `VELOCITY`, `FORGE`, `FABRIC`, `NEOFORGE`, `CUSTOM`. |
+| `software` | Enum | `"PAPER"` | Server software. One of: `PAPER`, `PUFFERFISH`, `PURPUR`, `FOLIA`, `VELOCITY`, `FORGE`, `FABRIC`, `NEOFORGE`, `CUSTOM`. |
 | `version` | String | `"1.21.4"` | Minecraft version (e.g., `"1.21.4"`, `"1.8.8"`). Must match format `X.Y` or `X.Y.Z`. |
 | `modloader_version` | String | `""` | Modloader version for `FORGE`, `FABRIC`, or `NEOFORGE`. If empty, Nimbus uses the latest stable version. |
 | `jar_name` | String | `""` | Custom JAR filename for `CUSTOM` software. Defaults to `"server.jar"` if empty. |
@@ -130,7 +130,7 @@ JVM and performance optimization settings.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `optimize` | Boolean | `true` | Enable automatic performance optimization. When enabled with no custom `args`, applies [Aikar's JVM flags](https://docs.papermc.io/paper/aikars-flags) and optimizes `spigot.yml` + `paper-world-defaults.yml` for Paper/Purpur/Folia servers. |
+| `optimize` | Boolean | `true` | Enable automatic performance optimization. When enabled with no custom `args`, applies [Aikar's JVM flags](https://docs.papermc.io/paper/aikars-flags) and optimizes `spigot.yml` + `paper-world-defaults.yml` for Paper/Pufferfish/Purpur/Folia servers. |
 | `args` | List\<String\> | `[]` | Custom JVM arguments passed before the `-jar` flag. When set alongside `optimize = true`, these args are used instead of Aikar's flags, but config optimization still applies. |
 
 ### Performance Optimization
@@ -138,7 +138,7 @@ JVM and performance optimization settings.
 When `optimize = true` (the default), Nimbus automatically:
 
 1. **Aikar's JVM Flags** — Applies optimized G1GC tuning flags that reduce GC pauses and improve throughput. Flags are adjusted automatically for large heaps (12G+). Applied to all server types.
-2. **Config Tuning** (Paper/Purpur/Folia only) — Optimizes `spigot.yml` (merge radius, entity activation ranges) and `paper-world-defaults.yml` (chunk save throttling, explosion optimization, despawn ranges).
+2. **Config Tuning** (Paper/Pufferfish/Purpur/Folia only) — Optimizes `spigot.yml` (merge radius, entity activation ranges) and `paper-world-defaults.yml` (chunk save throttling, explosion optimization, despawn ranges).
 
 Three modes:
 

@@ -97,7 +97,7 @@ class UpdateCommand(
     }
 
     private fun familyOf(software: ServerSoftware): SoftwareFamily = when (software) {
-        ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA -> SoftwareFamily.PLUGIN
+        ServerSoftware.PAPER, ServerSoftware.PUFFERFISH, ServerSoftware.PURPUR, ServerSoftware.FOLIA -> SoftwareFamily.PLUGIN
         ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> SoftwareFamily.FORGE
         ServerSoftware.FABRIC -> SoftwareFamily.FABRIC
         ServerSoftware.VELOCITY -> SoftwareFamily.PROXY
@@ -415,6 +415,7 @@ class UpdateCommand(
     private suspend fun fetchVersionsFor(software: ServerSoftware, currentMcVersion: String): SoftwareResolver.VersionList {
         return when (software) {
             ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
+            ServerSoftware.PUFFERFISH -> softwareResolver.fetchPufferfishVersions()
             ServerSoftware.PURPUR -> softwareResolver.fetchPurpurVersions()
             ServerSoftware.FOLIA -> softwareResolver.fetchFoliaVersions()
             ServerSoftware.VELOCITY -> softwareResolver.fetchVelocityVersions()
@@ -540,6 +541,7 @@ class UpdateCommand(
 
     private fun parseSoftware(input: String): ServerSoftware? = when (input.lowercase()) {
         "paper" -> ServerSoftware.PAPER
+        "pufferfish" -> ServerSoftware.PUFFERFISH
         "purpur" -> ServerSoftware.PURPUR
         "folia" -> ServerSoftware.FOLIA
         "forge" -> ServerSoftware.FORGE

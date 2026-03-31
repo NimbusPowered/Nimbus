@@ -143,6 +143,7 @@ Nimbus automatically downloads server software when it's not already present in 
 | Software | Source | JAR Name | Download Method |
 |----------|--------|----------|-----------------|
 | `PAPER` | PaperMC API | `server.jar` | Latest build for the configured version |
+| `PUFFERFISH` | [Pufferfish CI](https://ci.pufferfish.host) | `server.jar` | Latest successful build from Jenkins CI |
 | `PURPUR` | Purpur API | `server.jar` | Latest build for the configured version |
 | `FOLIA` | PaperMC API | `server.jar` | Latest build for the configured version |
 | `VELOCITY` | PaperMC API | `velocity.jar` | Latest build for the configured version |
@@ -169,13 +170,13 @@ For modded servers, if `modloader_version` is left empty in the group config, Ni
 
 When your network includes servers running different Minecraft versions, Nimbus can auto-download ViaVersion and ViaBackwards to backend server templates.
 
-| Plugin | Purpose |
-|--------|---------|
-| ViaVersion | Allow newer clients to join older servers |
-| ViaBackwards | Allow older clients to join newer servers |
-| ViaRewind | Extends ViaBackwards support to 1.7-1.8 clients |
+| Plugin | Purpose | Dependencies |
+|--------|---------|--------------|
+| ViaVersion | Allow newer clients to join older servers | None |
+| ViaBackwards | Allow older clients to join newer servers | ViaVersion (auto-included) |
+| ViaRewind | Extends ViaBackwards support to 1.7-1.8 clients | ViaBackwards |
 
-Via plugins are downloaded from the Hangar repository (PaperMC's plugin repository) and placed in the template's `plugins/` directory. They are only installed on **backend servers**, never on the proxy.
+Via plugins are downloaded from the Hangar repository (PaperMC's plugin repository) and placed in the template's `plugins/` directory. They are only installed on **backend servers**, never on the proxy. If you select ViaBackwards without ViaVersion, Nimbus automatically includes ViaVersion as a required dependency.
 
 ::: tip
 If a Via plugin JAR already exists in the `plugins/` directory, Nimbus skips the download. To update, delete the old JAR and restart.
@@ -185,7 +186,7 @@ If a Via plugin JAR already exists in the `plugins/` directory, Nimbus skips the
 
 ## EULA Auto-Acceptance
 
-For Paper, Purpur, and Folia servers, Nimbus automatically accepts the Minecraft EULA by creating `eula.txt` with `eula=true`. This prevents the server from halting on first launch waiting for manual EULA acceptance.
+For Paper, Pufferfish, Purpur, and Folia servers, Nimbus automatically accepts the Minecraft EULA by creating `eula.txt` with `eula=true`. This prevents the server from halting on first launch waiting for manual EULA acceptance.
 
 ---
 

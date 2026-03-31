@@ -31,6 +31,7 @@ class SetupWizard(
 
     // Cached version lists (fetched once)
     private var paperVersions: SoftwareResolver.VersionList? = null
+    private var pufferfishVersions: SoftwareResolver.VersionList? = null
     private var purpurVersions: SoftwareResolver.VersionList? = null
     private var velocityVersions: SoftwareResolver.VersionList? = null
 
@@ -83,6 +84,7 @@ class SetupWizard(
             w.print("  ${ConsoleFormatter.hint("Fetching available versions...")}")
             w.flush()
             paperVersions = softwareResolver.fetchPaperVersions()
+            pufferfishVersions = softwareResolver.fetchPufferfishVersions()
             purpurVersions = softwareResolver.fetchPurpurVersions()
             velocityVersions = softwareResolver.fetchVelocityVersions()
             w.println(" ${ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN)}")
@@ -347,8 +349,9 @@ class SetupWizard(
 
     private fun promptSoftware(terminal: Terminal): ServerSoftware {
         val answer = prompt(terminal, "  Server software", "paper",
-            candidates = listOf("paper", "purpur"))
+            candidates = listOf("paper", "pufferfish", "purpur"))
         return when (answer.lowercase()) {
+            "pufferfish" -> ServerSoftware.PUFFERFISH
             "purpur" -> ServerSoftware.PURPUR
             else -> ServerSoftware.PAPER
         }
@@ -357,6 +360,7 @@ class SetupWizard(
     private fun promptVersion(terminal: Terminal, w: PrintWriter, software: ServerSoftware): String {
         val versions = when (software) {
             ServerSoftware.PAPER -> paperVersions
+            ServerSoftware.PUFFERFISH -> pufferfishVersions
             ServerSoftware.PURPUR -> purpurVersions
             ServerSoftware.VELOCITY -> velocityVersions
             else -> paperVersions // Modded servers use their own version prompts in CreateGroupCommand
@@ -413,6 +417,11 @@ class SetupWizard(
         // Suggest ViaBackwards
         if (promptYesNo(terminal, "  Install ${CYAN}ViaBackwards$RESET? ${ConsoleFormatter.hint("(older clients can join)")}", minor >= 17)) {
             plugins.add(ViaPlugin.VIA_BACKWARDS)
+            // ViaBackwards requires ViaVersion — auto-add if not already selected
+            if (ViaPlugin.VIA_VERSION !in plugins) {
+                plugins.add(0, ViaPlugin.VIA_VERSION)
+                w.println("  ${ConsoleFormatter.hint("→ ViaVersion auto-included (required by ViaBackwards)")}")
+            }
 
             // ViaRewind only makes sense with ViaBackwards and for 1.9+ servers
             if (minor >= 9) {

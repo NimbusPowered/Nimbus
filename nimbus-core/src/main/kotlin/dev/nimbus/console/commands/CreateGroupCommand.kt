@@ -70,6 +70,7 @@ class CreateGroupCommand(
             w.flush()
             val versions = when (software) {
                 ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
+                ServerSoftware.PUFFERFISH -> softwareResolver.fetchPufferfishVersions()
                 ServerSoftware.PURPUR -> softwareResolver.fetchPurpurVersions()
                 ServerSoftware.FOLIA -> softwareResolver.fetchFoliaVersions()
                 ServerSoftware.FORGE -> softwareResolver.fetchForgeGameVersions()
@@ -152,7 +153,7 @@ class CreateGroupCommand(
             val memory = prompt("Memory per instance", defaultMemory)
 
             // Step 7: Via plugins (Paper/Purpur only)
-            val viaPlugins = if (software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA)) {
+            val viaPlugins = if (software in listOf(ServerSoftware.PAPER, ServerSoftware.PUFFERFISH, ServerSoftware.PURPUR, ServerSoftware.FOLIA)) {
                 promptViaPlugins(w, version, versions.latest)
             } else {
                 emptyList()
@@ -197,6 +198,14 @@ class CreateGroupCommand(
                     download(w, "FabricProxy-Lite") {
                         softwareResolver.ensureFabricProxyMod(templateDir, version)
                         true
+                    }
+                    w.println()
+                    w.println("${YELLOW}[BETA] Cardboard allows running Bukkit/Paper plugins on Fabric servers.")
+                    w.println("This is experimental software — not all plugins will work correctly.$RESET")
+                    if (promptYesNo("Install Cardboard?", false)) {
+                        download(w, "Cardboard (BETA)") {
+                            softwareResolver.ensureCardboardMod(templateDir, version)
+                        }
                     }
                 }
                 else -> {
@@ -295,19 +304,21 @@ class CreateGroupCommand(
 
     private fun promptSoftware(w: java.io.PrintWriter): ServerSoftware? {
         w.println(ConsoleFormatter.hint("Available server software:"))
-        w.println("  ${CYAN}paper$RESET     — Paper (optimized vanilla, plugins)")
-        w.println("  ${CYAN}purpur$RESET    — Purpur (Paper fork, extra features)")
-        w.println("  ${CYAN}folia$RESET     — Folia (regionized multithreading, 1.19.4+)")
-        w.println("  ${CYAN}forge$RESET     — Forge (mods, auto-installs)")
-        w.println("  ${CYAN}neoforge$RESET  — NeoForge (modern Forge fork)")
-        w.println("  ${CYAN}fabric$RESET    — Fabric (lightweight mods)")
-        w.println("  ${CYAN}modpack$RESET   — Import a Modrinth modpack")
-        w.println("  ${CYAN}custom$RESET    — Custom JAR (bring your own)")
+        w.println("  ${CYAN}paper$RESET      — Paper (optimized vanilla, plugins)")
+        w.println("  ${CYAN}pufferfish$RESET — Pufferfish (Paper fork, high-performance)")
+        w.println("  ${CYAN}purpur$RESET     — Purpur (Paper fork, extra features)")
+        w.println("  ${CYAN}folia$RESET      — Folia (regionized multithreading, 1.19.4+)")
+        w.println("  ${CYAN}forge$RESET      — Forge (mods, auto-installs)")
+        w.println("  ${CYAN}neoforge$RESET   — NeoForge (modern Forge fork)")
+        w.println("  ${CYAN}fabric$RESET     — Fabric (lightweight mods)")
+        w.println("  ${CYAN}modpack$RESET    — Import a Modrinth modpack")
+        w.println("  ${CYAN}custom$RESET     — Custom JAR (bring your own)")
         w.flush()
 
         val answer = prompt("Server software", "paper",
-            candidates = listOf("paper", "purpur", "folia", "forge", "neoforge", "fabric", "modpack", "custom"))
+            candidates = listOf("paper", "pufferfish", "purpur", "folia", "forge", "neoforge", "fabric", "modpack", "custom"))
         return when (answer.lowercase()) {
+            "pufferfish" -> ServerSoftware.PUFFERFISH
             "purpur" -> ServerSoftware.PURPUR
             "folia" -> ServerSoftware.FOLIA
             "forge" -> ServerSoftware.FORGE
@@ -341,6 +352,11 @@ class CreateGroupCommand(
 
         if (promptYesNo("Install ${CYAN}ViaBackwards$RESET? ${ConsoleFormatter.hint("(older clients can join)")}", minor >= 17)) {
             plugins.add(ViaPlugin.VIA_BACKWARDS)
+            // ViaBackwards requires ViaVersion — auto-add if not already selected
+            if (ViaPlugin.VIA_VERSION !in plugins) {
+                plugins.add(0, ViaPlugin.VIA_VERSION)
+                w.println(ConsoleFormatter.hint("  → ViaVersion auto-included (required by ViaBackwards)"))
+            }
             if (minor >= 9 && promptYesNo("Install ${CYAN}ViaRewind$RESET? ${ConsoleFormatter.hint("(1.7/1.8 clients)")}", false)) {
                 plugins.add(ViaPlugin.VIA_REWIND)
             }

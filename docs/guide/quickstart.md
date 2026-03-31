@@ -115,8 +115,9 @@ Next, the wizard offers **Via plugin** installation for protocol compatibility:
   <span class="t-dim">ViaRewind extends backwards support to 1.7/1.8 clients.</span>
   Install <span class="t-cyan">ViaVersion</span>? <span class="t-dim">[y/N]</span><span class="t-dim">:</span> <span class="t-bold">n</span>
   Install <span class="t-cyan">ViaBackwards</span>? <span class="t-dim">(older clients can join)</span> <span class="t-dim">[Y/n]</span><span class="t-dim">:</span> <span class="t-bold">y</span>
+  <span class="t-dim">→ ViaVersion auto-included (required by ViaBackwards)</span>
   Install <span class="t-cyan">ViaRewind</span>? <span class="t-dim">(extends support to 1.7/1.8)</span> <span class="t-dim">[y/N]</span><span class="t-dim">:</span> <span class="t-bold">n</span>
-  <span class="t-green">✓</span> Via plugins: ViaBackwards
+  <span class="t-green">✓</span> Via plugins: ViaVersion, ViaBackwards
   <span class="t-green">✓</span> Lobby <span class="t-dim">(PAPER 1.21.4, 1G)</span>
 </pre>
 </div>
@@ -164,8 +165,10 @@ Nimbus downloads all required server JARs automatically:
   <span class="t-cyan">[4]</span> <span class="t-bold">Downloading</span>
   <span class="t-dim">↓</span> Velocity 3.4.0-SNAPSHOT <span class="t-green">✓</span>
   <span class="t-dim">↓</span> Paper 1.21.4 <span class="t-dim">(Lobby)</span> <span class="t-green">✓</span>
+  <span class="t-dim">↓</span> ViaVersion <span class="t-dim">(Lobby)</span> <span class="t-green">✓</span>
   <span class="t-dim">↓</span> ViaBackwards <span class="t-dim">(Lobby)</span> <span class="t-green">✓</span>
   <span class="t-green">+</span> BedWars <span class="t-dim">(copied from Lobby)</span>
+  <span class="t-dim">↓</span> ViaVersion <span class="t-dim">(BedWars)</span> <span class="t-green">✓</span>
   <span class="t-dim">↓</span> ViaBackwards <span class="t-dim">(BedWars)</span> <span class="t-green">✓</span>
 </pre>
 </div>

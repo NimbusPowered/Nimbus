@@ -42,7 +42,7 @@ features:
       width: 40
       height: 40
     title: "Software Auto-Download"
-    details: "Paper, Purpur, Velocity, Forge, Fabric, and NeoForge — server JARs downloaded and updated automatically."
+    details: "Paper, Pufferfish, Purpur, Velocity, Forge, Fabric, and NeoForge — server JARs downloaded and updated automatically."
     link: /guide/installation
     linkText: Get started
   - icon:

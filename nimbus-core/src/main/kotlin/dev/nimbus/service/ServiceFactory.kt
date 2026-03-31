@@ -163,7 +163,7 @@ class ServiceFactory(
             )
 
             // Apply global templates (always overwrite, even for static services)
-            val isVanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA, ServerSoftware.VELOCITY)
+            val isVanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PUFFERFISH, ServerSoftware.PURPUR, ServerSoftware.FOLIA, ServerSoftware.VELOCITY)
             if (isVanillaBased) {
                 templateManager.applyGlobalTemplate(templatesDir.resolve("global"), workDir)
             }
@@ -199,7 +199,7 @@ class ServiceFactory(
                 else -> {
                     configPatcher.patchServerProperties(workDir, port)
 
-                    val isPaperBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA)
+                    val isPaperBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PUFFERFISH, ServerSoftware.PURPUR, ServerSoftware.FOLIA)
                     val velocityTemplateDir = templatesDir.resolve("proxy")
 
                     if (isPaperBased) {

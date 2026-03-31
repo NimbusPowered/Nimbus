@@ -191,6 +191,7 @@ Nimbus auto-downloads server JARs from official APIs. The following platforms ar
 | Software | Type | API Source |
 |---|---|---|
 | **Paper** | Minecraft server | PaperMC API |
+| **Pufferfish** | Minecraft server (Paper fork, high-performance) | [Pufferfish CI](https://ci.pufferfish.host) |
 | **Purpur** | Minecraft server (Paper fork) | Purpur API |
 | **Folia** | Minecraft server (regionized multithreading) | PaperMC API |
 | **Velocity** | Proxy | PaperMC API |
@@ -204,6 +205,10 @@ Nimbus auto-downloads server JARs from official APIs. The following platforms ar
 | **Fabric** | Modded Minecraft | Launcher JAR from Fabric Meta | [FabricProxy-Lite](https://modrinth.com/mod/fabricproxy-lite) + Fabric API (auto-installed) |
 | **NeoForge** | Modded Minecraft | Installer from NeoForge Maven | [proxy-compatible-forge](https://modrinth.com/mod/proxy-compatible-forge) (auto-installed) |
 | **Quilt** | Modded Minecraft | Via Fabric compatibility | FabricProxy-Lite (auto-installed) |
+
+::: tip Cardboard for Fabric (BETA)
+Fabric servers can optionally install [Cardboard](https://modrinth.com/mod/cardboard) to run Bukkit/Paper plugins alongside Fabric mods. During group creation, Nimbus offers to download Cardboard and its dependency [iCommon](https://modrinth.com/mod/icommon) automatically. This is experimental — not all plugins will work correctly.
+:::
 
 ::: warning Folia
 Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus SDK, ProtocolLib, and nimbus-signs are automatically excluded from Folia services. Only Folia-compatible plugins will work.
@@ -219,7 +224,7 @@ Modded servers are first-class citizens in Nimbus. When you create a Forge, Fabr
 You can also import entire modpacks from Modrinth with a single command -- see [Modpack Import](/guide/modpacks).
 
 ::: tip EULA
-Nimbus automatically accepts the Minecraft EULA for Paper, Purpur, and Folia servers. You don't need to manually edit `eula.txt`.
+Nimbus automatically accepts the Minecraft EULA for Paper, Pufferfish, Purpur, and Folia servers. You don't need to manually edit `eula.txt`.
 :::
 
 ### Via Plugins
@@ -227,7 +232,7 @@ Nimbus automatically accepts the Minecraft EULA for Paper, Purpur, and Folia ser
 For cross-version compatibility, Nimbus can download and manage Via plugins on **backend servers only** (never on the proxy):
 
 - **ViaVersion** — Lets players with newer Minecraft clients join older servers
-- **ViaBackwards** — Lets players with older clients join newer servers
+- **ViaBackwards** — Lets players with older clients join newer servers (requires ViaVersion — auto-included if missing)
 - **ViaRewind** — Extends backwards support down to 1.7/1.8 clients (requires ViaBackwards)
 
 ## Automatic JDK Management {#automatic-jdk-management}

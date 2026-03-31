@@ -63,7 +63,7 @@ Used when all backends are 1.13+. Modern forwarding uses a shared secret (`forwa
 
 Nimbus configures this automatically for every server type:
 - **Velocity** — Sets `player-info-forwarding-mode = "modern"` in `velocity.toml`
-- **Paper/Purpur** — Enables velocity support in `paper-global.yml` and copies the forwarding secret
+- **Paper/Pufferfish/Purpur** — Enables velocity support in `paper-global.yml` and copies the forwarding secret
 - **Fabric** — Configures [FabricProxy-Lite](https://modrinth.com/mod/fabricproxy-lite) with the secret (auto-installed)
 - **Forge/NeoForge** — Configures [proxy-compatible-forge](https://modrinth.com/mod/proxy-compatible-forge) with the secret (auto-installed)
 
@@ -110,11 +110,13 @@ The forwarding mod configuration is patched to match the [adaptive forwarding mo
 
 To allow players on different Minecraft versions to connect through a single proxy, Nimbus supports automatic deployment of Via plugins:
 
-| Plugin | Purpose |
-|---|---|
-| **ViaVersion** | Allows newer clients to connect to older servers |
-| **ViaBackwards** | Allows older clients to connect to newer servers |
-| **ViaRewind** | Extends ViaBackwards support to very old versions (1.7-1.8) |
+| Plugin | Purpose | Dependencies |
+|---|---|---|
+| **ViaVersion** | Allows newer clients to connect to older servers | None |
+| **ViaBackwards** | Allows older clients to connect to newer servers | ViaVersion (auto-included) |
+| **ViaRewind** | Extends ViaBackwards support to very old versions (1.7-1.8) | ViaBackwards |
+
+During group creation, if you select ViaBackwards without ViaVersion, Nimbus automatically includes ViaVersion as it is a required dependency.
 
 ::: info Important
 Via plugins are deployed **only on backend servers**, never on the proxy itself. This is the recommended setup for Velocity-based networks -- the proxy handles connections natively, and Via plugins on backends handle protocol translation.

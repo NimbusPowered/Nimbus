@@ -16,6 +16,7 @@ enum class ServerSoftware {
     PURPUR,
     FOLIA,
     FORGE,
+    PUFFERFISH,
     FABRIC,
     NEOFORGE,
     CUSTOM
