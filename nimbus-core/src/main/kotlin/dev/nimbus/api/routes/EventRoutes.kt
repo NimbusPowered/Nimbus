@@ -292,6 +292,16 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("oldVersion" to oldVersion, "newVersion" to newVersion)
         )
+        is NimbusEvent.NimbusUpdateAvailable -> EventMessage(
+            type = "NIMBUS_UPDATE_AVAILABLE",
+            timestamp = timestamp.toString(),
+            data = mapOf("currentVersion" to currentVersion, "newVersion" to newVersion, "updateType" to updateType)
+        )
+        is NimbusEvent.NimbusUpdateApplied -> EventMessage(
+            type = "NIMBUS_UPDATE_APPLIED",
+            timestamp = timestamp.toString(),
+            data = mapOf("oldVersion" to oldVersion, "newVersion" to newVersion)
+        )
         is NimbusEvent.ClusterStarted -> EventMessage(
             type = "CLUSTER_STARTED",
             timestamp = timestamp.toString(),

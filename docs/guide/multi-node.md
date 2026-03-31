@@ -81,22 +81,44 @@ placement_strategy = "least-services"
 
 ### 2. Set up an agent node
 
-Copy `nimbus-agent/build/libs/nimbus-agent-&lt;version&gt;-all.jar` to each worker machine. Then either run the interactive wizard:
+Install the agent on each worker machine with a single command:
+
+**Linux / macOS:**
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">terminal — worker node</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">$</span> curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.sh | bash
+</pre>
+</div>
+
+**Windows (PowerShell):**
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">powershell — worker node</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">&gt;</span> irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.ps1 | iex
+</pre>
+</div>
+
+The installer handles Java 21, downloads the latest agent release, prompts for controller connection details, and optionally creates a system service (systemd / Windows Service) so the agent runs in the background automatically.
+
+::: tip Manual setup
+You can also copy `nimbus-agent-<version>-all.jar` manually and run it directly:
 
 ```bash
-java -jar nimbus-agent-&lt;version&gt;-all.jar
-```
-
-Or pass everything via CLI flags:
-
-```bash
-java -jar nimbus-agent-&lt;version&gt;-all.jar \
+java -jar nimbus-agent-<version>-all.jar \
   --controller ws://10.0.0.1:8443/cluster \
   --token your-secret-token \
   --name worker-1 \
   --max-memory 16G \
   --max-services 10
 ```
+:::
 
 The agent creates an `agent.toml` on first run:
 

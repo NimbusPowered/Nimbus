@@ -2,18 +2,46 @@
 
 Your Nimbus 2000 has arrived — time for takeoff. This guide walks you through setting up your first Nimbus network from scratch. By the end, you'll have a running Velocity proxy, lobby server, and game server that players can connect to.
 
-## 1. Start Nimbus
+## 1. Install & Start Nimbus
 
-Run the JAR file:
+Install Nimbus with a single command — it handles Java, downloads, and start scripts automatically:
+
+**Linux / macOS:**
 
 <div class="terminal">
   <div class="terminal-header">
-    <span class="terminal-title">nimbus</span>
+    <span class="terminal-title">terminal</span>
   </div>
   <pre class="terminal-body">
-<span class="t-dim">$</span> java -jar nimbus-core-&lt;version&gt;-all.jar
+<span class="t-dim">$</span> curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
 </pre>
 </div>
+
+**Windows (PowerShell):**
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">powershell</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">&gt;</span> irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.ps1 | iex
+</pre>
+</div>
+
+Then start Nimbus:
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">terminal</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">$</span> nimbus
+</pre>
+</div>
+
+::: tip Already built from source?
+You can also run `java -jar nimbus-core-<version>-all.jar` directly. See [Installation](/guide/installation) for details.
+:::
 
 On first launch, the setup wizard starts automatically. You'll see the Nimbus banner followed by a version fetch:
 

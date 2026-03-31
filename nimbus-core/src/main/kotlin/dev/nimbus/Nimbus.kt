@@ -17,6 +17,7 @@ import dev.nimbus.protocol.ClusterMessage
 import dev.nimbus.scaling.ScalingEngine
 import dev.nimbus.scaling.VelocityUpdater
 import dev.nimbus.stress.StressTestManager
+import dev.nimbus.update.UpdateChecker
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 import dev.nimbus.service.PortAllocator
@@ -127,6 +128,19 @@ fun nimbusMain() = runBlocking {
         }
         logger.info("Generated API token (saved to nimbus.toml)")
         config = ConfigLoader.loadNimbusConfig(configPath)
+    }
+
+    // Check for Nimbus updates
+    val updateChecker = UpdateChecker(baseDir)
+    try {
+        val updated = updateChecker.checkAndApply()
+        if (updated) {
+            logger.info("Nimbus JAR updated — restart to apply the new version.")
+        }
+    } catch (e: Exception) {
+        logger.debug("Update check failed: {}", e.message)
+    } finally {
+        updateChecker.close()
     }
 
     // Ensure directories exist

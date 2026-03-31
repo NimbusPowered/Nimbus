@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Nimbus Cloud Installer ──────────────────────────────────────
+# Usage: curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
+# ────────────────────────────────────────────────────────────────
+
+REPO_OWNER="jonax1337"
+REPO_NAME="Nimbus"
+INSTALL_DIR="/opt/nimbus"
+JAVA_VERSION="21"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+info()    { echo -e "${CYAN}[nimbus]${RESET} $1"; }
+success() { echo -e "${GREEN}[nimbus]${RESET} $1"; }
+warn()    { echo -e "${YELLOW}[nimbus]${RESET} $1"; }
+error()   { echo -e "${RED}[nimbus]${RESET} $1"; }
+
+banner() {
+    echo -e ""
+    echo -e "${CYAN}   _  __ __ _   __ ___  _ __  ___${RESET}"
+    echo -e "${CYAN}  / |/ // // \\,' // o.)/// /,' _/${RESET}"
+    echo -e "${CYAN} / || // // \\,' // o \\/ U /_\\ \`. ${RESET}"
+    echo -e "${CYAN}/_/|_//_//_/ /_//___,'\_,'/___,' ${RESET}"
+    echo -e "${DIM}            C L O U D${RESET}"
+    echo -e "${DIM}         Installer${RESET}"
+    echo -e ""
+}
+
+# ── Detect OS & package manager ─────────────────────────────────
+
+detect_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if command -v apt-get &>/dev/null; then
+            PKG_MANAGER="apt"
+        elif command -v dnf &>/dev/null; then
+            PKG_MANAGER="dnf"
+        elif command -v yum &>/dev/null; then
+            PKG_MANAGER="yum"
+        elif command -v pacman &>/dev/null; then
+            PKG_MANAGER="pacman"
+        elif command -v zypper &>/dev/null; then
+            PKG_MANAGER="zypper"
+        else
+            PKG_MANAGER="unknown"
+        fi
+        OS="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        PKG_MANAGER="brew"
+        OS="macos"
+    else
+        error "Unsupported operating system: $OSTYPE"
+        exit 1
+    fi
+}
+
+# ── Check/install Java 21 ───────────────────────────────────────
+
+check_java() {
+    if command -v java &>/dev/null; then
+        local java_ver
+        java_ver=$(java -version 2>&1 | head -1 | grep -oP '"\K[^"]+' | cut -d. -f1)
+        if [[ "$java_ver" -ge "$JAVA_VERSION" ]]; then
+            success "Java $java_ver found"
+            return 0
+        fi
+        warn "Java $java_ver found, but Java $JAVA_VERSION+ is required"
+    else
+        warn "Java not found"
+    fi
+    return 1
+}
+
+install_java() {
+    info "Installing Java $JAVA_VERSION (Eclipse Temurin)..."
+
+    case "$PKG_MANAGER" in
+        apt)
+            # Add Adoptium repository
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq wget apt-transport-https gnupg
+            wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo gpg --dearmor -o /usr/share/keyrings/adoptium.gpg 2>/dev/null || true
+            echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/adoptium.list >/dev/null
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "temurin-${JAVA_VERSION}-jdk"
+            ;;
+        dnf|yum)
+            sudo "$PKG_MANAGER" install -y "java-${JAVA_VERSION}-openjdk"
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm "jdk${JAVA_VERSION}-openjdk"
+            ;;
+        zypper)
+            sudo zypper install -y "java-${JAVA_VERSION}-openjdk"
+            ;;
+        brew)
+            brew install --cask temurin@${JAVA_VERSION}
+            ;;
+        *)
+            error "Cannot auto-install Java. Please install Java $JAVA_VERSION manually:"
+            error "  https://adoptium.net/temurin/releases/"
+            exit 1
+            ;;
+    esac
+
+    if check_java; then
+        success "Java $JAVA_VERSION installed successfully"
+    else
+        error "Java installation failed. Please install Java $JAVA_VERSION manually."
+        exit 1
+    fi
+}
+
+# ── Download latest Nimbus release ──────────────────────────────
+
+download_nimbus() {
+    info "Fetching latest release from GitHub..."
+
+    local release_json
+    release_json=$(curl -fsSL "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest" 2>/dev/null) || {
+        error "Failed to fetch release info from GitHub"
+        exit 1
+    }
+
+    local tag_name
+    tag_name=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"\K[^"]+')
+    info "Latest version: ${BOLD}$tag_name${RESET}"
+
+    # Find the JAR asset URL
+    local jar_url
+    jar_url=$(echo "$release_json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*-all\.jar' | head -1)
+
+    if [[ -z "$jar_url" ]]; then
+        # Fallback: any nimbus*.jar
+        jar_url=$(echo "$release_json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*nimbus[^"]*\.jar' | head -1)
+    fi
+
+    if [[ -z "$jar_url" ]]; then
+        error "No JAR asset found in release $tag_name"
+        exit 1
+    fi
+
+    info "Downloading Nimbus..."
+    sudo mkdir -p "$INSTALL_DIR"
+    sudo curl -fsSL -o "$INSTALL_DIR/nimbus.jar" "$jar_url"
+    success "Downloaded to $INSTALL_DIR/nimbus.jar"
+}
+
+# ── Create start script ─────────────────────────────────────────
+
+create_start_script() {
+    info "Creating start script..."
+
+    sudo tee "$INSTALL_DIR/start.sh" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+cd "$(dirname "$0")"
+
+JAVA_OPTS="-Xms512M -Xmx1G"
+
+# Aikar's flags for better GC
+JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200"
+JAVA_OPTS="$JAVA_OPTS -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC"
+JAVA_OPTS="$JAVA_OPTS -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40"
+JAVA_OPTS="$JAVA_OPTS -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20"
+JAVA_OPTS="$JAVA_OPTS -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15"
+JAVA_OPTS="$JAVA_OPTS -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5"
+JAVA_OPTS="$JAVA_OPTS -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1"
+
+exec java $JAVA_OPTS -jar nimbus.jar "$@"
+SCRIPT
+    sudo chmod +x "$INSTALL_DIR/start.sh"
+
+    # Create symlink in /usr/local/bin
+    sudo ln -sf "$INSTALL_DIR/start.sh" /usr/local/bin/nimbus
+    success "Created 'nimbus' command"
+}
+
+# ── Create systemd service (optional) ───────────────────────────
+
+create_systemd_service() {
+    if [[ "$OS" != "linux" ]] || ! command -v systemctl &>/dev/null; then
+        return
+    fi
+
+    echo ""
+    read -rp "$(echo -e "${CYAN}[nimbus]${RESET} Create systemd service for auto-start? [y/N]: ")" create_service
+    if [[ "${create_service,,}" != "y" && "${create_service,,}" != "yes" ]]; then
+        return
+    fi
+
+    # Create nimbus user if it doesn't exist
+    if ! id -u nimbus &>/dev/null; then
+        sudo useradd -r -m -d "$INSTALL_DIR" -s /bin/bash nimbus
+        info "Created 'nimbus' system user"
+    fi
+    sudo chown -R nimbus:nimbus "$INSTALL_DIR"
+
+    sudo tee /etc/systemd/system/nimbus.service >/dev/null <<EOF
+[Unit]
+Description=Nimbus Cloud
+After=network.target
+
+[Service]
+Type=simple
+User=nimbus
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/start.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable nimbus.service
+    success "Systemd service created and enabled"
+    info "  Start:   sudo systemctl start nimbus"
+    info "  Status:  sudo systemctl status nimbus"
+    info "  Logs:    sudo journalctl -u nimbus -f"
+}
+
+# ── Main ────────────────────────────────────────────────────────
+
+main() {
+    banner
+
+    # Check for root/sudo
+    if [[ $EUID -ne 0 ]] && ! command -v sudo &>/dev/null; then
+        error "This installer requires root or sudo access"
+        exit 1
+    fi
+
+    # Check for curl
+    if ! command -v curl &>/dev/null; then
+        error "curl is required but not installed"
+        exit 1
+    fi
+
+    detect_os
+    info "Detected: ${BOLD}$OS${RESET} (${PKG_MANAGER})"
+
+    # Java
+    if ! check_java; then
+        install_java
+    fi
+
+    # Download
+    download_nimbus
+
+    # Start script
+    create_start_script
+
+    # Systemd (Linux only)
+    create_systemd_service
+
+    echo ""
+    echo -e "${GREEN}${BOLD}Nimbus installed successfully!${RESET}"
+    echo ""
+    echo -e "  ${CYAN}Installation:${RESET}  $INSTALL_DIR"
+    echo -e "  ${CYAN}Start:${RESET}         nimbus"
+    echo -e "  ${CYAN}Or:${RESET}            cd $INSTALL_DIR && ./start.sh"
+    echo ""
+    echo -e "  ${DIM}On first start, Nimbus will run the setup wizard.${RESET}"
+    echo ""
+}
+
+main "$@"

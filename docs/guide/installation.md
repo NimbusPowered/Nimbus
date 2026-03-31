@@ -1,10 +1,72 @@
 # Installation
 
-This guide covers building and running Nimbus from source.
+## One-Command Install (Recommended)
+
+The fastest way to get Nimbus running. The installer handles everything — Java 21, the latest release, start scripts, and an optional system service.
+
+**Linux / macOS:**
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">terminal</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">$</span> curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
+</pre>
+</div>
+
+**Windows (PowerShell):**
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">powershell</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-dim">&gt;</span> irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.ps1 | iex
+</pre>
+</div>
+
+The installer will:
+
+1. **Check for Java 21** — installs Eclipse Temurin automatically if missing
+2. **Download the latest Nimbus release** from GitHub
+3. **Create a start script** (`nimbus` command on Linux, `nimbus.bat` on Windows)
+4. **Optionally create a system service** (systemd on Linux, Windows Service)
+
+After installation, run `nimbus` to start the setup wizard.
+
+::: tip Already have Java 21?
+The installer detects it and skips the Java step. Run `java -version` to check.
+:::
+
+## Auto-Updates
+
+Nimbus checks for updates automatically on every startup by querying GitHub Releases.
+
+| Update type | Behavior |
+|---|---|
+| **Patch / Minor** (e.g. `0.1.0` → `0.1.3` or `0.2.0`) | Downloads and applies automatically. A backup of the previous JAR is kept. |
+| **Major** (e.g. `0.x` → `1.0.0`) | Shows changelog and prompts `Upgrade now? [y/N]` — you decide. |
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">nimbus — auto-update</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-cyan">ℹ</span> Update available: v0.1.0 -> v0.2.0 <span class="t-dim">(minor)</span>
+<span class="t-dim">  Downloading v0.2.0...</span> <span class="t-green">done</span>
+<span class="t-green">✓</span> Updated to v0.2.0 <span class="t-dim">(backup: nimbus-backup.jar)</span>
+<span class="t-yellow">  Restart Nimbus to apply the update.</span>
+</pre>
+</div>
+
+::: info Dev builds
+When running from source (version = `dev`), the auto-updater is skipped.
+:::
 
 ## Prerequisites
 
-Before you begin, make sure you have:
+If you prefer to install manually, make sure you have:
 
 - **Java 21** or later (required)
 - **Git** (for cloning the repository)
@@ -39,8 +101,8 @@ Clone the repository and build the fat JAR:
     <span class="terminal-title">terminal</span>
   </div>
   <pre class="terminal-body">
-<span class="t-dim">$</span> git clone https://github.com/your-org/nimbus.git
-<span class="t-dim">$</span> cd nimbus
+<span class="t-dim">$</span> git clone https://github.com/jonax1337/Nimbus.git
+<span class="t-dim">$</span> cd Nimbus
 <span class="t-dim">$</span> ./gradlew shadowJar
 <span class="t-dim">&gt; Task :nimbus-bridge:shadowJar</span>
 <span class="t-dim">&gt; Task :nimbus-core:processResources</span>

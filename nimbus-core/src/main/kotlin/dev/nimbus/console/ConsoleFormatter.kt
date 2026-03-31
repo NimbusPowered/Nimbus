@@ -216,6 +216,10 @@ object ConsoleFormatter {
                 "${warn("↑ UPDATE")} Velocity ${BOLD}${event.currentVersion}${RESET} → ${BOLD}${event.newVersion}${RESET} available"
             is NimbusEvent.ProxyUpdateApplied ->
                 "${success("✓ UPDATE")} Velocity updated to ${BOLD}${event.newVersion}${RESET} ${DIM}(restart proxy to apply)${RESET}"
+            is NimbusEvent.NimbusUpdateAvailable ->
+                "${warn("↑ NIMBUS")} v${event.currentVersion} → v${BOLD}${event.newVersion}${RESET} available ${DIM}(${event.updateType})${RESET}"
+            is NimbusEvent.NimbusUpdateApplied ->
+                "${success("✓ NIMBUS")} updated to v${BOLD}${event.newVersion}${RESET} ${DIM}(restart to apply)${RESET}"
             is NimbusEvent.TabListUpdated ->
                 "${info("~ TAB")} tab list updated ${DIM}(interval=${event.updateInterval}s)${RESET}"
             is NimbusEvent.MotdUpdated ->
