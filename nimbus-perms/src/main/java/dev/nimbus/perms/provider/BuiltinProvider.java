@@ -1,17 +1,14 @@
-package dev.nimbus.sdk;
+package dev.nimbus.perms.provider;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import dev.nimbus.perms.NimbusPermsPlugin;
+import dev.nimbus.sdk.Nimbus;
+import dev.nimbus.sdk.NimbusEventStream;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionAttachment;
-import org.bukkit.plugin.java.JavaPlugin;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -26,50 +23,98 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * Handles Bukkit-side permission injection for Nimbus-managed servers.
- * <p>
- * On player join, fetches effective permissions from the Nimbus API
- * and applies them via {@link PermissionAttachment}. Wildcards are expanded
- * by enumerating all registered server permissions.
+ * Built-in permission provider that fetches permissions from the Nimbus API.
+ * This is the default provider when LuckPerms is not installed.
  */
-public class NimbusPermissionHandler implements Listener {
+public class BuiltinProvider implements PermissionProvider {
 
-    private final JavaPlugin plugin;
-    private final String apiUrl;
-    private final String token;
-    private final HttpClient httpClient;
-    private final Map<UUID, PermissionAttachment> attachments = new ConcurrentHashMap<>();
+    private NimbusPermsPlugin plugin;
+    private String apiUrl;
+    private String token;
+    private HttpClient httpClient;
     private NimbusEventStream eventStream;
 
-    public NimbusPermissionHandler(JavaPlugin plugin, String apiUrl, String token) {
+    private final Map<UUID, PermissionAttachment> attachments = new ConcurrentHashMap<>();
+    private final Map<UUID, DisplayInfo> displayCache = new ConcurrentHashMap<>();
+
+    @Override
+    public void enable(NimbusPermsPlugin plugin) {
         this.plugin = plugin;
-        this.apiUrl = apiUrl.endsWith("/") ? apiUrl.substring(0, apiUrl.length() - 1) : apiUrl;
-        this.token = token;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
-                .build();
-    }
+        this.apiUrl = plugin.getApiUrl();
+        this.token = plugin.getToken();
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-    public void start() {
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
         startEventStream();
-        plugin.getLogger().info("Nimbus permission handler started");
+        plugin.getLogger().info("Built-in permission provider enabled");
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onJoin(PlayerJoinEvent event) {
-        loadAndApply(event.getPlayer());
-    }
-
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        PermissionAttachment attachment = attachments.remove(event.getPlayer().getUniqueId());
-        if (attachment != null) {
-            try { event.getPlayer().removeAttachment(attachment); } catch (Exception ignored) {}
+    @Override
+    public void disable() {
+        if (eventStream != null) {
+            eventStream.close();
         }
+        for (Map.Entry<UUID, PermissionAttachment> entry : attachments.entrySet()) {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            if (player != null) {
+                try { player.removeAttachment(entry.getValue()); } catch (Exception ignored) {}
+            }
+        }
+        attachments.clear();
+        displayCache.clear();
     }
 
-    public void loadAndApply(Player player) {
+    @Override
+    public void onJoin(Player player) {
+        loadAndApply(player);
+    }
+
+    @Override
+    public void onQuit(Player player) {
+        PermissionAttachment attachment = attachments.remove(player.getUniqueId());
+        if (attachment != null) {
+            try { player.removeAttachment(attachment); } catch (Exception ignored) {}
+        }
+        displayCache.remove(player.getUniqueId());
+    }
+
+    @Override
+    public void refresh(UUID uuid) {
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            Player player = plugin.getServer().getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                loadAndApply(player);
+            }
+        });
+    }
+
+    @Override
+    public void refreshAll() {
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            for (Player player : plugin.getServer().getOnlinePlayers()) {
+                loadAndApply(player);
+            }
+        });
+    }
+
+    @Override
+    public String getPrefix(UUID uuid) {
+        DisplayInfo info = displayCache.get(uuid);
+        return info != null ? info.prefix : "";
+    }
+
+    @Override
+    public String getSuffix(UUID uuid) {
+        DisplayInfo info = displayCache.get(uuid);
+        return info != null ? info.suffix : "";
+    }
+
+    @Override
+    public int getPriority(UUID uuid) {
+        DisplayInfo info = displayCache.get(uuid);
+        return info != null ? info.priority : 0;
+    }
+
+    private void loadAndApply(Player player) {
         UUID uuid = player.getUniqueId();
         String name = player.getName();
 
@@ -87,7 +132,7 @@ public class NimbusPermissionHandler implements Listener {
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenAccept(response -> {
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        plugin.getLogger().warning("[Perms] Failed for " + name + ": HTTP " + response.statusCode() + " — " + response.body());
+                        plugin.getLogger().warning("[Perms] Failed for " + name + ": HTTP " + response.statusCode());
                         return;
                     }
 
@@ -106,6 +151,14 @@ public class NimbusPermissionHandler implements Listener {
                             }
                         }
 
+                        // Cache display info
+                        String prefix = json.has("prefix") && !json.get("prefix").isJsonNull() ? json.get("prefix").getAsString() : "";
+                        String suffix = json.has("suffix") && !json.get("suffix").isJsonNull() ? json.get("suffix").getAsString() : "";
+                        String displayGroup = json.has("displayGroup") && !json.get("displayGroup").isJsonNull() ? json.get("displayGroup").getAsString() : "";
+                        int priority = 0;
+                        // Priority is not in the standard response but we extract from display group
+                        displayCache.put(uuid, new DisplayInfo(prefix, suffix, displayGroup, priority));
+
                         plugin.getServer().getScheduler().runTask(plugin, () -> {
                             if (!player.isOnline()) return;
                             applyPermissions(player, granted, negated);
@@ -123,7 +176,6 @@ public class NimbusPermissionHandler implements Listener {
     private void applyPermissions(Player player, Set<String> granted, Set<String> negated) {
         UUID uuid = player.getUniqueId();
 
-        // Remove old attachment
         PermissionAttachment old = attachments.remove(uuid);
         if (old != null) {
             try { player.removeAttachment(old); } catch (Exception ignored) {}
@@ -134,22 +186,19 @@ public class NimbusPermissionHandler implements Listener {
         int count = 0;
 
         if (hasWildcard) {
-            // * means ALL permissions — enumerate every registered permission on the server
             for (Permission registeredPerm : plugin.getServer().getPluginManager().getPermissions()) {
-                String name = registeredPerm.getName().toLowerCase();
-                if (!negated.contains(name)) {
+                String pname = registeredPerm.getName().toLowerCase();
+                if (!negated.contains(pname)) {
                     attachment.setPermission(registeredPerm, true);
                     count++;
                 }
             }
-            // Also set the literal * and common parent nodes
             attachment.setPermission("*", true);
             count++;
         } else {
-            // Expand wildcards like "minecraft.command.*"
             for (String perm : granted) {
                 if (perm.endsWith(".*")) {
-                    String prefix = perm.substring(0, perm.length() - 1); // "minecraft.command."
+                    String prefix = perm.substring(0, perm.length() - 1);
                     for (Permission registeredPerm : plugin.getServer().getPluginManager().getPermissions()) {
                         String regName = registeredPerm.getName().toLowerCase();
                         if (regName.startsWith(prefix) && !negated.contains(regName)) {
@@ -164,7 +213,6 @@ public class NimbusPermissionHandler implements Listener {
             }
         }
 
-        // Apply negations
         for (String neg : negated) {
             attachment.setPermission(neg, false);
         }
@@ -175,23 +223,6 @@ public class NimbusPermissionHandler implements Listener {
 
         int registered = plugin.getServer().getPluginManager().getPermissions().size();
         plugin.getLogger().info("[Perms] " + player.getName() + ": " + count + " granted (of " + registered + " registered), " + negated.size() + " negated, wildcard=" + hasWildcard);
-    }
-
-    public void refreshAll() {
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            for (Player player : plugin.getServer().getOnlinePlayers()) {
-                loadAndApply(player);
-            }
-        });
-    }
-
-    public void refresh(UUID uuid) {
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            Player player = plugin.getServer().getPlayer(uuid);
-            if (player != null && player.isOnline()) {
-                loadAndApply(player);
-            }
-        });
     }
 
     private void startEventStream() {
@@ -224,16 +255,5 @@ public class NimbusPermissionHandler implements Listener {
         }
     }
 
-    public void shutdown() {
-        if (eventStream != null) {
-            eventStream.close();
-        }
-        for (Map.Entry<UUID, PermissionAttachment> entry : attachments.entrySet()) {
-            Player player = plugin.getServer().getPlayer(entry.getKey());
-            if (player != null) {
-                try { player.removeAttachment(entry.getValue()); } catch (Exception ignored) {}
-            }
-        }
-        attachments.clear();
-    }
+    private record DisplayInfo(String prefix, String suffix, String group, int priority) {}
 }

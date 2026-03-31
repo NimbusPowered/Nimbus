@@ -55,7 +55,7 @@ public class NimbusEventStream implements AutoCloseable {
     private final AtomicBoolean firstConnect = new AtomicBoolean(true);
     private final AtomicReference<WebSocket> webSocketRef = new AtomicReference<>();
 
-    NimbusEventStream(URI uri) {
+    public NimbusEventStream(URI uri) {
         this.uri = uri;
         this.httpClient = HttpClient.newHttpClient();
     }

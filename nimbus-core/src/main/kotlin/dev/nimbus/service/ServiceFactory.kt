@@ -174,7 +174,7 @@ class ServiceFactory(
             // Folia: remove incompatible plugins (SDK, ProtocolLib) that came from global template
             if (software == ServerSoftware.FOLIA) {
                 val pluginsDir = workDir.resolve("plugins")
-                listOf("nimbus-sdk.jar", "ProtocolLib.jar").forEach { jar ->
+                listOf("nimbus-sdk.jar", "nimbus-perms.jar", "ProtocolLib.jar").forEach { jar ->
                     val file = pluginsDir.resolve(jar)
                     if (file.exists()) {
                         java.nio.file.Files.delete(file)

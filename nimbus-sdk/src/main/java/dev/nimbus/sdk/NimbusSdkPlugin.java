@@ -12,13 +12,13 @@ import org.bukkit.plugin.java.JavaPlugin;
  * Automatically initializes {@link Nimbus} on startup if running in a
  * Nimbus-managed service. Other plugins just call {@code Nimbus.setState("WAITING")}
  * etc. — no setup required.
+ * <p>
+ * Permission handling, chat rendering, and name tag management have been moved
+ * to the NimbusPerms plugin (nimbus-perms module).
  */
 public class NimbusSdkPlugin extends JavaPlugin implements Listener {
 
     private static NimbusSdkPlugin instance;
-    private NimbusPermissionHandler permissionHandler;
-    private NimbusChatRenderer chatRenderer;
-    private NimbusNameTagHandler nameTagHandler;
     private Object stressBotManager; // StressBotManager — stored as Object to avoid loading ProtocolLib classes early
 
     @Override
@@ -30,28 +30,13 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
                 Nimbus.init();
                 getLogger().info("Nimbus SDK initialized — service: " + Nimbus.name() + " (group: " + Nimbus.group() + ")");
 
-                // Start permission handler
                 String apiUrl = System.getProperty("nimbus.api.url");
-                String token = System.getProperty("nimbus.api.token", "");
                 if (apiUrl != null && !apiUrl.isEmpty()) {
-                    permissionHandler = new NimbusPermissionHandler(this, apiUrl, token);
-                    permissionHandler.start();
-
-                    // Start chat renderer
-                    chatRenderer = new NimbusChatRenderer(this, apiUrl, token);
-                    chatRenderer.start();
-
-                    // Start name tag handler
-                    nameTagHandler = new NimbusNameTagHandler(this, apiUrl, token);
-                    nameTagHandler.start();
-
                     // Start stress bot manager (spawns fake players during stress tests)
                     // Only initialize if ProtocolLib is present — use reflection to avoid
                     // loading ProtocolLib classes when it's not installed
                     if (getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
                         try {
-                            // Use our own ClassLoader to avoid Paper's reflection rewriter
-                            // intercepting and trying to remap ProtocolLib classes
                             Class<?> sbmClass = getClassLoader().loadClass("dev.nimbus.sdk.StressBotManager");
                             Object sbm = sbmClass.getConstructor(JavaPlugin.class).newInstance(this);
                             sbmClass.getMethod("start").invoke(sbm);
@@ -81,21 +66,12 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
         if (stressBotManager != null) {
             try { stressBotManager.getClass().getMethod("shutdown").invoke(stressBotManager); } catch (Exception ignored) {}
         }
-        if (permissionHandler != null) {
-            permissionHandler.shutdown();
-        }
         Nimbus.shutdown();
         instance = null;
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        if (chatRenderer != null) {
-            chatRenderer.fetchPlayerDisplay(event.getPlayer().getUniqueId());
-        }
-        if (nameTagHandler != null) {
-            nameTagHandler.onJoin(event.getPlayer());
-        }
         if (stressBotManager != null) {
             try { stressBotManager.getClass().getMethod("onPlayerJoin", org.bukkit.entity.Player.class).invoke(stressBotManager, event.getPlayer()); } catch (Exception ignored) {}
         }
@@ -104,12 +80,6 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        if (chatRenderer != null) {
-            chatRenderer.removePlayer(event.getPlayer().getUniqueId());
-        }
-        if (nameTagHandler != null) {
-            nameTagHandler.onQuit(event.getPlayer());
-        }
         // Schedule with 1 tick delay — the quitting player is still in getOnlinePlayers() during the event
         getServer().getScheduler().runTaskLaterAsynchronously(this, this::reportPlayerCount, 1L);
     }

@@ -32,6 +32,9 @@ class DatabaseManager(private val baseDir: Path, private val config: DatabaseCon
             SchemaUtils.createMissingTablesAndColumns(
                 PermissionGroups, GroupPermissions, GroupParents,
                 Players, PlayerGroups,
+                GroupMeta, PlayerMeta,
+                GroupPermissionContexts, PlayerGroupContexts,
+                PermissionTracks, PermissionAuditLog,
                 ServiceEvents, ScalingEvents, PlayerSessions
             )
         }

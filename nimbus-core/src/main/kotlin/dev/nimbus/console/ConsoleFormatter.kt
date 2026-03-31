@@ -204,6 +204,14 @@ object ConsoleFormatter {
                 "${warn("- PERM")} group ${BOLD}${event.groupName}${RESET} deleted"
             is NimbusEvent.PlayerPermissionsUpdated ->
                 "${info("~ PERM")} ${BOLD}${event.playerName}${RESET} ${DIM}(${event.uuid})${RESET} updated"
+            is NimbusEvent.PermissionTrackCreated ->
+                "${success("+ TRACK")} ${BOLD}${event.trackName}${RESET} created"
+            is NimbusEvent.PermissionTrackDeleted ->
+                "${warn("- TRACK")} ${BOLD}${event.trackName}${RESET} deleted"
+            is NimbusEvent.PlayerPromoted ->
+                "${success("↑ PROMOTE")} ${BOLD}${event.playerName}${RESET} → ${BOLD}${event.newGroup}${RESET} ${DIM}(track=${event.trackName})${RESET}"
+            is NimbusEvent.PlayerDemoted ->
+                "${warn("↓ DEMOTE")} ${BOLD}${event.playerName}${RESET} → ${BOLD}${event.newGroup}${RESET} ${DIM}(track=${event.trackName})${RESET}"
             is NimbusEvent.ProxyUpdateAvailable ->
                 "${warn("↑ UPDATE")} Velocity ${BOLD}${event.currentVersion}${RESET} → ${BOLD}${event.newVersion}${RESET} available"
             is NimbusEvent.ProxyUpdateApplied ->

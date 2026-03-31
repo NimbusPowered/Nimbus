@@ -106,6 +106,15 @@ class SetupWizard(
             }
             w.println()
 
+            // --- Step 2.5b: Permissions Plugin ---
+            val permsEnabled = promptYesNo(terminal, "  Install built-in permissions plugin? ${ConsoleFormatter.hint("(prefix, suffix, groups, tracks)")}", true)
+            if (permsEnabled) {
+                done(w, "NimbusPerms will be deployed to all backend servers")
+            } else {
+                w.println("  ${ConsoleFormatter.hint("Skipped — you can use LuckPerms or install NimbusPerms later.")}")
+            }
+            w.println()
+
             // --- Step 3: Server Groups ---
             stepHeader(w, 3, "Server Groups")
             w.println()
@@ -253,7 +262,7 @@ class SetupWizard(
             stepHeader(w, 5, "Saving configuration")
             w.println()
 
-            writeNimbusToml(networkName, bedrockEnabled)
+            writeNimbusToml(networkName, permsEnabled, bedrockEnabled)
             w.println("  ${ConsoleFormatter.colorize("+", ConsoleFormatter.GREEN)} config/nimbus.toml")
 
             writeProxyToml(velocityVersion)
@@ -449,8 +458,14 @@ class SetupWizard(
 
     // ── Config writers ──────────────────────────────────────────
 
-    private fun writeNimbusToml(networkName: String, bedrockEnabled: Boolean = false) {
+    private fun writeNimbusToml(networkName: String, permsEnabled: Boolean = true, bedrockEnabled: Boolean = false) {
         val token = generateToken()
+        val permsSection = if (!permsEnabled) """
+            |
+            |[permissions]
+            |deploy_plugin = false
+        """.trimMargin() else ""
+
         val bedrockSection = if (bedrockEnabled) """
             |
             |[bedrock]
@@ -495,7 +510,7 @@ class SetupWizard(
             |# name = "nimbus"
             |# username = ""
             |# password = ""
-            |$bedrockSection
+            |$permsSection$bedrockSection
         """.trimMargin() + "\n"
         val configDir = baseDir.resolve("config")
         Files.createDirectories(configDir)

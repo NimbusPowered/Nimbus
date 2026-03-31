@@ -207,6 +207,26 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("uuid" to uuid, "player" to playerName)
         )
+        is NimbusEvent.PermissionTrackCreated -> EventMessage(
+            type = "PERMISSION_TRACK_CREATED",
+            timestamp = timestamp.toString(),
+            data = mapOf("track" to trackName)
+        )
+        is NimbusEvent.PermissionTrackDeleted -> EventMessage(
+            type = "PERMISSION_TRACK_DELETED",
+            timestamp = timestamp.toString(),
+            data = mapOf("track" to trackName)
+        )
+        is NimbusEvent.PlayerPromoted -> EventMessage(
+            type = "PLAYER_PROMOTED",
+            timestamp = timestamp.toString(),
+            data = mapOf("uuid" to uuid, "player" to playerName, "track" to trackName, "newGroup" to newGroup)
+        )
+        is NimbusEvent.PlayerDemoted -> EventMessage(
+            type = "PLAYER_DEMOTED",
+            timestamp = timestamp.toString(),
+            data = mapOf("uuid" to uuid, "player" to playerName, "track" to trackName, "newGroup" to newGroup)
+        )
         is NimbusEvent.TabListUpdated -> EventMessage(
             type = "TABLIST_UPDATED",
             timestamp = timestamp.toString(),

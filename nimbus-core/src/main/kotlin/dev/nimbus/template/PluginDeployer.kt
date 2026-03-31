@@ -25,7 +25,7 @@ class PluginDeployer(private val baseDir: Path) {
         deployHubPlugin(globalProxyTemplateDir)
 
         // Deploy Nimbus SDK plugin to global (all backend servers: Paper, Purpur, etc.)
-        deploySdkPlugin(globalTemplateDir)
+        deploySdkPlugin(globalTemplateDir, config.permissions.deployPlugin)
 
         // Deploy ProtocolLib to global (required by SDK for fake player spawning)
         deployPlugin(globalTemplateDir, "ProtocolLib.jar", "plugins/ProtocolLib.jar")
@@ -97,8 +97,11 @@ class PluginDeployer(private val baseDir: Path) {
         deployPlugin(globalProxyDir, "nimbus-bridge.jar", "plugins/nimbus-bridge.jar")
     }
 
-    private fun deploySdkPlugin(globalDir: Path) {
+    private fun deploySdkPlugin(globalDir: Path, deployPerms: Boolean = true) {
         deployPlugin(globalDir, "nimbus-sdk.jar", "plugins/nimbus-sdk.jar")
+        if (deployPerms) {
+            deployPlugin(globalDir, "nimbus-perms.jar", "plugins/nimbus-perms.jar")
+        }
     }
 
     /**
@@ -108,7 +111,7 @@ class PluginDeployer(private val baseDir: Path) {
      * placed the plugin -- does NOT deploy to new locations.
      */
     private fun autoUpdateNimbusPlugins(templatesDir: Path, staticDir: Path) {
-        val nimbusPlugins = listOf("nimbus-signs.jar")
+        val nimbusPlugins = listOf("nimbus-signs.jar", "nimbus-perms.jar")
         var updated = 0
 
         // Scan all template directories (except global/global_proxy which are handled separately)
@@ -255,7 +258,8 @@ class PluginDeployer(private val baseDir: Path) {
 
         val optionalPlugins = mapOf(
             "nimbus-sdk.jar" to "plugins/nimbus-sdk.jar",
-            "nimbus-signs.jar" to "plugins/nimbus-signs.jar"
+            "nimbus-signs.jar" to "plugins/nimbus-signs.jar",
+            "nimbus-perms.jar" to "plugins/nimbus-perms.jar"
         )
 
         for ((fileName, resourcePath) in optionalPlugins) {

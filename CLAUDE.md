@@ -19,6 +19,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 - `nimbus-protocol` — Shared cluster message types
 - `nimbus-bridge` — Velocity plugin: hub commands + cloud bridge (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
 - `nimbus-sdk` — Paper server SDK (auto-deployed to backend servers)
+- `nimbus-perms` — Paper permissions plugin: builtin or LuckPerms provider (auto-deployed, configurable)
 - `nimbus-signs` — Paper signs plugin for server selectors
 
 ## Tech Stack
@@ -69,13 +70,16 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 - Velocity forwarding: `modern` if all backends >=1.13, else `legacy` (BungeeCord)
 - Via plugins (ViaVersion/ViaBackwards) only on backend servers, never on proxy
 - EULA auto-accepted for Paper/Purpur/Folia templates
-- Folia: SDK + ProtocolLib auto-excluded (incompatible with regionized threading)
+- Folia: SDK + NimbusPerms + ProtocolLib auto-excluded (incompatible with regionized threading)
 - Performance optimizer: Aikar's JVM flags + Paper/Purpur/Folia config tuning (optimize=true default)
 - Process ready detection: watches stdout for "Done" pattern
 - Graceful shutdown order: game servers → lobbies → proxies
 - Shutdown requires confirmation: `shutdown` then `shutdown confirm` within 30s
 - ProtocolLib auto-deployed to backend servers (embedded in JAR, tracked via `.nimbus-plugins`)
+- NimbusPerms auto-deployed to backend servers (configurable via `[permissions].deploy_plugin`)
 - Bedrock support: Geyser + Floodgate auto-downloaded from GeyserMC API, key.pem centrally managed
+- Permission system: groups, inheritance, tracks, meta, weight, audit log, debug — central DB on controller
+- LuckPerms support: optional provider in NimbusPerms, syncs display data to controller for proxy features
 
 ## Code Style
 

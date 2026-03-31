@@ -1,109 +1,137 @@
 # Permission System
 
-Nimbus includes a built-in permission system that manages groups, player assignments, and permission inheritance. Permissions are stored in a database (SQLite by default, configurable to MySQL or PostgreSQL via `nimbus.toml`) and are automatically synced to the Velocity proxy and backend servers via the API.
+Nimbus includes a full-featured permission system with group management, inheritance, tracks, meta-data, and an audit log. All permission data is stored centrally on the Nimbus controller and synced to all servers in real-time — no extra database setup needed on individual servers.
 
 ## Overview
 
-- **Permission groups** define sets of permissions with optional inheritance
-- **Players** are assigned to one or more groups by UUID
-- **Wildcards** and **negation** are supported
-- A **default group** applies to all players automatically
-- **Display properties** (prefix, suffix, priority) control chat formatting
+- **Permission groups** with inheritance, wildcards, and negation
+- **Tracks** for promotion/demotion paths (e.g., Member → VIP → MVP → Admin)
+- **Meta-data** on groups and players (arbitrary key-value pairs)
+- **Weight** for conflict resolution between groups
+- **Audit log** tracking all permission changes
+- **Permission debug** explaining exactly why a permission is granted or denied
+- **LuckPerms integration** as an alternative provider
+- **Real-time sync** via WebSocket to all backend servers and the Velocity proxy
+
+## Providers
+
+Nimbus supports two permission providers, configured per-server in the NimbusPerms plugin:
+
+### Built-in (default)
+
+The built-in system stores everything on the Nimbus controller's database. Backend servers fetch permissions via the Nimbus API — no additional setup needed on individual servers.
+
+```yaml
+# nimbus-perms config.yml
+provider: builtin
+```
+
+**Advantages:**
+- Zero configuration on backend servers
+- Single source of truth (controller database)
+- Works with SQLite, MySQL, or PostgreSQL
+- Full integration with console commands, REST API, and WebSocket events
+
+### LuckPerms
+
+Use [LuckPerms](https://luckperms.net/) as the permission engine. Nimbus reads display data (prefix, suffix) from LuckPerms and syncs it to the controller for proxy features (tab list, chat formatting, nametags).
+
+```yaml
+# nimbus-perms config.yml
+provider: luckperms
+```
+
+**What Nimbus handles for you:**
+- Proxy display sync (tab prefixes, chat formatting, MOTD) — no extra Vault/TAB plugin needed on Velocity
+- REST API exposes permission data from LuckPerms
+- Console shows player display info from LuckPerms
+
+**What LuckPerms still handles:**
+- Permission storage and resolution on backend servers
+- LuckPerms still needs its own shared database (MySQL/PostgreSQL) for multi-server permission sync — Nimbus syncs display data only, not permission nodes
+
+::: tip
+If you're starting fresh, the built-in system is simpler — everything works out of the box with zero extra configuration. Use LuckPerms if you need its advanced features (web editor, contexts, verbose logging) or are migrating from an existing LuckPerms setup.
+:::
+
+---
+
+## Setup Wizard
+
+During the initial setup, Nimbus asks whether to install the built-in permissions plugin:
+
+```
+Install built-in permissions plugin? (prefix, suffix, groups, tracks) [Y/n]:
+```
+
+- **Yes (default)**: NimbusPerms is deployed to all backend servers via the `global` template
+- **No**: NimbusPerms is skipped — you can install LuckPerms or add NimbusPerms later
+
+This setting is stored in `nimbus.toml`:
+
+```toml
+[permissions]
+deploy_plugin = false  # only present if disabled; default is true
+```
 
 ---
 
 ## Database Storage
 
-Permissions are stored in a database, configurable via the `[database]` section in `config/nimbus.toml`:
+Permissions are stored in the controller database, configurable via the `[database]` section in `config/nimbus.toml`:
 
 ```toml
 [database]
-# Supported types: sqlite, mysql, postgresql
-type = "sqlite"
-
-# Settings below only apply to mysql/postgresql:
-# host = "localhost"
-# port = 3306
-# name = "nimbus"
-# username = ""
-# password = ""
+type = "sqlite"  # or mysql, postgresql
 ```
 
-By default, Nimbus uses **SQLite** with a database file at `data/nimbus.db`. For larger networks, switch to **MySQL/MariaDB** or **PostgreSQL** by changing `type` and providing connection credentials.
+By default, Nimbus uses **SQLite** with a database file at `data/nimbus.db`. For larger networks, switch to **MySQL/MariaDB** or **PostgreSQL**.
 
 ::: tip
-SQLite requires zero configuration and is recommended for single-node setups. Use MySQL or PostgreSQL if you need remote database access or run multiple Nimbus instances against the same database.
+SQLite requires zero configuration and is recommended for single-node setups. The built-in permission system uses this same database — no separate permission database needed.
 :::
 
 ### Database Schema
 
-Permission data is stored across these tables:
-
 | Table | Description |
 |-------|-------------|
-| `permission_groups` | Group definitions (name, default, prefix, suffix, priority) |
+| `permission_groups` | Group definitions (name, default, prefix, suffix, priority, weight) |
 | `group_permissions` | Permission nodes per group |
 | `group_parents` | Inheritance relationships between groups |
+| `group_meta` | Key-value metadata per group |
 | `players` | Player entries (UUID, name) |
 | `player_groups` | Player-to-group assignments |
+| `player_meta` | Key-value metadata per player |
+| `group_permission_contexts` | Server/world scoping and expiry for permissions |
+| `player_group_contexts` | Server/world scoping and expiry for group assignments |
+| `permission_tracks` | Promotion/demotion track definitions |
+| `permission_audit_log` | Change history (who, what, when) |
 
-Additionally, Nimbus tracks cloud metrics in:
+---
 
-| Table | Description |
-|-------|-------------|
-| `service_events` | Service lifecycle events (start, ready, stop, crash) |
-| `scaling_events` | Auto-scaling decisions (scale up/down with reason) |
-| `player_sessions` | Player connect/disconnect timestamps per service |
-
-### Group Properties
+## Group Properties
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | String | *required* | Group name. Must not be blank. |
-| `is_default` | Boolean | `false` | Whether this group applies to all players automatically. Only one group should be default. |
-| `prefix` | String | `""` | Chat prefix. Supports MiniMessage format. |
-| `suffix` | String | `""` | Chat suffix. Supports MiniMessage format. |
-| `priority` | Int | `0` | Display priority. Higher values take precedence when a player is in multiple groups. |
-
-### Player Properties
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | String | Player's UUID (primary key). |
-| `name` | String | Player's display name (auto-updated on join). |
+| `name` | String | *required* | Group name (case-insensitive lookup) |
+| `is_default` | Boolean | `false` | Auto-assigned to all players on first join |
+| `prefix` | String | `""` | Chat/tab prefix (MiniMessage format) |
+| `suffix` | String | `""` | Chat/tab suffix (MiniMessage format) |
+| `priority` | Int | `0` | Display priority — higher wins for prefix/suffix |
+| `weight` | Int | `0` | Conflict resolution weight — separate from display priority |
 
 ---
 
 ## Permission Resolution
 
-When checking a player's permissions, Nimbus resolves them in this order:
+When checking a player's permissions:
 
 1. **Default group** permissions (applies to everyone)
-2. **Parent groups** are resolved recursively (depth-first, parent before child)
-3. **Player's assigned groups** are applied on top
-4. **Negated permissions** (prefixed with `-`) are removed from the final set
-
-### Inheritance Chain
-
-```
-Default
-  +-- Moderator (inherits Default)
-        +-- Admin (inherits Moderator)
-```
-
-If a player is in the `Admin` group:
-- Default permissions are loaded first
-- Moderator permissions are layered on top
-- Admin permissions are layered last (child overrides parent)
-- Any `-permission.node` entries remove that node from the final set
-
-::: info
-Cycle detection is built in. If group A inherits from B which inherits from A, the cycle is broken and each group is only processed once.
-:::
+2. **Parent groups** resolved recursively (depth-first, parent before child)
+3. **Player's assigned groups** layered on top
+4. **Negated permissions** (prefixed with `-`) removed from the final set
 
 ### Wildcard Matching
-
-Permissions support wildcard patterns at any level:
 
 | Pattern | Matches |
 |---------|---------|
@@ -113,177 +141,222 @@ Permissions support wildcard patterns at any level:
 
 ### Negation
 
-Prefix a permission with `-` to explicitly deny it:
+Prefix a permission with `-` to deny it:
 
-```toml
-[group.permissions]
-list = [
-    "nimbus.*",
-    "-nimbus.cloud.shutdown",
-]
+```
+perms group addperm Moderator nimbus.*
+perms group addperm Moderator -nimbus.cloud.shutdown
 ```
 
-This grants all `nimbus.*` permissions except `nimbus.cloud.shutdown`.
+---
+
+## Tracks
+
+Tracks define ordered promotion/demotion paths through groups.
+
+```
+perms track create staff Member,Moderator,Admin
+perms user promote Steve staff     # Member → Moderator
+perms user promote Steve staff     # Moderator → Admin
+perms user demote Steve staff      # Admin → Moderator
+```
+
+A player can only be on one group per track at a time. Promoting removes the current track group and assigns the next one.
+
+---
+
+## Meta-Data
+
+Arbitrary key-value pairs on groups and players. Useful for custom data that plugins can read via the API.
+
+```
+perms group meta set VIP color gold
+perms group meta set VIP icon star
+perms user meta set Steve coins 500
+perms group meta list VIP
+perms user meta list Steve
+```
+
+---
+
+## Permission Debug
+
+The `check` command explains **why** a permission is granted or denied:
+
+```
+perms user check Steve nimbus.cloud.list
+```
+
+Output shows the resolution chain — which group granted it, via exact match or wildcard, and whether any negation was applied.
+
+---
+
+## Audit Log
+
+All permission changes are logged with timestamp, actor, action, and details:
+
+```
+perms audit          # last 20 entries
+perms audit 50       # last 50 entries
+```
 
 ---
 
 ## Console Commands
 
-All permission management is available through the Nimbus console.
-
 ### Group Commands
 
 | Command | Description |
 |---------|-------------|
-| `perms group list` | List all permission groups |
-| `perms group info <name>` | Show group details, permissions, and parents |
-| `perms group create <name>` | Create a new permission group |
-| `perms group delete <name>` | Delete a group (removes from all players) |
-| `perms group addperm <group> <permission>` | Add a permission node to a group |
-| `perms group removeperm <group> <permission>` | Remove a permission node from a group |
-| `perms group setdefault <group> [true/false]` | Set a group as the default (clears default from other groups) |
-| `perms group addparent <group> <parent>` | Add a parent group for inheritance |
-| `perms group removeparent <group> <parent>` | Remove a parent group |
-| `perms group setprefix <group> <prefix...>` | Set the display prefix (supports spaces) |
-| `perms group setsuffix <group> <suffix...>` | Set the display suffix (supports spaces) |
-| `perms group setpriority <group> <number>` | Set the display priority |
+| `perms group list` | List all groups (with weight column) |
+| `perms group info <name>` | Show group details, permissions, meta, parents |
+| `perms group create <name>` | Create a new group |
+| `perms group delete <name>` | Delete a group |
+| `perms group addperm <group> <perm>` | Add permission |
+| `perms group removeperm <group> <perm>` | Remove permission |
+| `perms group setdefault <group> [true/false]` | Set as default group |
+| `perms group addparent <group> <parent>` | Add inheritance |
+| `perms group removeparent <group> <parent>` | Remove inheritance |
+| `perms group setprefix <group> <prefix...>` | Set display prefix |
+| `perms group setsuffix <group> <suffix...>` | Set display suffix |
+| `perms group setpriority <group> <number>` | Set display priority |
+| `perms group setweight <group> <number>` | Set conflict weight |
+| `perms group meta set <group> <key> <value>` | Set meta value |
+| `perms group meta remove <group> <key>` | Remove meta key |
+| `perms group meta list <group>` | List meta values |
 
 ### User Commands
 
 | Command | Description |
 |---------|-------------|
-| `perms user list` | List all player assignments |
-| `perms user info <name\|uuid>` | Show player's groups, effective permissions, and display info |
-| `perms user addgroup <name\|uuid> <group>` | Assign a group to a player |
-| `perms user removegroup <name\|uuid> <group>` | Remove a group from a player |
+| `perms user list` | List all players |
+| `perms user info <name\|uuid>` | Show player details |
+| `perms user check <name\|uuid> <perm>` | Debug permission check |
+| `perms user addgroup <name\|uuid> <group>` | Assign group |
+| `perms user removegroup <name\|uuid> <group>` | Remove group |
+| `perms user promote <name\|uuid> <track>` | Promote on track |
+| `perms user demote <name\|uuid> <track>` | Demote on track |
+| `perms user meta set <id> <key> <value>` | Set player meta |
+| `perms user meta remove <id> <key>` | Remove player meta |
+| `perms user meta list <id>` | List player meta |
+
+### Track Commands
+
+| Command | Description |
+|---------|-------------|
+| `perms track list` | List all tracks |
+| `perms track info <name>` | Show track details |
+| `perms track create <name> <groups>` | Create track (comma-separated groups) |
+| `perms track delete <name>` | Delete track |
 
 ### Other
 
 | Command | Description |
 |---------|-------------|
-| `perms reload` | Reload all permission data from database |
-
-::: tip
-Players can be identified by name (if they've joined before) or UUID. For first-time assignments to players who haven't connected yet, use their UUID.
-:::
+| `perms audit [limit]` | Show audit log |
+| `perms reload` | Reload from database |
 
 ---
 
 ## API Endpoints
 
-The permission system is fully accessible via the REST API. All endpoints require bearer token authentication.
+All endpoints require bearer token authentication.
 
 ### Groups
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/permissions/groups` | List all permission groups |
-| `GET` | `/api/permissions/groups/{name}` | Get a specific group |
-| `POST` | `/api/permissions/groups` | Create a new group |
-| `PUT` | `/api/permissions/groups/{name}` | Update a group (permissions, parents, display) |
-| `DELETE` | `/api/permissions/groups/{name}` | Delete a group |
-| `POST` | `/api/permissions/groups/{name}/permissions` | Add a permission to a group |
-| `DELETE` | `/api/permissions/groups/{name}/permissions` | Remove a permission from a group |
+| `GET` | `/api/permissions/groups` | List all groups |
+| `GET` | `/api/permissions/groups/{name}` | Get group (includes weight, meta) |
+| `POST` | `/api/permissions/groups` | Create group |
+| `PUT` | `/api/permissions/groups/{name}` | Update group |
+| `DELETE` | `/api/permissions/groups/{name}` | Delete group |
+| `POST` | `/api/permissions/groups/{name}/permissions` | Add permission (optional: server, world, expiresAt) |
+| `DELETE` | `/api/permissions/groups/{name}/permissions` | Remove permission |
+| `GET` | `/api/permissions/groups/{name}/meta` | Get group meta |
+| `PUT` | `/api/permissions/groups/{name}/meta` | Set meta key |
+| `DELETE` | `/api/permissions/groups/{name}/meta/{key}` | Remove meta key |
 
 ### Players
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/permissions/players/{uuid}` | Get player permissions and display info |
-| `PUT` | `/api/permissions/players/{uuid}` | Register/update a player (called on join) |
-| `POST` | `/api/permissions/players/{uuid}/groups` | Add a group to a player |
-| `DELETE` | `/api/permissions/players/{uuid}/groups` | Remove a group from a player |
+| `GET` | `/api/permissions/players/{uuid}` | Get player (includes meta) |
+| `PUT` | `/api/permissions/players/{uuid}` | Register/update player |
+| `POST` | `/api/permissions/players/{uuid}/groups` | Add group (optional: server, world, expiresAt) |
+| `DELETE` | `/api/permissions/players/{uuid}/groups` | Remove group |
+| `GET` | `/api/permissions/players/{uuid}/meta` | Get player meta |
+| `PUT` | `/api/permissions/players/{uuid}/meta` | Set meta key |
+| `DELETE` | `/api/permissions/players/{uuid}/meta/{key}` | Remove meta key |
 
-### Permission Check
+### Tracks
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/permissions/check/{uuid}/{permission}` | Check if a player has a specific permission |
+| `GET` | `/api/permissions/tracks` | List all tracks |
+| `GET` | `/api/permissions/tracks/{name}` | Get track |
+| `POST` | `/api/permissions/tracks` | Create track |
+| `DELETE` | `/api/permissions/tracks/{name}` | Delete track |
+| `POST` | `/api/permissions/tracks/{name}/promote/{uuid}` | Promote player |
+| `POST` | `/api/permissions/tracks/{name}/demote/{uuid}` | Demote player |
+
+### Debug & Audit
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/permissions/check/{uuid}/{permission}` | Check permission (boolean) |
+| `GET` | `/api/permissions/debug/{uuid}/{permission}` | Debug check (with reason + chain) |
+| `GET` | `/api/permissions/audit` | Audit log (?limit=50&offset=0) |
 
 ---
 
-## Velocity Integration
+## Architecture
 
-The `nimbus-bridge` Velocity plugin includes `NimbusPermissionProvider`, which loads permissions from the Nimbus API and integrates with Velocity's permission system.
+```
+                    Nimbus Controller
+                 ┌─────────────────────┐
+                 │  PermissionManager   │
+                 │  (DB: SQLite/MySQL)  │
+                 │  REST API + Events   │
+                 └────────┬────────────┘
+                          │ WebSocket
+            ┌─────────────┼─────────────┐
+            ▼             ▼             ▼
+     ┌──────────┐  ┌──────────┐  ┌──────────────┐
+     │ Lobby-1  │  │ BedWars-1│  │ Velocity     │
+     │ NimbusSDK│  │ NimbusSDK│  │ NimbusBridge │
+     │ NimbusPerms│ │ NimbusPerms│ │ PermProvider │
+     └──────────┘  └──────────┘  └──────────────┘
+```
 
-### How It Works
-
-1. When a player connects, the bridge calls `PUT /api/permissions/players/{uuid}` to register them and fetch effective permissions
-2. Permissions are cached in memory for fast `hasPermission()` lookups
-3. Wildcard matching works identically to the core system
-4. Permissions can be refreshed at any time via `invalidate()` or `refresh()`
-
-The provider is automatically registered with Velocity and handles all permission checks transparently.
-
----
-
-## Backend Integration (SDK)
-
-The `nimbus-sdk` Bukkit plugin provides `NimbusPermissible`, which injects custom permission handling into Paper/Purpur servers.
-
-### How It Works
-
-1. On player join, the SDK fetches effective permissions from the Nimbus API
-2. A custom `NimbusPermissible` replaces Bukkit's default `PermissibleBase` via reflection
-3. All `hasPermission()` checks go through Nimbus first, falling back to Bukkit's default system
-4. Wildcard matching is supported at all levels
-
-This means plugins that use standard Bukkit permission checks (`player.hasPermission("...")`) work with Nimbus permissions without any modifications.
+- **Backend servers**: NimbusPerms fetches permissions from the controller API on player join, applies via Bukkit PermissionAttachment, and listens for real-time changes
+- **Velocity proxy**: NimbusBridge loads permissions from the controller API and provides them to Velocity's permission system
+- **All changes** (console, API, LuckPerms sync) emit events that propagate to all connected servers instantly
 
 ---
 
 ## Example Setup
 
-### Step 1: Create Groups
+### Quick Start
 
 ```
-perms group create Admin
-perms group create Moderator
-perms group create Default
-perms group setdefault Default
-```
+perms group create VIP
+perms group addperm VIP essentials.fly
+perms group addperm VIP essentials.hat
+perms group setprefix VIP "&6[VIP] "
+perms group setpriority VIP 50
+perms group setweight VIP 50
 
-### Step 2: Set Up Inheritance
-
-```
-perms group addparent Moderator Default
-perms group addparent Admin Moderator
-```
-
-### Step 3: Add Permissions
-
-```
-perms group addperm Default nimbus.hub
-perms group addperm Default nimbus.play
-
-perms group addperm Moderator nimbus.cloud.list
-perms group addperm Moderator nimbus.cloud.info
-perms group addperm Moderator essentials.kick
-perms group addperm Moderator essentials.mute
-
-perms group addperm Admin *
-```
-
-### Step 4: Configure Display
-
-```
 perms group setprefix Default "&7"
-perms group setprefix Moderator "&a[Mod] "
 perms group setprefix Admin "&c[Admin] "
-perms group setpriority Default 0
-perms group setpriority Moderator 50
-perms group setpriority Admin 100
-```
 
-### Step 5: Assign Players
-
-```
-perms user addgroup Steve Admin
-perms user addgroup Alex Moderator
+perms track create ranks Default,VIP,Admin
+perms user promote Steve ranks    # Default → VIP
+perms user addgroup Alex Admin
 ```
 
 ### Result
 
-- **Steve**: Has `*` (all permissions), prefix `&c[Admin] `
-- **Alex**: Has Moderator + Default permissions, prefix `&a[Mod] `
-- **New players**: Get Default group automatically, prefix `&7`
+- **Steve**: VIP permissions, prefix `&6[VIP] `
+- **Alex**: Admin with `*`, prefix `&c[Admin] `
+- **New players**: Default group automatically, prefix `&7`

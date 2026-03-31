@@ -52,6 +52,9 @@ proxy_protocol = false
 connection_timeout = 5000
 buffer_size = 16384
 
+[permissions]
+deploy_plugin = true
+
 [bedrock]
 enabled = false
 base_port = 19132
@@ -273,6 +276,25 @@ proxy_protocol = true
 
 ::: warning
 When the load balancer is enabled, Velocity proxies are allocated backend ports (30000+) instead of 25565. The LB owns port 25565. Make sure your firewall allows connections to the LB port.
+:::
+
+---
+
+## `[permissions]`
+
+Controls deployment of the NimbusPerms plugin to backend servers.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `deploy_plugin` | Boolean | `true` | Deploy the NimbusPerms plugin to all backend servers via the global template. Disable if you prefer to manage permissions with LuckPerms or another system. |
+
+```toml
+[permissions]
+deploy_plugin = true
+```
+
+::: tip
+Even with `deploy_plugin = false`, the permission system on the controller (groups, players, API, console commands) remains fully functional. This setting only controls whether the NimbusPerms Paper plugin is auto-deployed to backend servers.
 :::
 
 ---

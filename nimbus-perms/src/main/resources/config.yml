@@ -1,0 +1,3 @@
+# NimbusPerms Configuration
+# Permission provider: "builtin" (Nimbus API) or "luckperms" (sync from LuckPerms)
+provider: builtin

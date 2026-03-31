@@ -47,6 +47,12 @@ sealed class NimbusEvent {
     data class PermissionGroupDeleted(val groupName: String) : NimbusEvent()
     data class PlayerPermissionsUpdated(val uuid: String, val playerName: String) : NimbusEvent()
 
+    // Permission Tracks
+    data class PermissionTrackCreated(val trackName: String) : NimbusEvent()
+    data class PermissionTrackDeleted(val trackName: String) : NimbusEvent()
+    data class PlayerPromoted(val uuid: String, val playerName: String, val trackName: String, val newGroup: String) : NimbusEvent()
+    data class PlayerDemoted(val uuid: String, val playerName: String, val trackName: String, val newGroup: String) : NimbusEvent()
+
     // Updates
     data class ProxyUpdateAvailable(val currentVersion: String, val newVersion: String) : NimbusEvent()
     data class ProxyUpdateApplied(val oldVersion: String, val newVersion: String) : NimbusEvent()

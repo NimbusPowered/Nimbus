@@ -645,4 +645,347 @@ class PermissionManagerTest {
         assertNotNull(manager2.getPlayer(uuid))
         assertTrue(manager2.getPlayer(uuid)!!.groups.any { it.equals("Operator", ignoreCase = true) })
     }
+
+    // ── Weight ─────────────────────────────────────────────────────
+
+    @Test
+    fun `setGroupWeight updates weight`() = runBlocking {
+        manager.init()
+        manager.setGroupWeight("Admin", 50)
+
+        val group = manager.getGroup("Admin")!!
+        assertEquals(50, group.weight)
+    }
+
+    @Test
+    fun `weight persists across reload`() = runBlocking {
+        manager.init()
+        manager.createGroup("VIP")
+        manager.setGroupWeight("VIP", 25)
+
+        manager.reload()
+        assertEquals(25, manager.getGroup("VIP")!!.weight)
+    }
+
+    // ── Group Meta ─────────────────────────────────────────────────
+
+    @Test
+    fun `setGroupMeta and getGroupMeta`() = runBlocking {
+        manager.init()
+        manager.setGroupMeta("Admin", "color", "red")
+        manager.setGroupMeta("Admin", "icon", "crown")
+
+        val meta = manager.getGroupMeta("Admin")
+        assertEquals("red", meta["color"])
+        assertEquals("crown", meta["icon"])
+        assertEquals(2, meta.size)
+    }
+
+    @Test
+    fun `removeGroupMeta removes key`() = runBlocking {
+        manager.init()
+        manager.setGroupMeta("Admin", "color", "red")
+        manager.setGroupMeta("Admin", "icon", "crown")
+        manager.removeGroupMeta("Admin", "color")
+
+        val meta = manager.getGroupMeta("Admin")
+        assertNull(meta["color"])
+        assertEquals("crown", meta["icon"])
+    }
+
+    @Test
+    fun `group meta persists across reload`() = runBlocking {
+        manager.init()
+        manager.setGroupMeta("Admin", "color", "red")
+
+        manager.reload()
+        assertEquals("red", manager.getGroupMeta("Admin")["color"])
+    }
+
+    // ── Player Meta ────────────────────────────────────────────────
+
+    @Test
+    fun `setPlayerMeta and getPlayerMeta`() = runBlocking {
+        manager.init()
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerMeta(uuid, "coins", "500")
+        manager.setPlayerMeta(uuid, "rank", "gold")
+
+        val meta = manager.getPlayerMeta(uuid)
+        assertEquals("500", meta["coins"])
+        assertEquals("gold", meta["rank"])
+    }
+
+    @Test
+    fun `removePlayerMeta removes key`() = runBlocking {
+        manager.init()
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerMeta(uuid, "coins", "500")
+        manager.setPlayerMeta(uuid, "rank", "gold")
+        manager.removePlayerMeta(uuid, "coins")
+
+        val meta = manager.getPlayerMeta(uuid)
+        assertNull(meta["coins"])
+        assertEquals("gold", meta["rank"])
+    }
+
+    @Test
+    fun `player meta persists across reload`() = runBlocking {
+        manager.init()
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerMeta(uuid, "coins", "500")
+
+        manager.reload()
+        assertEquals("500", manager.getPlayerMeta(uuid)["coins"])
+    }
+
+    // ── Tracks ─────────────────────────────────────────────────────
+
+    @Test
+    fun `createTrack and getTrack`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createGroup("MVP")
+
+        val track = manager.createTrack("ranks", listOf("Member", "VIP", "MVP"))
+        assertEquals("ranks", track.name)
+        assertEquals(listOf("Member", "VIP", "MVP"), track.groups)
+
+        assertNotNull(manager.getTrack("ranks"))
+    }
+
+    @Test
+    fun `createTrack with less than 2 groups throws`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+
+        assertThrows<IllegalArgumentException> {
+            runBlocking { manager.createTrack("solo", listOf("Member")) }
+        }
+    }
+
+    @Test
+    fun `createTrack with nonexistent group throws`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+
+        assertThrows<IllegalArgumentException> {
+            runBlocking { manager.createTrack("broken", listOf("Member", "NonExistent")) }
+        }
+    }
+
+    @Test
+    fun `deleteTrack removes track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createTrack("ranks", listOf("Member", "VIP"))
+
+        manager.deleteTrack("ranks")
+        assertNull(manager.getTrack("ranks"))
+    }
+
+    @Test
+    fun `track persists across reload`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createTrack("ranks", listOf("Member", "VIP"))
+
+        manager.reload()
+        val track = manager.getTrack("ranks")
+        assertNotNull(track)
+        assertEquals(listOf("Member", "VIP"), track!!.groups)
+    }
+
+    // ── Promote / Demote ───────────────────────────────────────────
+
+    @Test
+    fun `promote moves player up on track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createGroup("MVP")
+        manager.createTrack("ranks", listOf("Member", "VIP", "MVP"))
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "Member")
+
+        val newGroup = manager.promote(uuid, "ranks")
+        assertEquals("VIP", newGroup)
+
+        val entry = manager.getPlayer(uuid)!!
+        assertTrue(entry.groups.any { it.equals("VIP", ignoreCase = true) })
+        assertFalse(entry.groups.any { it.equals("Member", ignoreCase = true) })
+    }
+
+    @Test
+    fun `promote returns null at top of track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createTrack("ranks", listOf("Member", "VIP"))
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "VIP")
+
+        val result = manager.promote(uuid, "ranks")
+        assertNull(result)
+    }
+
+    @Test
+    fun `promote starts at bottom when player not on track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createTrack("ranks", listOf("Member", "VIP"))
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+
+        val newGroup = manager.promote(uuid, "ranks")
+        assertEquals("Member", newGroup)
+    }
+
+    @Test
+    fun `demote moves player down on track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createGroup("MVP")
+        manager.createTrack("ranks", listOf("Member", "VIP", "MVP"))
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "VIP")
+
+        val newGroup = manager.demote(uuid, "ranks")
+        assertEquals("Member", newGroup)
+
+        val entry = manager.getPlayer(uuid)!!
+        assertTrue(entry.groups.any { it.equals("Member", ignoreCase = true) })
+        assertFalse(entry.groups.any { it.equals("VIP", ignoreCase = true) })
+    }
+
+    @Test
+    fun `demote returns null at bottom of track`() = runBlocking {
+        manager.init()
+        manager.createGroup("Member")
+        manager.createGroup("VIP")
+        manager.createTrack("ranks", listOf("Member", "VIP"))
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "Member")
+
+        val result = manager.demote(uuid, "ranks")
+        assertNull(result)
+    }
+
+    // ── Permission Debug ───────────────────────────────────────────
+
+    @Test
+    fun `checkPermission returns granted with reason`() = runBlocking {
+        manager.init()
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "Admin")
+
+        val result = manager.checkPermission(uuid, "nimbus.cloud.list")
+        assertTrue(result.result)
+        assertTrue(result.reason.contains("Admin"))
+        assertTrue(result.chain.isNotEmpty())
+    }
+
+    @Test
+    fun `checkPermission returns denied for missing permission`() = runBlocking {
+        manager.init()
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+
+        val result = manager.checkPermission(uuid, "some.random.perm")
+        assertFalse(result.result)
+        assertTrue(result.reason.contains("Denied"))
+    }
+
+    @Test
+    fun `checkPermission shows negation in chain`() = runBlocking {
+        manager.init()
+        manager.createGroup("Restricted")
+        manager.addPermission("Restricted", "nimbus.chat")
+        manager.addPermission("Restricted", "nimbus.admin")
+        manager.addPermission("Restricted", "-nimbus.admin")
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+        manager.setPlayerGroup(uuid, "Steve", "Restricted")
+
+        val result = manager.checkPermission(uuid, "nimbus.admin")
+        // nimbus.admin is granted then negated, so net result is denied
+        assertFalse(result.result)
+        assertTrue(result.chain.any { !it.granted && it.type == "negated" })
+    }
+
+    // ── Audit Log ──────────────────────────────────────────────────
+
+    @Test
+    fun `logAudit and getAuditLog`() = runBlocking {
+        manager.init()
+        manager.logAudit("console", "group.create", "VIP", "Created group VIP")
+        manager.logAudit("console", "user.addgroup", "uuid-123", "Added Admin to Steve")
+
+        val log = manager.getAuditLog(10)
+        assertEquals(2, log.size)
+        // Most recent first
+        assertEquals("user.addgroup", log[0].action)
+        assertEquals("group.create", log[1].action)
+    }
+
+    @Test
+    fun `getAuditLog respects limit`() = runBlocking {
+        manager.init()
+        repeat(5) { i ->
+            manager.logAudit("console", "action.$i", "target", "details")
+        }
+
+        val log = manager.getAuditLog(3)
+        assertEquals(3, log.size)
+    }
+
+    // ── Temp Permission Cleanup ────────────────────────────────────
+
+    @Test
+    fun `cleanupExpired removes expired contexts`() = runBlocking {
+        manager.init()
+        manager.createGroup("TempVIP")
+        manager.addPermission("TempVIP", "vip.fly")
+
+        val uuid = "550e8400-e29b-41d4-a716-446655440000"
+        manager.registerPlayer(uuid, "Steve")
+
+        // Add a group with expired context
+        val expiredContext = PermissionContext(expiresAt = "2020-01-01T00:00:00Z")
+        manager.setPlayerGroup(uuid, "Steve", "TempVIP", expiredContext)
+
+        val cleaned = manager.cleanupExpired()
+        assertTrue(cleaned > 0)
+    }
+
+    // ── Init creates Admin with weight ─────────────────────────────
+
+    @Test
+    fun `init creates Admin group with weight 100`() = runBlocking {
+        manager.init()
+
+        val admin = manager.getGroup("Admin")!!
+        assertEquals(100, admin.weight)
+    }
 }

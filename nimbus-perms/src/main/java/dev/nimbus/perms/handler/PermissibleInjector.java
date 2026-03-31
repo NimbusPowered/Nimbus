@@ -1,4 +1,4 @@
-package dev.nimbus.sdk;
+package dev.nimbus.perms.handler;
 
 import org.bukkit.permissions.PermissibleBase;
 import org.bukkit.permissions.Permission;
@@ -11,22 +11,19 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * Custom Permissible that supports wildcard permission matching.
- * Injected into players via reflection to override Bukkit's default
+ * Can be injected into players via reflection to override Bukkit's default
  * exact-match permission checks.
  */
-public class NimbusPermissible extends PermissibleBase {
+public class PermissibleInjector extends PermissibleBase {
 
     private final PermissibleBase original;
     private final Set<String> nimbusPermissions = new CopyOnWriteArraySet<>();
 
-    public NimbusPermissible(ServerOperator operator, PermissibleBase original) {
+    public PermissibleInjector(ServerOperator operator, PermissibleBase original) {
         super(operator);
         this.original = original;
     }
 
-    /**
-     * Replaces the current set of Nimbus-managed permissions.
-     */
     public void setPermissions(Set<String> permissions) {
         nimbusPermissions.clear();
         nimbusPermissions.addAll(permissions);
@@ -105,20 +102,13 @@ public class NimbusPermissible extends PermissibleBase {
         return original.getEffectivePermissions();
     }
 
-    /**
-     * Checks if the given permission matches any Nimbus permission, including wildcards.
-     */
     private boolean matchesNimbus(String permission) {
         if (nimbusPermissions.isEmpty()) return false;
         String lower = permission.toLowerCase();
 
-        // Exact match
         if (nimbusPermissions.contains(lower)) return true;
-
-        // Global wildcard
         if (nimbusPermissions.contains("*")) return true;
 
-        // Wildcard matching: "nimbus.cloud.*" matches "nimbus.cloud.list"
         String[] parts = lower.split("\\.");
         StringBuilder prefix = new StringBuilder();
         for (int i = 0; i < parts.length - 1; i++) {
@@ -130,9 +120,6 @@ public class NimbusPermissible extends PermissibleBase {
         return false;
     }
 
-    /**
-     * Returns the original PermissibleBase for restoration on cleanup.
-     */
     public PermissibleBase getOriginal() {
         return original;
     }

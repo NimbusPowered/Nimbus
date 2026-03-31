@@ -5,5 +5,6 @@ package dev.nimbus.permissions
  */
 data class PlayerEntry(
     val name: String,
-    val groups: MutableList<String> = mutableListOf()
+    val groups: MutableList<String> = mutableListOf(),
+    val meta: MutableMap<String, String> = mutableMapOf()
 )
