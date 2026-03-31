@@ -237,24 +237,65 @@ EOF
     success "Config saved to $config_file"
 }
 
+# ── Install screen ──────────────────────────────────────────────
+
+install_screen() {
+    if command -v screen &>/dev/null; then
+        return
+    fi
+
+    info "Installing screen..."
+    case "$PKG_MANAGER" in
+        apt)    sudo apt-get install -y -qq screen ;;
+        dnf|yum) sudo "$PKG_MANAGER" install -y screen ;;
+        pacman) sudo pacman -S --noconfirm screen ;;
+        zypper) sudo zypper install -y screen ;;
+        brew)   brew install screen ;;
+        *)      warn "Cannot auto-install screen. Please install it manually." ;;
+    esac
+}
+
 # ── Create start script ─────────────────────────────────────────
 
 create_start_script() {
-    info "Creating start script..."
+    info "Creating start scripts..."
 
+    # start.sh — launches agent in a detached screen session
     sudo tee "$INSTALL_DIR/start.sh" >/dev/null <<'SCRIPT'
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
 
+SESSION="nimbus-agent"
+
+if screen -list | grep -q "\.$SESSION\b"; then
+    echo "Nimbus Agent is already running. Use 'nimbus-agent' to attach."
+    exit 0
+fi
+
 JAVA_OPTS="-Xms256M -Xmx512M"
 JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200"
 
-exec java $JAVA_OPTS -jar nimbus-agent.jar "$@"
+screen -dmS "$SESSION" java $JAVA_OPTS -jar nimbus-agent.jar "$@"
+echo "Nimbus Agent started in screen session '$SESSION'."
+echo "  Attach:  nimbus-agent  (or: screen -r $SESSION)"
+echo "  Detach:  Ctrl+A, then D"
 SCRIPT
     sudo chmod +x "$INSTALL_DIR/start.sh"
 
-    sudo ln -sf "$INSTALL_DIR/start.sh" /usr/local/bin/nimbus-agent
+    # nimbus-agent command — attach if running, start if not
+    sudo tee /usr/local/bin/nimbus-agent >/dev/null <<'CMD'
+#!/usr/bin/env bash
+INSTALL_DIR="/opt/nimbus-agent"
+SESSION="nimbus-agent"
+
+if screen -list | grep -q "\.$SESSION\b"; then
+    screen -r "$SESSION"
+else
+    "$INSTALL_DIR/start.sh" "$@"
+fi
+CMD
+    sudo chmod +x /usr/local/bin/nimbus-agent
     success "Created 'nimbus-agent' command"
 }
 
@@ -282,14 +323,12 @@ After=network.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=forking
 User=$service_user
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/start.sh
-Restart=always
+Restart=on-failure
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -298,17 +337,9 @@ EOF
     sudo systemctl daemon-reload
     sudo systemctl enable nimbus-agent.service
     success "Systemd service created and enabled"
-
-    echo ""
-    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Start agent now? [Y/n]: ")" start_now <"$TTY"
-    if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
-        sudo systemctl start nimbus-agent.service
-        success "Agent started"
-    fi
-
-    info "  Status:  sudo systemctl status nimbus-agent"
-    info "  Logs:    sudo journalctl -u nimbus-agent -f"
-    info "  Stop:    sudo systemctl stop nimbus-agent"
+    info "  Start:   sudo systemctl start nimbus-agent"
+    info "  Attach:  nimbus-agent  ${DIM}(or: screen -r nimbus-agent)${RESET}"
+    info "  Detach:  Ctrl+A, then D"
 }
 
 # ── Main ────────────────────────────────────────────────────────
@@ -329,9 +360,11 @@ main() {
     detect_os
     info "Detected: ${BOLD}$OS${RESET} (${PKG_MANAGER})"
 
+    # Dependencies
     if ! check_java; then
         install_java
     fi
+    install_screen
 
     download_agent
     create_default_config
@@ -344,6 +377,20 @@ main() {
     echo -e "  ${CYAN}Installation:${RESET}  $INSTALL_DIR"
     echo -e "  ${CYAN}Config:${RESET}        $INSTALL_DIR/agent.toml"
     echo -e "  ${CYAN}Start:${RESET}         nimbus-agent"
+    echo -e "  ${CYAN}Attach:${RESET}        nimbus-agent  ${DIM}(auto-attaches if already running)${RESET}"
+    echo -e "  ${CYAN}Detach:${RESET}        Ctrl+A, then D"
+    echo ""
+
+    # Offer to start now
+    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Start agent now? [Y/n]: ")" start_now <"$TTY"
+    if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
+        echo ""
+        "$INSTALL_DIR/start.sh"
+        echo ""
+        echo -e "  ${DIM}Run 'nimbus-agent' to attach to the console.${RESET}"
+    else
+        echo -e "  ${DIM}Run 'nimbus-agent' when you're ready to start.${RESET}"
+    fi
     echo ""
 }
 

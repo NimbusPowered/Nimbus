@@ -216,15 +216,42 @@ download_nimbus() {
     success "Downloaded to $INSTALL_DIR/nimbus.jar"
 }
 
+# ── Install screen ──────────────────────────────────────────────
+
+install_screen() {
+    if command -v screen &>/dev/null; then
+        return
+    fi
+
+    info "Installing screen..."
+    case "$PKG_MANAGER" in
+        apt)    sudo apt-get install -y -qq screen ;;
+        dnf|yum) sudo "$PKG_MANAGER" install -y screen ;;
+        pacman) sudo pacman -S --noconfirm screen ;;
+        zypper) sudo zypper install -y screen ;;
+        brew)   brew install screen ;;
+        *)      warn "Cannot auto-install screen. Please install it manually." ;;
+    esac
+}
+
 # ── Create start script ─────────────────────────────────────────
 
 create_start_script() {
-    info "Creating start script..."
+    info "Creating start scripts..."
 
+    # start.sh — launches Nimbus in a detached screen session
     sudo tee "$INSTALL_DIR/start.sh" >/dev/null <<'SCRIPT'
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
+
+SESSION="nimbus"
+
+# If screen session already exists, don't start another
+if screen -list | grep -q "\.$SESSION\b"; then
+    echo "Nimbus is already running. Use 'nimbus' to attach."
+    exit 0
+fi
 
 JAVA_OPTS="-Xms512M -Xmx1G"
 
@@ -237,12 +264,26 @@ JAVA_OPTS="$JAVA_OPTS -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPerc
 JAVA_OPTS="$JAVA_OPTS -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5"
 JAVA_OPTS="$JAVA_OPTS -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1"
 
-exec java $JAVA_OPTS -jar nimbus.jar "$@"
+screen -dmS "$SESSION" java $JAVA_OPTS -jar nimbus.jar "$@"
+echo "Nimbus started in screen session '$SESSION'."
+echo "  Attach:  nimbus  (or: screen -r $SESSION)"
+echo "  Detach:  Ctrl+A, then D"
 SCRIPT
     sudo chmod +x "$INSTALL_DIR/start.sh"
 
-    # Create symlink in /usr/local/bin
-    sudo ln -sf "$INSTALL_DIR/start.sh" /usr/local/bin/nimbus
+    # nimbus command — attach if running, start if not
+    sudo tee /usr/local/bin/nimbus >/dev/null <<'CMD'
+#!/usr/bin/env bash
+INSTALL_DIR="/opt/nimbus"
+SESSION="nimbus"
+
+if screen -list | grep -q "\.$SESSION\b"; then
+    screen -r "$SESSION"
+else
+    "$INSTALL_DIR/start.sh" "$@"
+fi
+CMD
+    sudo chmod +x /usr/local/bin/nimbus
     success "Created 'nimbus' command"
 }
 
@@ -269,14 +310,13 @@ Description=Nimbus Cloud
 After=network.target
 
 [Service]
-Type=simple
+Type=forking
 User=$service_user
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/start.sh
+ExecStop=/usr/bin/screen -S nimbus -X stuff "shutdown\nshutdown confirm\n"
 Restart=on-failure
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -286,8 +326,9 @@ EOF
     sudo systemctl enable nimbus.service
     success "Systemd service created and enabled"
     info "  Start:   sudo systemctl start nimbus"
+    info "  Attach:  nimbus  ${DIM}(or: screen -r nimbus)${RESET}"
+    info "  Detach:  Ctrl+A, then D"
     info "  Status:  sudo systemctl status nimbus"
-    info "  Logs:    sudo journalctl -u nimbus -f"
 }
 
 # ── Main ────────────────────────────────────────────────────────
@@ -310,10 +351,11 @@ main() {
     detect_os
     info "Detected: ${BOLD}$OS${RESET} (${PKG_MANAGER})"
 
-    # Java
+    # Dependencies
     if ! check_java; then
         install_java
     fi
+    install_screen
 
     # Download
     download_nimbus
@@ -329,9 +371,20 @@ main() {
     echo ""
     echo -e "  ${CYAN}Installation:${RESET}  $INSTALL_DIR"
     echo -e "  ${CYAN}Start:${RESET}         nimbus"
-    echo -e "  ${CYAN}Or:${RESET}            cd $INSTALL_DIR && ./start.sh"
+    echo -e "  ${CYAN}Attach:${RESET}        nimbus  ${DIM}(auto-attaches if already running)${RESET}"
+    echo -e "  ${CYAN}Detach:${RESET}        Ctrl+A, then D"
     echo ""
-    echo -e "  ${DIM}On first start, Nimbus will run the setup wizard.${RESET}"
+
+    # Offer to start now
+    read -rp "$(echo -e "${CYAN}[nimbus]${RESET} Start Nimbus now? [Y/n]: ")" start_now <"$TTY"
+    if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
+        echo ""
+        "$INSTALL_DIR/start.sh"
+        echo ""
+        echo -e "  ${DIM}Run 'nimbus' to attach to the console.${RESET}"
+    else
+        echo -e "  ${DIM}Run 'nimbus' when you're ready to start.${RESET}"
+    fi
     echo ""
 }
 
