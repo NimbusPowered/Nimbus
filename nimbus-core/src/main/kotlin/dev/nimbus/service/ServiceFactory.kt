@@ -161,12 +161,24 @@ class ServiceFactory(
             )
 
             // Apply global templates (always overwrite, even for static services)
-            val isVanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.VELOCITY)
+            val isVanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA, ServerSoftware.VELOCITY)
             if (isVanillaBased) {
                 templateManager.applyGlobalTemplate(templatesDir.resolve("global"), workDir)
             }
             if (software == ServerSoftware.VELOCITY) {
                 templateManager.applyGlobalTemplate(templatesDir.resolve("global_proxy"), workDir)
+            }
+
+            // Folia: remove incompatible plugins (SDK, ProtocolLib) that came from global template
+            if (software == ServerSoftware.FOLIA) {
+                val pluginsDir = workDir.resolve("plugins")
+                listOf("nimbus-sdk.jar", "ProtocolLib.jar").forEach { jar ->
+                    val file = pluginsDir.resolve(jar)
+                    if (file.exists()) {
+                        java.nio.file.Files.delete(file)
+                        logger.debug("Removed {} from Folia service (incompatible)", jar)
+                    }
+                }
             }
 
             val forwardingMode = compatibilityChecker.determineForwardingMode()
@@ -175,7 +187,7 @@ class ServiceFactory(
                 else -> {
                     configPatcher.patchServerProperties(workDir, port)
 
-                    val isPaperBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR)
+                    val isPaperBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA)
                     val velocityTemplateDir = templatesDir.resolve("proxy")
 
                     if (isPaperBased) {

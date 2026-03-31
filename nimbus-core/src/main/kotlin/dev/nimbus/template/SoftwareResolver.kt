@@ -101,6 +101,22 @@ class SoftwareResolver {
     }
 
     /**
+     * Fetches available Folia versions from PaperMC API.
+     * Folia only supports 1.19.4+.
+     */
+    suspend fun fetchFoliaVersions(): VersionList {
+        return try {
+            val response = client.get("https://api.papermc.io/v2/projects/folia")
+            if (response.status != HttpStatusCode.OK) return VersionList.EMPTY
+            val data = json.decodeFromString<PaperProjectResponse>(response.bodyAsText())
+            categorizeVersions(data.versions)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Folia versions: {}", e.message)
+            VersionList.EMPTY
+        }
+    }
+
+    /**
      * Fetches available versions from Purpur API.
      */
     suspend fun fetchPurpurVersions(): VersionList {
@@ -469,7 +485,7 @@ class SoftwareResolver {
     suspend fun downloadJar(software: ServerSoftware, version: String, targetDir: Path): Path? {
         return when (software) {
             ServerSoftware.PURPUR -> downloadPurpur(version, targetDir)
-            ServerSoftware.PAPER, ServerSoftware.VELOCITY -> downloadPaperMC(software, version, targetDir)
+            ServerSoftware.PAPER, ServerSoftware.FOLIA, ServerSoftware.VELOCITY -> downloadPaperMC(software, version, targetDir)
             else -> null
         }
     }
@@ -677,6 +693,7 @@ class SoftwareResolver {
         return try {
             val project = when (software) {
                 ServerSoftware.PAPER -> "paper"
+                ServerSoftware.FOLIA -> "folia"
                 ServerSoftware.VELOCITY -> "velocity"
                 else -> "paper"
             }

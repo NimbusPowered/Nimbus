@@ -71,6 +71,7 @@ class CreateGroupCommand(
             val versions = when (software) {
                 ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
                 ServerSoftware.PURPUR -> softwareResolver.fetchPurpurVersions()
+                ServerSoftware.FOLIA -> softwareResolver.fetchFoliaVersions()
                 ServerSoftware.FORGE -> softwareResolver.fetchForgeGameVersions()
                 ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeGameVersions()
                 ServerSoftware.FABRIC -> softwareResolver.fetchFabricGameVersions()
@@ -97,6 +98,14 @@ class CreateGroupCommand(
 
             val allCandidates = stableVersions + snapshotVersions
             val version = prompt("Minecraft version", defaultVersion, candidates = allCandidates)
+
+            // Folia warning
+            if (software == ServerSoftware.FOLIA) {
+                w.println()
+                w.println("${YELLOW}Note: Folia uses regionized multithreading. Most Bukkit/Paper plugins")
+                w.println("will NOT work. Nimbus SDK and ProtocolLib are automatically excluded.$RESET")
+                w.println()
+            }
 
             // Step 3b: Modloader version
             var modloaderVersion = ""
@@ -143,7 +152,7 @@ class CreateGroupCommand(
             val memory = prompt("Memory per instance", defaultMemory)
 
             // Step 7: Via plugins (Paper/Purpur only)
-            val viaPlugins = if (software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR)) {
+            val viaPlugins = if (software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA)) {
                 promptViaPlugins(w, version, versions.latest)
             } else {
                 emptyList()
@@ -288,6 +297,7 @@ class CreateGroupCommand(
         w.println(ConsoleFormatter.hint("Available server software:"))
         w.println("  ${CYAN}paper$RESET     — Paper (optimized vanilla, plugins)")
         w.println("  ${CYAN}purpur$RESET    — Purpur (Paper fork, extra features)")
+        w.println("  ${CYAN}folia$RESET     — Folia (regionized multithreading, 1.19.4+)")
         w.println("  ${CYAN}forge$RESET     — Forge (mods, auto-installs)")
         w.println("  ${CYAN}neoforge$RESET  — NeoForge (modern Forge fork)")
         w.println("  ${CYAN}fabric$RESET    — Fabric (lightweight mods)")
@@ -296,9 +306,10 @@ class CreateGroupCommand(
         w.flush()
 
         val answer = prompt("Server software", "paper",
-            candidates = listOf("paper", "purpur", "forge", "neoforge", "fabric", "modpack", "custom"))
+            candidates = listOf("paper", "purpur", "folia", "forge", "neoforge", "fabric", "modpack", "custom"))
         return when (answer.lowercase()) {
             "purpur" -> ServerSoftware.PURPUR
+            "folia" -> ServerSoftware.FOLIA
             "forge" -> ServerSoftware.FORGE
             "neoforge" -> ServerSoftware.NEOFORGE
             "fabric" -> ServerSoftware.FABRIC

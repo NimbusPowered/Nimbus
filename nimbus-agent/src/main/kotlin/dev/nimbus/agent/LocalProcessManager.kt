@@ -251,7 +251,7 @@ class LocalProcessManager(
                 patchPaperGlobalYml(paperGlobal, secret)
             } else if (paperYml.exists()) {
                 patchPaperYml(paperYml, secret)
-            } else if (software in listOf("PAPER", "PURPUR")) {
+            } else if (software in listOf("PAPER", "PURPUR", "FOLIA")) {
                 // Pre-create config/paper-global.yml for fresh servers
                 workDir.resolve("config").createDirectories()
                 Files.writeString(paperGlobal, """

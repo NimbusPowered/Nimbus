@@ -70,7 +70,7 @@ class UpdateCommand(
                 val targetSoftware = parseSoftware(targetSoftwareStr)
                 if (targetSoftware == null) {
                     println(ConsoleFormatter.error("Unknown software: $targetSoftwareStr"))
-                    println(ConsoleFormatter.hint("Available: paper, purpur, forge, neoforge, fabric"))
+                    println(ConsoleFormatter.hint("Available: paper, purpur, folia, forge, neoforge, fabric"))
                     return
                 }
                 val targetVersion = args.getOrNull(3)
@@ -97,7 +97,7 @@ class UpdateCommand(
     }
 
     private fun familyOf(software: ServerSoftware): SoftwareFamily = when (software) {
-        ServerSoftware.PAPER, ServerSoftware.PURPUR -> SoftwareFamily.PLUGIN
+        ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA -> SoftwareFamily.PLUGIN
         ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> SoftwareFamily.FORGE
         ServerSoftware.FABRIC -> SoftwareFamily.FABRIC
         ServerSoftware.VELOCITY -> SoftwareFamily.PROXY
@@ -416,6 +416,7 @@ class UpdateCommand(
         return when (software) {
             ServerSoftware.PAPER -> softwareResolver.fetchPaperVersions()
             ServerSoftware.PURPUR -> softwareResolver.fetchPurpurVersions()
+            ServerSoftware.FOLIA -> softwareResolver.fetchFoliaVersions()
             ServerSoftware.VELOCITY -> softwareResolver.fetchVelocityVersions()
             ServerSoftware.FORGE -> softwareResolver.fetchForgeGameVersions()
             ServerSoftware.NEOFORGE -> softwareResolver.fetchNeoForgeGameVersions()
@@ -540,6 +541,7 @@ class UpdateCommand(
     private fun parseSoftware(input: String): ServerSoftware? = when (input.lowercase()) {
         "paper" -> ServerSoftware.PAPER
         "purpur" -> ServerSoftware.PURPUR
+        "folia" -> ServerSoftware.FOLIA
         "forge" -> ServerSoftware.FORGE
         "neoforge" -> ServerSoftware.NEOFORGE
         "fabric" -> ServerSoftware.FABRIC

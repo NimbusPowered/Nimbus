@@ -255,7 +255,7 @@ class ServiceManager(
         val templatesDir = Path(config.paths.templates)
 
         // Hash global templates first (must match TemplateRoutes order)
-        val vanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.VELOCITY)
+        val vanillaBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.FOLIA, ServerSoftware.VELOCITY)
         if (vanillaBased) {
             hashDir(digest, templatesDir.resolve("global"))
         }

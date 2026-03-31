@@ -67,7 +67,7 @@ class CompatibilityChecker(
         }
 
         val modernOnlyGroups = allGroups.filter { group ->
-            group.config.group.software in listOf(ServerSoftware.FABRIC, ServerSoftware.NEOFORGE)
+            group.config.group.software in listOf(ServerSoftware.FABRIC, ServerSoftware.NEOFORGE, ServerSoftware.FOLIA)
         }
 
         // Legacy + Fabric/NeoForge conflict

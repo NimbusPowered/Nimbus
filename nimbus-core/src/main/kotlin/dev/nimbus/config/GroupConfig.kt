@@ -14,6 +14,7 @@ enum class ServerSoftware {
     PAPER,
     VELOCITY,
     PURPUR,
+    FOLIA,
     FORGE,
     FABRIC,
     NEOFORGE,
