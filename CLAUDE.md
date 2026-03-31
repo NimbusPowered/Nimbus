@@ -2,7 +2,27 @@
 
 Lightweight, console-only Minecraft cloud system. Manages dynamic server instances (lobbies, game servers) from a single JAR.
 
-## Build & Run
+## Install & Run
+
+One-command installers for end users (Java 21 auto-installed, latest release from GitHub):
+
+```bash
+# Controller (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
+
+# Controller (Windows PowerShell)
+irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.ps1 | iex
+
+# Agent node (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.sh | bash
+
+# Agent node (Windows PowerShell)
+irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.ps1 | iex
+```
+
+Install scripts: `install.sh`, `install.ps1`, `install-agent.sh`, `install-agent.ps1` in repo root.
+
+## Build from Source
 
 ```bash
 ./gradlew shadowJar                    # Fat JAR → nimbus-core/build/libs/nimbus-core-<version>-all.jar
@@ -11,6 +31,23 @@ java -jar nimbus-core/build/libs/nimbus-core-<version>-all.jar
 ```
 
 Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
+
+## Auto-Updates
+
+`UpdateChecker` (`dev/nimbus/update/UpdateChecker.kt`) runs on startup:
+- Queries `GET /repos/jonax1337/Nimbus/releases/latest` via GitHub API
+- Compares semver (major.minor.patch) against `NimbusVersion.version` from JAR manifest
+- Patch/minor: auto-downloads new JAR, swaps in place, keeps backup (`nimbus-backup.jar`)
+- Major: shows changelog + `[y/N]` prompt via JLine before downloading
+- Skipped when version = `dev` (source builds)
+- Events: `NimbusUpdateAvailable`, `NimbusUpdateApplied` in `Events.kt`
+
+## Release Workflow
+
+`.github/workflows/release.yml` — manually triggered (`workflow_dispatch`):
+- Input: version (optional, defaults to `gradle.properties`) + prerelease flag
+- Builds `shadowJar`, uploads `nimbus-controller-<version>.jar` + `nimbus-agent-<version>.jar`
+- Creates a GitHub Release **draft** with auto-generated release notes
 
 ## Modules
 
@@ -50,6 +87,7 @@ nimbus-core/src/main/kotlin/dev/nimbus/
 ├── setup/                 # First-run interactive SetupWizard
 ├── stress/                # StressTestManager (simulated player load testing)
 ├── template/              # TemplateManager, ConfigPatcher, SoftwareResolver (auto-download)
+├── update/                # UpdateChecker (GitHub Releases auto-updater)
 └── velocity/              # VelocityConfigGen (auto-manage proxy server list)
 ```
 

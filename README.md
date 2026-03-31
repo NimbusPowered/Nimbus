@@ -20,6 +20,8 @@ Dynamic server management from a single JAR — auto-scaling, multi-node cluster
 
 ## Features
 
+- **One-Command Install** — single `curl` or PowerShell command installs everything (Java, Nimbus, system service)
+- **Auto-Updates** — checks GitHub Releases on startup, auto-applies patch/minor, prompts for major updates
 - **Single JAR** — `java -jar nimbus.jar` starts everything, no external dependencies
 - **Multi-Node Cluster** — distribute servers across machines with automatic placement, failover, and a built-in TCP load balancer
 - **Auto-Scaling** — spin up/down instances based on real-time player count with configurable thresholds
@@ -37,28 +39,45 @@ Dynamic server management from a single JAR — auto-scaling, multi-node cluster
 - **TOML Config** — one file per server group, human-readable and hot-reloadable
 - **Database** — SQLite (default), MySQL, or PostgreSQL for permissions, metrics, and player data
 
-## Requirements
-
-- **Java 21+** — everything else is bundled in the Shadow JAR
-
 ## Quick Start
 
+Install and run Nimbus with a single command — Java 21, the latest release, and a start script are set up automatically:
+
+**Linux / macOS:**
+
 ```bash
-# Download or build the JAR
-java -jar nimbus.jar
-
-# The setup wizard guides you through:
-#   - Network name
-#   - Proxy setup (Velocity, auto-detected)
-#   - Bedrock support (Geyser + Floodgate)
-#   - Permissions plugin (NimbusPerms)
-#   - Server groups (Lobby, Game servers, etc.)
-#   - Software downloads
-
-# Nimbus starts all services automatically
+curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.ps1 | iex
+```
+
+Then start Nimbus:
+
+```bash
+nimbus
+```
+
+The setup wizard guides you through network name, proxy, Bedrock support, permissions, server groups, and downloads — then starts everything automatically.
+
 See the [Quick Start Guide](https://jonax1337.github.io/Nimbus/guide/quickstart.html) for a full walkthrough.
+
+### Agent Nodes (Multi-Node)
+
+To add remote worker nodes to your cluster:
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.ps1 | iex
+```
+
+The agent installer prompts for controller connection details and optionally creates a system service.
 
 ## Build from Source
 
