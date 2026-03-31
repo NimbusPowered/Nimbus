@@ -211,7 +211,7 @@ Fabric servers can optionally install [Cardboard](https://modrinth.com/mod/cardb
 :::
 
 ::: warning Folia
-Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus SDK, ProtocolLib, and nimbus-signs are automatically excluded from Folia services. Only Folia-compatible plugins will work.
+Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus SDK, ProtocolLib, and Nimbus Signs are automatically excluded from Folia services. Only Folia-compatible plugins will work.
 :::
 
 Modded servers are first-class citizens in Nimbus. When you create a Forge, Fabric, or NeoForge group, Nimbus:
