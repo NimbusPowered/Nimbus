@@ -386,8 +386,10 @@ main() {
     if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
         echo ""
         "$INSTALL_DIR/start.sh"
+        sleep 1
+        echo -e "  ${DIM}Attaching to agent console... (Ctrl+A, D to detach)${RESET}"
         echo ""
-        echo -e "  ${DIM}Run 'nimbus-agent' to attach to the console.${RESET}"
+        screen -r nimbus-agent
     else
         echo -e "  ${DIM}Run 'nimbus-agent' when you're ready to start.${RESET}"
     fi

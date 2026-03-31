@@ -380,8 +380,11 @@ main() {
     if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
         echo ""
         "$INSTALL_DIR/start.sh"
+        # Give screen a moment to start, then attach so user can interact with wizard
+        sleep 1
+        echo -e "  ${DIM}Attaching to Nimbus console... (Ctrl+A, D to detach)${RESET}"
         echo ""
-        echo -e "  ${DIM}Run 'nimbus' to attach to the console.${RESET}"
+        screen -r nimbus
     else
         echo -e "  ${DIM}Run 'nimbus' when you're ready to start.${RESET}"
     fi
