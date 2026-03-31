@@ -56,10 +56,10 @@ class InfoCommand(
         println(ConsoleFormatter.field("Restart on Crash", ConsoleFormatter.yesNo(def.lifecycle.restartOnCrash), labelWidth = 22))
         println(ConsoleFormatter.field("Max Restarts", def.lifecycle.maxRestarts.toString(), labelWidth = 22))
 
-        println(ConsoleFormatter.section("JVM Args"))
-        if (def.jvm.args.isEmpty()) {
-            println("  ${ConsoleFormatter.placeholder("(none)")}")
-        } else {
+        println(ConsoleFormatter.section("JVM"))
+        println(ConsoleFormatter.field("Optimize", if (def.jvm.optimize) ConsoleFormatter.success("Aikar's Flags + Config Tuning") else ConsoleFormatter.placeholder("disabled"), labelWidth = 22))
+        if (def.jvm.args.isNotEmpty()) {
+            println(ConsoleFormatter.field("Custom Args", "", labelWidth = 22))
             for (arg in def.jvm.args) {
                 println("  ${ConsoleFormatter.colorize(arg, ConsoleFormatter.DIM)}")
             }

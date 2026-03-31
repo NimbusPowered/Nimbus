@@ -79,5 +79,6 @@ data class LifecycleConfig(
 
 @Serializable
 data class JvmConfig(
-    val args: List<String> = listOf("-XX:+UseG1GC")
+    val args: List<String> = emptyList(),
+    val optimize: Boolean = true
 )

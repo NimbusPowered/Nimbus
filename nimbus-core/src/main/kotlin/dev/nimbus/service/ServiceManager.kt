@@ -9,6 +9,7 @@ import dev.nimbus.event.EventBus
 import dev.nimbus.event.NimbusEvent
 import dev.nimbus.group.GroupManager
 import dev.nimbus.protocol.ClusterMessage
+import dev.nimbus.template.PerformanceOptimizer
 import dev.nimbus.template.SoftwareResolver
 import dev.nimbus.template.TemplateManager
 import dev.nimbus.velocity.VelocityConfigGen
@@ -46,6 +47,7 @@ class ServiceManager(
     private val velocityConfigGen = VelocityConfigGen(registry, groupManager)
     private val javaResolver = JavaResolver(config.java.toMap(), Path(config.paths.templates).toAbsolutePath().parent ?: Path("."))
     private val compatibilityChecker = CompatibilityChecker(groupManager, config, javaResolver)
+    private val performanceOptimizer = PerformanceOptimizer()
 
     private val serviceFactory = ServiceFactory(
         config = config,
@@ -173,7 +175,8 @@ class ServiceManager(
             software = groupConfig.software.name,
             version = groupConfig.version,
             memory = groupConfig.resources.memory,
-            jvmArgs = groupConfig.jvm.args,
+            jvmArgs = resolveJvmArgs(groupConfig),
+            jvmOptimize = groupConfig.jvm.optimize,
             jarName = softwareResolver.jarFileName(groupConfig.software),
             modloaderVersion = groupConfig.modloaderVersion,
             readyPattern = groupConfig.readyPattern,
@@ -186,6 +189,14 @@ class ServiceManager(
             apiToken = config.api.token,
             javaVersion = javaResolver.requiredJavaVersion(groupConfig.version, groupConfig.software)
         )
+    }
+
+    private fun resolveJvmArgs(groupConfig: GroupDefinition): List<String> {
+        val jvm = groupConfig.jvm
+        if (jvm.optimize && jvm.args.isEmpty()) {
+            return performanceOptimizer.aikarsFlags(groupConfig.resources.memory)
+        }
+        return jvm.args
     }
 
     private fun computeForwardingSecret(): String {

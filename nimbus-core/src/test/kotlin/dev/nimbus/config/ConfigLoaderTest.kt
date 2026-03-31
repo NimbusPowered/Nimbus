@@ -150,7 +150,7 @@ class ConfigLoaderTest {
         max_restarts = 5
 
         [group.jvm]
-        args = ["-XX:+UseG1GC"]
+        optimize = true
     """.trimIndent()
 
     @Test

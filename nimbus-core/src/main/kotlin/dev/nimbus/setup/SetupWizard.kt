@@ -496,7 +496,7 @@ class SetupWizard(
             |max_instances = 1
             |
             |[group.jvm]
-            |args = ["-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"]
+            |optimize = true
         """.trimMargin() + "\n"
         Files.writeString(groupsDir.resolve("proxy.toml"), content)
     }
@@ -535,7 +535,7 @@ class SetupWizard(
             |max_restarts = 5
             |
             |[group.jvm]
-            |args = ["-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"]
+            |optimize = true
         """.trimMargin() + "\n"
         Files.writeString(groupsDir.resolve("$templateName.toml"), content)
     }

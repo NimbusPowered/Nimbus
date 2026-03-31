@@ -357,6 +357,7 @@ class LocalProcessManager(
             logger.info("Service '{}' using Java {} ({})", msg.serviceName, msg.javaVersion, javaBin)
         }
         val cmd = mutableListOf(javaBin, "-Xmx${msg.memory}")
+        // Controller resolves Aikar's flags into jvmArgs when optimize=true
         cmd.addAll(msg.jvmArgs)
         cmd.add("-Dnimbus.service.name=${msg.serviceName}")
         cmd.add("-Dnimbus.service.group=${msg.groupName}")

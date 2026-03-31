@@ -240,7 +240,7 @@ private fun buildGroupConfig(request: CreateGroupRequest, groupType: GroupType, 
             resources = ResourcesConfig(request.memory, request.maxPlayers),
             scaling = ScalingConfig(request.minInstances, request.maxInstances, request.playersPerInstance, request.scaleThreshold, request.idleTimeout),
             lifecycle = LifecycleConfig(request.stopOnEmpty, request.restartOnCrash, request.maxRestarts),
-            jvm = JvmConfig(request.jvmArgs)
+            jvm = JvmConfig(request.jvmArgs, request.jvmOptimize)
         )
     )
 }
@@ -260,6 +260,7 @@ private fun ServerGroup.toResponse(registry: ServiceRegistry): GroupResponse {
         ),
         lifecycle = GroupLifecycleResponse(def.lifecycle.stopOnEmpty, def.lifecycle.restartOnCrash, def.lifecycle.maxRestarts),
         jvmArgs = def.jvm.args,
+        jvmOptimize = def.jvm.optimize,
         activeInstances = registry.countByGroup(name)
     )
 }

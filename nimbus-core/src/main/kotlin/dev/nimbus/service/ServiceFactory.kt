@@ -6,6 +6,7 @@ import dev.nimbus.event.EventBus
 import dev.nimbus.event.NimbusEvent
 import dev.nimbus.group.GroupManager
 import dev.nimbus.template.ConfigPatcher
+import dev.nimbus.template.PerformanceOptimizer
 import dev.nimbus.template.SoftwareResolver
 import dev.nimbus.template.TemplateManager
 import dev.nimbus.velocity.VelocityConfigGen
@@ -35,6 +36,7 @@ class ServiceFactory(
 
     private val logger = LoggerFactory.getLogger(ServiceFactory::class.java)
     private val configPatcher = ConfigPatcher()
+    private val performanceOptimizer = PerformanceOptimizer()
     private val javaResolver = JavaResolver(config.java.toMap(), Path(config.paths.templates).toAbsolutePath().parent ?: Path("."))
 
     data class PreparedService(
@@ -194,13 +196,25 @@ class ServiceFactory(
                 }
             }
 
+            // Apply performance optimizations to server configs (spigot.yml, paper-world-defaults.yml)
+            if (group.config.group.jvm.optimize) {
+                performanceOptimizer.optimizeServerConfigs(workDir, software)
+            }
+
             val memory = group.config.group.resources.memory
-            val jvmArgs = group.config.group.jvm.args
+            val jvmConfig = group.config.group.jvm
             val javaBin = javaResolver.resolve(group.config.group.version, software, group.config.group.javaPath)
             val requiredJava = javaResolver.requiredJavaVersion(group.config.group.version, software)
             logger.info("Service '{}' using Java {} ({})", serviceName, requiredJava, javaBin)
             val command = mutableListOf(javaBin, "-Xmx$memory")
-            command.addAll(jvmArgs)
+
+            // Apply Aikar's optimized JVM flags or user-specified args
+            if (jvmConfig.optimize && jvmConfig.args.isEmpty()) {
+                command.addAll(performanceOptimizer.aikarsFlags(memory))
+                logger.debug("Applied Aikar's JVM flags for '{}'", serviceName)
+            } else {
+                command.addAll(jvmConfig.args)
+            }
 
             // Inject Nimbus identity so plugins using the SDK can auto-discover their service
             command.add("-Dnimbus.service.name=$serviceName")

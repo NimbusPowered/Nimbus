@@ -37,6 +37,7 @@ sealed class ClusterMessage {
         val version: String,
         val memory: String,
         val jvmArgs: List<String>,
+        val jvmOptimize: Boolean = true,
         val jarName: String,
         val modloaderVersion: String = "",
         val readyPattern: String = "",

@@ -164,7 +164,7 @@ class ApiRoutesTest {
                     resources = ResourcesConfig("1G", 50),
                     scaling = ScalingConfig(1, 4, 40, 0.8, 0),
                     lifecycle = LifecycleConfig(false, true, 5),
-                    jvm = JvmConfig(listOf("-XX:+UseG1GC"))
+                    jvm = JvmConfig()
                 )
             )
         )

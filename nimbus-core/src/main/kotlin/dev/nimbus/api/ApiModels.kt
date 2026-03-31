@@ -40,6 +40,7 @@ data class GroupResponse(
     val scaling: GroupScalingResponse,
     val lifecycle: GroupLifecycleResponse,
     val jvmArgs: List<String>,
+    val jvmOptimize: Boolean,
     val activeInstances: Int
 )
 
@@ -91,7 +92,8 @@ data class CreateGroupRequest(
     val stopOnEmpty: Boolean = false,
     val restartOnCrash: Boolean = true,
     val maxRestarts: Int = 5,
-    val jvmArgs: List<String> = listOf("-XX:+UseG1GC")
+    val jvmArgs: List<String> = emptyList(),
+    val jvmOptimize: Boolean = true
 )
 
 // ── Network / Status DTOs ───────────────────────────────────────────

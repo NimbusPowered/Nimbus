@@ -394,7 +394,7 @@ class CreateGroupCommand(
             |max_restarts = 5
             |
             |[group.jvm]
-            |args = ["-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"]
+            |optimize = true
         """.trimMargin() + "\n"
         Files.writeString(groupsDir.resolve("$templateName.toml"), content)
     }
