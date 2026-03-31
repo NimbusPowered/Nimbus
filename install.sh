@@ -208,6 +208,11 @@ download_nimbus() {
     info "Downloading Nimbus ${selected_version}..."
     sudo mkdir -p "$INSTALL_DIR"
     sudo curl -fsSL -o "$INSTALL_DIR/nimbus.jar" "$jar_url"
+
+    # Create working directories and set ownership to invoking user
+    local real_user="${SUDO_USER:-$(whoami)}"
+    sudo mkdir -p "$INSTALL_DIR"/{config/groups,config/modules,templates,services,logs}
+    sudo chown -R "$real_user:$(id -gn "$real_user")" "$INSTALL_DIR"
     success "Downloaded to $INSTALL_DIR/nimbus.jar"
 }
 

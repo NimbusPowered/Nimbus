@@ -196,6 +196,10 @@ download_agent() {
     sudo mkdir -p "$INSTALL_DIR"
     info "Downloading Nimbus Agent ${selected_version}..."
     sudo curl -fsSL -o "$INSTALL_DIR/nimbus-agent.jar" "$jar_url"
+
+    # Set ownership to invoking user
+    local real_user="${SUDO_USER:-$(whoami)}"
+    sudo chown -R "$real_user:$(id -gn "$real_user")" "$INSTALL_DIR"
     success "Downloaded to $INSTALL_DIR/nimbus-agent.jar"
 }
 
