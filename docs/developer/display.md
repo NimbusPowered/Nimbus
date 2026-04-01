@@ -2,6 +2,10 @@
 
 The Nimbus Display plugin adds clickable server signs and interactive NPCs to lobby and hub servers. Players can click a sign or NPC to join a server, open a server selector inventory, or execute custom commands.
 
+::: info Compatibility
+The Display plugin supports **Spigot 1.8.8** (signs only) through the **latest Paper/Folia** versions. NPCs require **Paper 1.20+** with FancyNpcs. See [Compatibility](#compatibility) for details.
+:::
+
 ## Installation
 
 The display plugin is auto-deployed to all backend servers along with its dependency **FancyNpcs**. Both JARs are embedded in nimbus-core and deployed on startup:
@@ -182,6 +186,38 @@ signs:
 | `nimbus.display.npc` | Create, edit, and remove NPCs |
 | `nimbus.display.list` | List all signs and NPCs |
 | `nimbus.display.reload` | Reload display config |
+
+## Compatibility
+
+The Display plugin runs on **Spigot 1.8.8** through the **latest Paper and Folia** versions.
+
+### Feature availability by version
+
+| Feature | Minimum version | Notes |
+|---|---|---|
+| Signs (create, update, click) | Spigot 1.8.8 | Full functionality, uses `TextCompat` for cross-version sign rendering |
+| Sign text (Adventure) | Paper 1.16.5 | Rich text via `sign.line(Component)` |
+| Sign text (Legacy) | Spigot 1.8.8 | `sign.setLine(String)` with `&` color codes |
+| NPCs (FancyNpcs) | Paper 1.20+ | Requires FancyNpcs plugin (soft dependency, graceful degradation) |
+| NPC holograms (ArmorStands) | Spigot 1.8.8 | Custom names via `TextCompat.setCustomName()` |
+| NPC floating items | Spigot 1.8.8 | `setUnlimitedLifetime()` / `setCanMobPickup()` silently skipped on older versions |
+| PersistentDataContainer (hologram tags) | Bukkit 1.14 | Falls back to scoreboard tags, then proximity cleanup on 1.8 |
+| Server selector inventory | Spigot 1.8.8 | Cross-version inventory creation via `TextCompat.createInventory()` |
+| Folia support (Signs) | Folia 1.19.4+ | Each sign updated on its block's region thread via `SchedulerCompat.runAtLocation()` |
+| Folia support (NPCs) | Folia 1.19.4+ | NPC spawn/despawn/update on the NPC location's region thread |
+
+### Folia details
+
+On Folia, all block and entity operations are region-aware:
+
+- **Sign updates** — Each sign is updated on the region thread that owns its block location
+- **NPC spawning** — ArmorStand holograms, floating items, and FancyNpc entities are spawned on the correct region thread
+- **NPC updates** — Hologram text updates are dispatched per-NPC to the correct region
+- **FancyNpcs** — FancyNpcs 2.9.2+ has native Folia support for NPC rendering and interaction
+
+### Graceful degradation
+
+On servers where FancyNpcs is not installed (or on Spigot versions below 1.20), the NPC system is silently disabled. Signs continue to work on all versions. The plugin logs a warning on startup if FancyNpcs is missing.
 
 ## Next steps
 

@@ -210,8 +210,8 @@ Nimbus auto-downloads server JARs from official APIs. The following platforms ar
 Fabric servers can optionally install [Cardboard](https://modrinth.com/mod/cardboard) to run Bukkit/Paper plugins alongside Fabric mods. During group creation, Nimbus offers to download Cardboard and its dependency [iCommon](https://modrinth.com/mod/icommon) automatically. This is experimental — not all plugins will work correctly.
 :::
 
-::: warning Folia
-Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus SDK, ProtocolLib, and Nimbus Signs are automatically excluded from Folia services. Only Folia-compatible plugins will work.
+::: tip Folia
+Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus plugins (SDK, NimbusPerms, NimbusDisplay) are **fully Folia-compatible** using region-aware scheduling. Only **ProtocolLib** is automatically excluded from Folia services (StressBots are therefore not available on Folia).
 :::
 
 Modded servers are first-class citizens in Nimbus. When you create a Forge, Fabric, or NeoForge group, Nimbus:

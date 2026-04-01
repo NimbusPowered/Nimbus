@@ -1,9 +1,9 @@
 # NimbusPerms Plugin
 
-NimbusPerms is a Java plugin for Paper/Purpur backend servers that bridges the Nimbus permission system to in-game functionality. It handles permission injection, chat formatting, and name tag display using prefix/suffix data from the controller.
+NimbusPerms is a Java plugin for Spigot/Paper/Purpur/Folia backend servers that bridges the Nimbus permission system to in-game functionality. It handles permission injection, chat formatting, and name tag display using prefix/suffix data from the controller.
 
-::: warning Folia
-NimbusPerms is **not compatible with Folia** servers. Nimbus automatically excludes it from Folia services due to Folia's regionized threading model.
+::: info Compatibility
+NimbusPerms supports **Spigot 1.8.8** through the **latest Paper/Folia** versions. See [Compatibility](#compatibility) for version-specific feature details.
 :::
 
 ## Architecture
@@ -61,7 +61,11 @@ When `provider: luckperms` is set in config and LuckPerms is installed, the `Luc
 
 ## Chat rendering
 
-`ChatRenderer` implements Paper's `io.papermc.paper.chat.ChatRenderer` interface and listens on `AsyncChatEvent` at `LOWEST` priority.
+`ChatRenderer` detects at runtime which chat system to use:
+
+- **Paper 1.16.5+** — `ModernChatHandler` implements `io.papermc.paper.chat.ChatRenderer`, listens on `AsyncChatEvent` at `LOWEST` priority. Supports MiniMessage and Adventure Components.
+- **Spigot 1.8.8–1.16.4** — `LegacyChatHandler` listens on `AsyncPlayerChatEvent`. Formats with legacy `&` color codes via `ChatColor.translateAlternateColorCodes()`.
+- **Folia** — Uses `ModernChatHandler` (Folia is Paper-based, so `AsyncChatEvent` is always available).
 
 The format string is fetched from `GET /api/proxy/chat` at startup and updated live via `CHAT_FORMAT_UPDATED` WebSocket events. Available placeholders:
 
@@ -123,6 +127,28 @@ Controller (nimbus-core)
 ```
 
 The controller is the single source of truth for built-in permissions. With LuckPerms, the LuckPerms database is authoritative for permissions, but display data is synced back to the controller so proxy-level features (tab list formatting, MOTD player counts) have access to prefix/suffix information.
+
+## Compatibility
+
+NimbusPerms runs on **Spigot 1.8.8** through the **latest Paper and Folia** versions.
+
+### Feature availability by version
+
+| Feature | Minimum version | Notes |
+|---|---|---|
+| Permission injection (BuiltinProvider) | Spigot 1.8.8 | Full functionality |
+| LuckPerms provider | Spigot 1.8.8 | Requires LuckPerms installed |
+| Chat formatting (Modern) | Paper 1.16.5 | AsyncChatEvent + MiniMessage + Adventure |
+| Chat formatting (Legacy) | Spigot 1.8.8 | AsyncPlayerChatEvent + `&` color codes |
+| Name tags (Scoreboard Teams) | Spigot 1.8.8 | Full functionality |
+| Tab list prefix/suffix (Adventure) | Paper 1.16.5 | Rich text via Adventure Components |
+| Tab list prefix/suffix (Legacy) | Spigot 1.8.8 | Legacy `ChatColor` formatting |
+| `player.updateCommands()` | Paper 1.13+ | Silently skipped on older versions |
+| Folia support | Folia 1.19.4+ | Entity-bound scheduling for all player operations |
+
+### Folia details
+
+On Folia, all player-bound operations (permission apply, name tag update, chat rendering) are scheduled on the player's region thread via `SchedulerCompat.runForEntity()`. Scoreboard Team operations use the global region scheduler. Event-driven refreshes (`PERMISSION_GROUP_UPDATED`, `PLAYER_TAB_UPDATED`) are dispatched per-player to the correct region.
 
 ## Next steps
 

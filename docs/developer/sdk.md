@@ -1,14 +1,14 @@
 # Nimbus SDK
 
-The Nimbus SDK is a Java plugin for Minecraft servers (Paper/Purpur) managed by Nimbus. It provides a simple API for interacting with the cloud system -- setting game states, routing players, tracking services, and listening to events.
+The Nimbus SDK is a Java plugin for Minecraft servers (Spigot/Paper/Purpur/Folia) managed by Nimbus. It provides a simple API for interacting with the cloud system -- setting game states, routing players, tracking services, and listening to events.
 
-::: warning Folia
-The SDK is **not compatible with Folia** servers. Folia's regionized multithreading breaks the SDK's main-thread assumptions. Nimbus automatically excludes the SDK (and ProtocolLib) from Folia services.
+::: info Compatibility
+The SDK supports **Spigot 1.8.8** through the **latest Paper/Folia** versions. Cross-version support is achieved through runtime detection and abstraction layers — see [Compatibility](#compatibility) for details.
 :::
 
 ## Installation
 
-The SDK is **automatically deployed** to all Paper and Purpur backend servers via the `templates/global/plugins/` directory. You don't need to install it manually. Folia servers are excluded automatically.
+The SDK is **automatically deployed** to all backend servers (Paper, Purpur, Folia, Spigot) via the `templates/global/plugins/` directory. You don't need to install it manually.
 
 For development, add it as a compile-only dependency in your plugin project:
 
@@ -383,6 +383,58 @@ service.getUptime();       // "2h 15m"
 service.isReady();         // true if state == "READY"
 service.isRoutable();      // true if READY and no custom state
 ```
+
+## Compatibility
+
+The SDK runs on **Spigot 1.8.8** through the **latest Paper and Folia** versions. This wide range is possible through three techniques:
+
+### Runtime detection
+
+`VersionHelper` checks at startup which APIs are available:
+
+| Flag | Detects | Available since |
+|---|---|---|
+| `isFolia()` | Folia's regionized threading | Folia 1.19.4+ |
+| `hasAdventure()` | Adventure Component API | Paper 1.16.5+ |
+| `hasMiniMessage()` | MiniMessage rich text parser | Paper 1.16.5+ |
+| `hasAsyncChatEvent()` | Paper's AsyncChatEvent | Paper 1.16.5+ |
+
+### Scheduler abstraction (`SchedulerCompat`)
+
+All scheduler calls go through `SchedulerCompat`, which delegates to the correct implementation at runtime:
+
+| Method | Bukkit/Paper | Folia |
+|---|---|---|
+| `runTask()` | `Bukkit.getScheduler().runTask()` | `Bukkit.getGlobalRegionScheduler().run()` |
+| `runForEntity()` | `Bukkit.getScheduler().runTask()` | `entity.getScheduler().run()` |
+| `runAtLocation()` | `Bukkit.getScheduler().runTask()` | `Bukkit.getRegionScheduler().run()` |
+| `runTaskAsync()` | `Bukkit.getScheduler().runTaskAsynchronously()` | `Bukkit.getAsyncScheduler().runNow()` |
+
+All variants are also available with delays (`*Later`) and repeating (`*Timer`).
+
+### Text abstraction (`TextCompat`)
+
+All player messages, sign rendering, and scoreboard operations go through `TextCompat`:
+
+| Server | Text handling |
+|---|---|
+| Paper 1.16.5+ | Adventure Components via `AdventureHelper` (loaded only when Adventure API is present) |
+| Spigot 1.8.8–1.16.4 | Legacy `ChatColor.translateAlternateColorCodes()` |
+
+### Feature availability by version
+
+| Feature | Minimum version | Notes |
+|---|---|---|
+| SDK core (API, cache, events, routing) | Spigot 1.8.8 | Full functionality |
+| Chat formatting (Modern) | Paper 1.16.5 | AsyncChatEvent + MiniMessage |
+| Chat formatting (Legacy) | Spigot 1.8.8 | AsyncPlayerChatEvent + `&` color codes |
+| PersistentDataContainer | Bukkit 1.14 | Falls back to scoreboard tags on older versions |
+| StressBots | Paper 1.13+ | Requires ProtocolLib (excluded on Folia) |
+| Folia scheduler support | Folia 1.19.4+ | Region-aware via `SchedulerCompat` |
+
+::: warning StressBots on Folia
+StressBots require ProtocolLib, which is not compatible with Folia's regionized threading. ProtocolLib is automatically excluded from Folia services. All other SDK features work fully on Folia.
+:::
 
 ## Next steps
 
