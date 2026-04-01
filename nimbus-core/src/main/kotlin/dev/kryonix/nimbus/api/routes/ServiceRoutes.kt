@@ -185,8 +185,13 @@ fun Route.serviceRoutes(
         // POST /api/services/{name}/message — Send a message to a service (service-to-service messaging)
         post("{name}/message") {
             val targetName = call.parameters["name"]!!
-            registry.get(targetName)
-                ?: return@post call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Service '$targetName' not found"))
+
+            // "controller" is a virtual target — messages are emitted directly to the EventBus
+            // without requiring a registered service entry (the controller itself isn't a service)
+            if (targetName != "controller") {
+                registry.get(targetName)
+                    ?: return@post call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Service '$targetName' not found"))
+            }
 
             val request = call.receive<SendMessageRequest>()
 

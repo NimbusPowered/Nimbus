@@ -144,11 +144,12 @@ class NimbusConsole(
 
         eventListenerJob = scope.launch {
             eventBus.subscribe().collect { event ->
-                // Suppress stress test noise to avoid console spam
+                // Suppress high-frequency / noisy events to avoid console spam
                 if (event is NimbusEvent.PlayerConnected && event.playerName.startsWith("StressBot-")) return@collect
                 if (event is NimbusEvent.PlayerDisconnected && event.playerName.startsWith("StressBot-")) return@collect
                 if (event is NimbusEvent.StressTestUpdated) return@collect
                 if (event is NimbusEvent.MotdUpdated && stressTestManager?.isActive() == true) return@collect
+                if (event is NimbusEvent.ServiceMessage && event.channel == "refinery:telemetry") return@collect
 
                 val formatted = ConsoleFormatter.formatEvent(event)
                 if (eventsPaused) {
