@@ -3,7 +3,7 @@
 The Nimbus Display plugin adds clickable server signs and interactive NPCs to lobby and hub servers. Players can click a sign or NPC to join a server, open a server selector inventory, or execute custom commands.
 
 ::: info Compatibility
-The Display plugin supports **Spigot 1.8.8** (signs only) through the **latest Paper/Folia** versions. NPCs require **Paper 1.20+** with FancyNpcs. See [Compatibility](#compatibility) for details.
+The Display plugin requires **Spigot 1.13+** (signs) through the **latest Paper/Folia** versions. NPCs require **Paper 1.20+** with FancyNpcs. See [Compatibility](#compatibility) for details.
 :::
 
 ## Installation
@@ -189,20 +189,20 @@ signs:
 
 ## Compatibility
 
-The Display plugin runs on **Spigot 1.8.8** through the **latest Paper and Folia** versions.
+The Display plugin requires **Spigot 1.13+** through the **latest Paper and Folia** versions. The 1.13 minimum is required because the plugin uses the flattened material system (post-1.13) for block and item resolution.
 
 ### Feature availability by version
 
 | Feature | Minimum version | Notes |
 |---|---|---|
-| Signs (create, update, click) | Spigot 1.8.8 | Full functionality, uses `TextCompat` for cross-version sign rendering |
-| Sign text (Adventure) | Paper 1.16.5 | Rich text via `sign.line(Component)` |
-| Sign text (Legacy) | Spigot 1.8.8 | `sign.setLine(String)` with `&` color codes |
+| Signs (create, update, click) | Spigot 1.13+ | Full functionality, uses `TextCompat` for cross-version sign rendering |
+| Sign text (Adventure) | Paper 1.16.5+ | Rich text via `sign.line(Component)` |
+| Sign text (Legacy) | Spigot 1.13+ | `sign.setLine(String)` with `&` color codes |
 | NPCs (FancyNpcs) | Paper 1.20+ | Requires FancyNpcs plugin (soft dependency, graceful degradation) |
-| NPC holograms (ArmorStands) | Spigot 1.8.8 | Custom names via `TextCompat.setCustomName()` |
-| NPC floating items | Spigot 1.8.8 | `setUnlimitedLifetime()` / `setCanMobPickup()` silently skipped on older versions |
-| PersistentDataContainer (hologram tags) | Bukkit 1.14 | Falls back to scoreboard tags, then proximity cleanup on 1.8 |
-| Server selector inventory | Spigot 1.8.8 | Cross-version inventory creation via `TextCompat.createInventory()` |
+| NPC holograms (ArmorStands) | Spigot 1.13+ | Custom names via `TextCompat.setCustomName()` |
+| NPC floating items | Spigot 1.13+ | `setUnlimitedLifetime()` / `setCanMobPickup()` silently skipped on older versions |
+| PersistentDataContainer (hologram tags) | Bukkit 1.14+ | Falls back to scoreboard tags on 1.13 |
+| Server selector inventory | Spigot 1.13+ | Cross-version inventory creation via `TextCompat.createInventory()` |
 | Folia support (Signs) | Folia 1.19.4+ | Each sign updated on its block's region thread via `SchedulerCompat.runAtLocation()` |
 | Folia support (NPCs) | Folia 1.19.4+ | NPC spawn/despawn/update on the NPC location's region thread |
 
