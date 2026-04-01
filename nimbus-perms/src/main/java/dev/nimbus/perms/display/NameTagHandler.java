@@ -41,11 +41,10 @@ public class NameTagHandler {
     public void start() {
         if (Nimbus.events() != null) {
             Nimbus.events().onEvent("PERMISSION_GROUP_UPDATED", e -> {
-                SchedulerCompat.runTask(plugin, () -> {
-                    for (Player player : Bukkit.getOnlinePlayers()) {
-                        applyNameTag(player);
-                    }
-                });
+                // Schedule per-player to run on each player's region thread (Folia)
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    SchedulerCompat.runForEntity(plugin, player, () -> applyNameTag(player));
+                }
             });
 
             Nimbus.events().onEvent("PLAYER_PERMISSIONS_UPDATED", e -> {
@@ -55,7 +54,9 @@ public class NameTagHandler {
                         UUID playerUuid = UUID.fromString(uuid);
                         SchedulerCompat.runTask(plugin, () -> {
                             Player player = Bukkit.getPlayer(playerUuid);
-                            if (player != null) applyNameTag(player);
+                            if (player != null) {
+                                SchedulerCompat.runForEntity(plugin, player, () -> applyNameTag(player));
+                            }
                         });
                     } catch (IllegalArgumentException ignored) {}
                 }
@@ -74,7 +75,9 @@ public class NameTagHandler {
                     }
                     SchedulerCompat.runTask(plugin, () -> {
                         Player player = Bukkit.getPlayer(playerUuid);
-                        if (player != null) applyNameTag(player);
+                        if (player != null) {
+                            SchedulerCompat.runForEntity(plugin, player, () -> applyNameTag(player));
+                        }
                     });
                 } catch (IllegalArgumentException ignored) {}
             });
