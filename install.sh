@@ -272,6 +272,8 @@ SCRIPT
     sudo chmod +x "$INSTALL_DIR/start.sh"
 
     # nimbus command — attach if running, start if not
+    # Remove old symlink first (previous installs created a symlink here)
+    sudo rm -f /usr/local/bin/nimbus
     sudo tee /usr/local/bin/nimbus >/dev/null <<'CMD'
 #!/usr/bin/env bash
 INSTALL_DIR="/opt/nimbus"

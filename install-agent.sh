@@ -284,6 +284,7 @@ SCRIPT
     sudo chmod +x "$INSTALL_DIR/start.sh"
 
     # nimbus-agent command — attach if running, start if not
+    sudo rm -f /usr/local/bin/nimbus-agent
     sudo tee /usr/local/bin/nimbus-agent >/dev/null <<'CMD'
 #!/usr/bin/env bash
 INSTALL_DIR="/opt/nimbus-agent"
