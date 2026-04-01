@@ -85,7 +85,8 @@ public class NameTagHandler {
 
     public void onJoin(Player player) {
         // Defer to allow provider to load display data first
-        SchedulerCompat.runTaskLater(plugin, () -> {
+        // Use entity-bound scheduling so the task runs on the player's region thread (Folia)
+        SchedulerCompat.runForEntityLater(plugin, player, () -> {
             if (player.isOnline()) applyNameTag(player);
         }, 5L);
     }

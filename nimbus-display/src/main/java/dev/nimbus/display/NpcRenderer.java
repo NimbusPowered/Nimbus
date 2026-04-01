@@ -147,7 +147,7 @@ public class NpcRenderer {
             fancyNpc.spawnForAll();
 
             // After spawn: apply equipment + burning + force update
-            SchedulerCompat.runTaskLater(plugin, () -> {
+            SchedulerCompat.runAtLocationLater(plugin, npc.location(), () -> {
                 try {
                     if (npc.equipment() != null && !npc.equipment().isEmpty()) {
                         var eq = new java.util.HashMap<>(fancyNpc.getData().getEquipment());
@@ -175,7 +175,7 @@ public class NpcRenderer {
                 }
             }, 10L);
 
-            SchedulerCompat.runTaskLater(plugin, () -> {
+            SchedulerCompat.runAtLocationLater(plugin, npc.location(), () -> {
                 try {
                     fancyNpc.updateForAll();
                 } catch (Exception ignored) {}

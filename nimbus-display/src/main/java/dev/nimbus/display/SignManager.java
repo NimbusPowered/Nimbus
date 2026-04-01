@@ -4,7 +4,9 @@ import dev.nimbus.sdk.Nimbus;
 import dev.nimbus.sdk.NimbusDisplay;
 import dev.nimbus.sdk.NimbusGroup;
 import dev.nimbus.sdk.NimbusService;
+import dev.nimbus.sdk.compat.SchedulerCompat;
 import dev.nimbus.sdk.compat.TextCompat;
+import dev.nimbus.sdk.compat.VersionHelper;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
@@ -119,24 +121,38 @@ public class SignManager {
         return true;
     }
 
-    /** Update all signs with live data. Runs on the main thread. */
+    /** Update all signs with live data. On Folia, each sign is updated on its location's region thread. */
     public void updateAll() {
-        Iterator<Map.Entry<String, NimbusSign>> it = signs.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<String, NimbusSign> entry = it.next();
-            NimbusSign nSign = entry.getValue();
-            Block block = nSign.location().getBlock();
-
-            // Cleanup: sign block was destroyed (explosion, piston, WorldEdit, etc.)
-            if (!(block.getState() instanceof Sign)) {
-                it.remove();
-                config.removeSign(nSign.id());
-                plugin.getLogger().info("Removed destroyed sign: " + nSign.id());
-                continue;
+        if (VersionHelper.isFolia()) {
+            // Folia: schedule each sign update on the region thread that owns its block
+            for (Map.Entry<String, NimbusSign> entry : signs.entrySet()) {
+                NimbusSign nSign = entry.getValue();
+                Location loc = nSign.location();
+                if (loc.getWorld() == null) continue;
+                SchedulerCompat.runAtLocation(plugin, loc, () -> updateSingleSign(entry.getKey(), nSign));
             }
-
-            updateSign(nSign, (Sign) block.getState());
+        } else {
+            // Bukkit/Paper: all on main thread
+            Iterator<Map.Entry<String, NimbusSign>> it = signs.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, NimbusSign> entry = it.next();
+                updateSingleSign(entry.getKey(), entry.getValue());
+            }
         }
+    }
+
+    private void updateSingleSign(String key, NimbusSign nSign) {
+        Block block = nSign.location().getBlock();
+
+        // Cleanup: sign block was destroyed (explosion, piston, WorldEdit, etc.)
+        if (!(block.getState() instanceof Sign)) {
+            signs.remove(key);
+            config.removeSign(nSign.id());
+            plugin.getLogger().info("Removed destroyed sign: " + nSign.id());
+            return;
+        }
+
+        updateSign(nSign, (Sign) block.getState());
     }
 
     private void updateSign(NimbusSign nSign, Sign sign) {

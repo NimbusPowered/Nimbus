@@ -1,6 +1,7 @@
 package dev.nimbus.sdk.compat;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.plugin.Plugin;
 
@@ -84,6 +85,32 @@ public final class SchedulerCompat {
     public static void runForEntityLater(Plugin plugin, Entity entity, Runnable task, long delayTicks) {
         if (VersionHelper.isFolia()) {
             FoliaScheduler.runForEntityLater(plugin, entity, task, delayTicks);
+        } else {
+            Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+        }
+    }
+
+    // ── Location/Region-bound (Folia region-aware) ───────────────────
+
+    /**
+     * Run a task on the region thread that owns the given location (Folia)
+     * or the main thread (Bukkit).
+     * <p>
+     * Use this for block operations (sign updates, block state changes)
+     * and entity spawning at a specific location.
+     */
+    public static void runAtLocation(Plugin plugin, Location location, Runnable task) {
+        if (VersionHelper.isFolia()) {
+            FoliaScheduler.runAtLocation(plugin, location, task);
+        } else {
+            Bukkit.getScheduler().runTask(plugin, task);
+        }
+    }
+
+    /** Run a delayed task on the region thread that owns the given location (Folia) or main thread (Bukkit). */
+    public static void runAtLocationLater(Plugin plugin, Location location, Runnable task, long delayTicks) {
+        if (VersionHelper.isFolia()) {
+            FoliaScheduler.runAtLocationLater(plugin, location, task, delayTicks);
         } else {
             Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
         }

@@ -1,6 +1,7 @@
 package dev.nimbus.sdk.compat;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.plugin.Plugin;
 
@@ -49,5 +50,16 @@ class FoliaScheduler {
     static void runForEntityLater(Plugin plugin, Entity entity, Runnable task, long delayTicks) {
         if (delayTicks <= 0) delayTicks = 1;
         entity.getScheduler().runDelayed(plugin, t -> task.run(), null, delayTicks);
+    }
+
+    // ── Location/Region-bound ────────────────────────────────────────
+
+    static void runAtLocation(Plugin plugin, Location location, Runnable task) {
+        Bukkit.getRegionScheduler().run(plugin, location, t -> task.run());
+    }
+
+    static void runAtLocationLater(Plugin plugin, Location location, Runnable task, long delayTicks) {
+        if (delayTicks <= 0) delayTicks = 1;
+        Bukkit.getRegionScheduler().runDelayed(plugin, location, t -> task.run(), delayTicks);
     }
 }
