@@ -260,41 +260,45 @@ install_screen() {
 create_start_script() {
     info "Creating start scripts..."
 
-    # start.sh — launches agent in a detached screen session
+    # start.sh — starts agent in screen and attaches, or reattaches if already running
     sudo tee "$INSTALL_DIR/start.sh" >/dev/null <<'SCRIPT'
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
 
 SESSION="nimbus-agent"
+DETACH=false
+for arg in "$@"; do
+    if [[ "$arg" == "--detach" ]]; then
+        DETACH=true
+    fi
+done
 
+# Already running? Attach if interactive, exit if detached.
 if screen -list | grep -q "\.$SESSION\b"; then
-    echo "Nimbus Agent is already running. Use 'nimbus-agent' to attach."
-    exit 0
+    if [[ "$DETACH" == true ]]; then
+        echo "Nimbus Agent is already running."
+        exit 0
+    fi
+    exec screen -r "$SESSION"
 fi
 
 JAVA_OPTS="-Xms256M -Xmx512M"
 JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200"
 
-screen -dmS "$SESSION" java $JAVA_OPTS -jar nimbus-agent.jar "$@"
-echo "Nimbus Agent started in screen session '$SESSION'."
-echo "  Attach:  nimbus-agent  (or: screen -r $SESSION)"
-echo "  Detach:  Ctrl+A, then D"
+if [[ "$DETACH" == true ]]; then
+    screen -dmS "$SESSION" java $JAVA_OPTS -jar nimbus-agent.jar
+else
+    exec screen -S "$SESSION" java $JAVA_OPTS -jar nimbus-agent.jar
+fi
 SCRIPT
     sudo chmod +x "$INSTALL_DIR/start.sh"
 
-    # nimbus-agent command — attach if running, start if not
+    # nimbus-agent command — just calls start.sh
     sudo rm -f /usr/local/bin/nimbus-agent
     sudo tee /usr/local/bin/nimbus-agent >/dev/null <<'CMD'
 #!/usr/bin/env bash
-INSTALL_DIR="/opt/nimbus-agent"
-SESSION="nimbus-agent"
-
-if screen -list | grep -q "\.$SESSION\b"; then
-    screen -r "$SESSION"
-else
-    "$INSTALL_DIR/start.sh" "$@"
-fi
+exec /opt/nimbus-agent/start.sh "$@"
 CMD
     sudo chmod +x /usr/local/bin/nimbus-agent
     success "Created 'nimbus-agent' command"
@@ -327,7 +331,7 @@ Wants=network-online.target
 Type=forking
 User=$service_user
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/start.sh
+ExecStart=$INSTALL_DIR/start.sh --detach
 Restart=on-failure
 RestartSec=10
 
@@ -386,11 +390,9 @@ main() {
     read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Start agent now? [Y/n]: ")" start_now <"$TTY"
     if [[ "${start_now,,}" != "n" && "${start_now,,}" != "no" ]]; then
         echo ""
-        "$INSTALL_DIR/start.sh"
-        sleep 1
-        echo -e "  ${DIM}Attaching to agent console... (Ctrl+A, D to detach)${RESET}"
+        echo -e "  ${DIM}Starting agent... (Ctrl+A, D to detach from console)${RESET}"
         echo ""
-        screen -r nimbus-agent
+        "$INSTALL_DIR/start.sh"
     else
         echo -e "  ${DIM}Run 'nimbus-agent' when you're ready to start.${RESET}"
     fi

@@ -281,8 +281,11 @@ class SetupWizard(
             w.println(ConsoleFormatter.separator(40))
             w.println()
 
-            // --- Step 6: Start script ---
-            if (detectedOs != OperatingSystem.UNKNOWN) {
+            // --- Step 6: Start script (skip if already exists, e.g. from installer) ---
+            val startScriptName = if (detectedOs == OperatingSystem.WINDOWS) "start.bat" else "start.sh"
+            val startScriptExists = baseDir.resolve(startScriptName).exists()
+
+            if (detectedOs != OperatingSystem.UNKNOWN && !startScriptExists) {
                 stepHeader(w, 6, "Start Script")
                 w.println()
 
@@ -296,14 +299,13 @@ class SetupWizard(
 
                 if (promptYesNo(terminal, "  Create start script?", true)) {
                     writeStartScript(detectedOs)
-                    val scriptName = if (detectedOs == OperatingSystem.WINDOWS) "start.bat" else "start.sh"
-                    w.println("  ${ConsoleFormatter.colorize("+", ConsoleFormatter.GREEN)} $scriptName")
+                    w.println("  ${ConsoleFormatter.colorize("+", ConsoleFormatter.GREEN)} $startScriptName")
                     w.println()
                 }
                 w.println()
             }
 
-            return promptYesNo(terminal, "  Start Nimbus now?", true)
+            return true
 
         } catch (_: UserInterruptException) {
             terminal?.writer()?.println("\n  ${ConsoleFormatter.hint("Setup cancelled.")}")
