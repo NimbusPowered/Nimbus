@@ -268,7 +268,8 @@ class NimbusApi(
             moduleContext?.publicRoutes?.forEach { block -> block() }
 
             // Routes with their own auth (query param token, not Bearer)
-            eventRoutes(eventBus, registry, serviceManager, token)
+            val serviceToken = if (token.isNotBlank()) deriveServiceToken(token) else ""
+            eventRoutes(eventBus, registry, serviceManager, token, serviceToken)
             templateRoutes(templatesDir, config.cluster.token)
 
             if (token.isNotBlank()) {

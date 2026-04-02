@@ -4,6 +4,7 @@ import dev.kryonix.nimbus.perms.provider.PermissionProvider;
 import dev.kryonix.nimbus.sdk.Nimbus;
 import dev.kryonix.nimbus.sdk.compat.SchedulerCompat;
 import dev.kryonix.nimbus.sdk.compat.TextCompat;
+import dev.kryonix.nimbus.sdk.compat.VersionHelper;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -18,7 +19,8 @@ import java.util.logging.Logger;
  * Manages player name tags (above head) using Scoreboard Teams.
  * Syncs prefix/suffix from the permission provider.
  * <p>
- * Compatible with both modern Paper (Adventure) and legacy Spigot (1.8+).
+ * On Folia: uses per-player scoreboards (main scoreboard is read-only).
+ * On Bukkit/Paper: uses the main scoreboard (shared, efficient).
  */
 public class NameTagHandler {
 
@@ -29,6 +31,9 @@ public class NameTagHandler {
     private final ConcurrentHashMap<UUID, String> tabOverrides = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> playerTeams = new ConcurrentHashMap<>();
 
+    /** On Folia we use a shared custom scoreboard assigned to each player. */
+    private Scoreboard sharedScoreboard;
+
     private static final String TEAM_PREFIX = "nimbus_";
 
     public NameTagHandler(JavaPlugin plugin, PermissionProvider provider) {
@@ -38,9 +43,14 @@ public class NameTagHandler {
     }
 
     public void start() {
+        // On Folia, the main scoreboard is read-only — create a shared custom scoreboard
+        if (VersionHelper.isFolia()) {
+            sharedScoreboard = Bukkit.getScoreboardManager().getNewScoreboard();
+            logger.info("Folia detected — using custom shared scoreboard for name tags");
+        }
+
         if (Nimbus.events() != null) {
             Nimbus.events().onEvent("PERMISSION_GROUP_UPDATED", e -> {
-                // Schedule per-player to run on each player's region thread (Folia)
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     SchedulerCompat.runForEntity(plugin, player, () -> applyNameTag(player));
                 }
@@ -86,8 +96,16 @@ public class NameTagHandler {
     }
 
     public void onJoin(Player player) {
+        // On Folia, assign the shared scoreboard to the player
+        if (sharedScoreboard != null) {
+            SchedulerCompat.runForEntity(plugin, player, () -> {
+                if (player.isOnline()) {
+                    player.setScoreboard(sharedScoreboard);
+                }
+            });
+        }
+
         // Defer to allow provider to load display data first
-        // Use entity-bound scheduling so the task runs on the player's region thread (Folia)
         SchedulerCompat.runForEntityLater(plugin, player, () -> {
             if (!player.isOnline()) return;
             // Only apply if display data has been loaded — applying with empty cache
@@ -110,7 +128,7 @@ public class NameTagHandler {
         tabOverrides.remove(player.getUniqueId());
         String teamName = playerTeams.remove(player.getUniqueId());
         if (teamName != null) {
-            Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
+            Scoreboard scoreboard = getScoreboard();
             Team team = scoreboard.getTeam(teamName);
             if (team != null) {
                 team.removeEntry(player.getName());
@@ -119,6 +137,11 @@ public class NameTagHandler {
                 }
             }
         }
+    }
+
+    private Scoreboard getScoreboard() {
+        if (sharedScoreboard != null) return sharedScoreboard;
+        return Bukkit.getScoreboardManager().getMainScoreboard();
     }
 
     private void applyNameTag(Player player) {
@@ -143,7 +166,7 @@ public class NameTagHandler {
             suffix = provider.getSuffix(uuid);
         }
 
-        Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
+        Scoreboard scoreboard = getScoreboard();
 
         String oldTeamName = playerTeams.get(uuid);
         if (oldTeamName != null) {

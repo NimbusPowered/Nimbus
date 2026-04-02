@@ -23,11 +23,12 @@ fun Route.eventRoutes(
     eventBus: EventBus,
     registry: ServiceRegistry,
     serviceManager: ServiceManager,
-    token: String
+    token: String,
+    serviceToken: String = ""
 ) {
     // WS /api/events — Live event stream
     webSocket("/api/events") {
-        if (!authenticateWebSocket(token)) return@webSocket
+        if (!authenticateWebSocket(token, serviceToken)) return@webSocket
 
         val subscription = eventBus.subscribe()
 
@@ -41,9 +42,9 @@ fun Route.eventRoutes(
         }
     }
 
-    // WS /api/services/{name}/console — Bidirectional console access
+    // WS /api/services/{name}/console — Bidirectional console access (admin only)
     webSocket("/api/services/{name}/console") {
-        if (!authenticateWebSocket(token)) return@webSocket
+        if (!authenticateWebSocket(token, "")) return@webSocket
 
         val serviceName = call.parameters["name"]!!
         val service = registry.get(serviceName)
@@ -94,8 +95,11 @@ fun Route.eventRoutes(
  * Authenticates a WebSocket connection via ?token= query parameter.
  * Returns true if authenticated, false if the connection was rejected.
  */
-private suspend fun DefaultWebSocketServerSession.authenticateWebSocket(expectedToken: String): Boolean {
-    if (expectedToken.isBlank()) return true
+private suspend fun DefaultWebSocketServerSession.authenticateWebSocket(
+    masterToken: String,
+    serviceToken: String
+): Boolean {
+    if (masterToken.isBlank()) return true
 
     // Prefer Authorization header (hidden from logs), fall back to query param for backwards compat
     val authHeader = call.request.headers["Authorization"]
@@ -105,7 +109,10 @@ private suspend fun DefaultWebSocketServerSession.authenticateWebSocket(expected
         else -> call.request.queryParameters["token"]
     }
 
-    if (clientToken == null || !NimbusApi.timingSafeEquals(clientToken, expectedToken)) {
+    if (clientToken == null ||
+        (!NimbusApi.timingSafeEquals(clientToken, masterToken) &&
+         (serviceToken.isBlank() || !NimbusApi.timingSafeEquals(clientToken, serviceToken)))
+    ) {
         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Authentication required — provide Authorization header or ?token= query parameter"))
         return false
     }
