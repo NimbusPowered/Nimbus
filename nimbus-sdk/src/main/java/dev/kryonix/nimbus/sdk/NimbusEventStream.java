@@ -143,10 +143,13 @@ public class NimbusEventStream implements AutoCloseable {
      */
     public void connectAndWait(long timeout, TimeUnit unit) throws InterruptedException {
         CountDownLatch latch = new CountDownLatch(1);
-        // When closed, count down
-        var prevRunning = running.get();
+        // Count down on first event received (proves connection is alive)
+        Consumer<NimbusEvent> openSignal = e -> latch.countDown();
+        globalHandlers.add(openSignal);
+        onReconnect(latch::countDown);
         connect();
         latch.await(timeout, unit);
+        globalHandlers.remove(openSignal);
     }
 
     @Override

@@ -802,7 +802,7 @@ public class CloudCommand implements SimpleCommand {
             return;
         }
 
-        long duration = args.length >= 4 ? 30 : 30;
+        long duration = 30;
         if (args.length >= 4) {
             try { duration = Long.parseLong(args[3]); } catch (NumberFormatException ignored) {}
         }

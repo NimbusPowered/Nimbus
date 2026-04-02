@@ -10,6 +10,7 @@ import com.velocitypowered.api.event.permission.PermissionsSetupEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
@@ -88,6 +89,17 @@ public class NimbusBridgePlugin {
 
         // Start health polling to track controller reachability
         startHealthPoller();
+    }
+
+    @Subscribe
+    public void onProxyShutdown(ProxyShutdownEvent event) {
+        if (proxySyncListener != null) {
+            proxySyncListener.shutdown();
+        }
+        if (sharedEventStream != null) {
+            sharedEventStream.close();
+        }
+        logger.info("Nimbus Bridge shut down");
     }
 
     private void registerProxySync() {
