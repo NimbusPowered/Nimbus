@@ -89,7 +89,13 @@ public class NameTagHandler {
         // Defer to allow provider to load display data first
         // Use entity-bound scheduling so the task runs on the player's region thread (Folia)
         SchedulerCompat.runForEntityLater(plugin, player, () -> {
-            if (player.isOnline()) applyNameTag(player);
+            if (!player.isOnline()) return;
+            // Only apply if display data has been loaded — applying with empty cache
+            // would overwrite shared team prefixes with empty values
+            UUID uuid = player.getUniqueId();
+            if (!provider.getPrefix(uuid).isEmpty() || !provider.getSuffix(uuid).isEmpty() || provider.getPriority(uuid) != 0) {
+                applyNameTag(player);
+            }
         }, 5L);
     }
 

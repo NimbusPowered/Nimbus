@@ -117,6 +117,7 @@ public class BuiltinProvider implements PermissionProvider {
     }
 
     /** Set a callback that is invoked on the main thread after display data is loaded for a player. */
+    @Override
     public void setDisplayLoadedCallback(java.util.function.Consumer<Player> callback) {
         this.displayLoadedCallback = callback;
     }
