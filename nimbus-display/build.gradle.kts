@@ -5,14 +5,12 @@ plugins {
 
 repositories {
     maven("https://repo.papermc.io/repository/maven-public/")
-    maven("https://repo.dmulloy2.net/repository/public/")
     maven("https://repo.fancyinnovations.com/releases")
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
     compileOnly(project(":nimbus-sdk"))
-    compileOnly("com.comphenix.protocol:ProtocolLib:5.4.0-SNAPSHOT")
     compileOnly("de.oliver:FancyNpcs:2.9.2")
 }
 

@@ -173,19 +173,6 @@ class ServiceFactory(
                 templateManager.applyGlobalTemplate(templatesDir.resolve("global_proxy"), workDir)
             }
 
-            // Folia: remove ProtocolLib (incompatible with regionized threading)
-            // SDK and Perms now support Folia via SchedulerCompat
-            if (software == ServerSoftware.FOLIA) {
-                val pluginsDir = workDir.resolve("plugins")
-                listOf("ProtocolLib.jar").forEach { jar ->
-                    val file = pluginsDir.resolve(jar)
-                    if (file.exists()) {
-                        java.nio.file.Files.delete(file)
-                        logger.debug("Removed {} from Folia service (incompatible)", jar)
-                    }
-                }
-            }
-
             val forwardingMode = compatibilityChecker.determineForwardingMode()
             when (software) {
                 ServerSoftware.VELOCITY -> {

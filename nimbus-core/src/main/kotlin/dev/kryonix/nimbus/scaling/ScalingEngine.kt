@@ -81,7 +81,7 @@ class ScalingEngine(
             logger.warn("Player count update timed out (>15s), proceeding with stale data")
         }
 
-        // Skip scaling decisions entirely during active stress tests to avoid reacting to fake players
+        // Skip scaling decisions entirely during active stress tests to avoid reacting to simulated players
         if (stressTestManager?.isActive() == true) {
             logger.debug("Stress test active — skipping scaling evaluation")
             return

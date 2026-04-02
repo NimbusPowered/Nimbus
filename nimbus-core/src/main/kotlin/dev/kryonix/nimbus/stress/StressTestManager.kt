@@ -27,14 +27,11 @@ class StressTestManager(
 ) {
     private val logger = LoggerFactory.getLogger(StressTestManager::class.java)
 
-    /** Per-service simulated player count and bot names. */
-    private val overrides = ConcurrentHashMap<String, MutableList<String>>()
+    /** Per-service simulated player count. */
+    private val overrides = ConcurrentHashMap<String, Int>()
 
     /** The currently running ramp/hold coroutine. */
     private var activeJob: Job? = null
-
-    /** Bot name counter for unique names across the test. */
-    private var botCounter = 0
 
     /** Current stress test profile (null when idle). */
     var profile: StressProfile? = null
@@ -90,7 +87,6 @@ class StressTestManager(
             }
         }
 
-        botCounter = 0
         lastEmittedCount = -1
 
         profile = StressProfile(
@@ -167,34 +163,15 @@ class StressTestManager(
             // Apply assignments to each service
             var totalAssigned = 0
             for ((service, targetCount) in assignments) {
-                val currentBots = overrides.getOrPut(service.name) { mutableListOf() }
-                val previousCount = currentBots.size
+                val previousCount = overrides[service.name] ?: 0
+                overrides[service.name] = targetCount
 
-                if (targetCount > previousCount) {
-                    // Add new bots
-                    val added = targetCount - previousCount
-                    for (i in 0 until added) {
-                        botCounter++
-                        currentBots.add("StressBot-$botCounter")
-                    }
-                    if (added <= 10) {
-                        for (i in previousCount until targetCount) {
-                            eventBus.emit(NimbusEvent.PlayerConnected(currentBots[i], service.name))
-                        }
+                if (targetCount != previousCount) {
+                    val diff = targetCount - previousCount
+                    if (diff > 0) {
+                        logger.debug("Stress: +$diff simulated players on ${service.name} (now $targetCount)")
                     } else {
-                        logger.info("Stress: +$added simulated players on ${service.name} (now $targetCount)")
-                    }
-                } else if (targetCount < previousCount) {
-                    // Remove excess bots
-                    val toRemove = previousCount - targetCount
-                    val removedBots = currentBots.takeLast(toRemove)
-                    repeat(toRemove) { currentBots.removeLastOrNull() }
-                    if (toRemove <= 10) {
-                        for (bot in removedBots) {
-                            eventBus.emit(NimbusEvent.PlayerDisconnected(bot, service.name))
-                        }
-                    } else {
-                        logger.info("Stress: -$toRemove simulated players on ${service.name} (now $targetCount)")
+                        logger.debug("Stress: $diff simulated players on ${service.name} (now $targetCount)")
                     }
                 }
 
@@ -206,7 +183,7 @@ class StressTestManager(
             val activeNames = assignments.keys.map { it.name }.toSet()
             val stale = overrides.keys.filter { it !in activeNames && !isProxyServiceByName(it) }
             for (name in stale) {
-                val bots = overrides.remove(name) ?: continue
+                overrides.remove(name)
                 val service = registry.get(name)
                 if (service != null) {
                     service.playerCount = 0
@@ -220,7 +197,7 @@ class StressTestManager(
             if (totalAssigned != lastEmittedCount) {
                 lastEmittedCount = totalAssigned
                 eventBus.emit(NimbusEvent.StressTestUpdated(
-                    totalAssigned, currentTarget, getBotSample(),
+                    totalAssigned, currentTarget,
                     currentProfile.groupName,
                     assignments.map { (svc, count) -> svc.name to count }.toMap()
                 ))
@@ -294,26 +271,18 @@ class StressTestManager(
                 // Single proxy: all players
                 val service = proxyServices.first()
                 service.playerCount = totalBackendPlayers
-                overrides.getOrPut(service.name) { mutableListOf() }
+                overrides[service.name] = totalBackendPlayers
             } else {
                 // Multiple proxies: split evenly
                 val perProxy = totalBackendPlayers / proxyServices.size
                 val remainder = totalBackendPlayers % proxyServices.size
                 for ((index, service) in proxyServices.withIndex()) {
-                    service.playerCount = perProxy + if (index < remainder) 1 else 0
-                    overrides.getOrPut(service.name) { mutableListOf() }
+                    val count = perProxy + if (index < remainder) 1 else 0
+                    service.playerCount = count
+                    overrides[service.name] = count
                 }
             }
         }
-    }
-
-    /**
-     * Gets a sample of bot names for the Bridge to show in the server list hover.
-     */
-    private fun getBotSample(): List<String> {
-        val allBots = overrides.values.flatten()
-        return if (allBots.size <= 12) allBots
-        else allBots.shuffled().take(12)
     }
 
     /**
@@ -324,27 +293,22 @@ class StressTestManager(
         activeJob = null
 
         // Reset all overridden services
-        for ((serviceName, bots) in overrides) {
+        for ((serviceName, count) in overrides) {
             val service = registry.get(serviceName) ?: continue
             service.playerCount = 0
-            if (!isProxyService(service) && bots.size <= 10) {
-                for (bot in bots) {
-                    eventBus.emit(NimbusEvent.PlayerDisconnected(bot, serviceName))
-                }
-            } else if (!isProxyService(service)) {
-                logger.info("Stress: removed ${bots.size} simulated players from $serviceName")
+            if (!isProxyService(service)) {
+                logger.info("Stress: removed $count simulated players from $serviceName")
             }
         }
 
         overrides.clear()
         val wasActive = profile != null
         profile = null
-        botCounter = 0
         lastEmittedCount = -1
 
-        // Tell Bridge to clear fake player samples
+        // Tell Bridge to clear stress data
         if (wasActive) {
-            eventBus.emit(NimbusEvent.StressTestUpdated(0, 0, emptyList(), null, emptyMap()))
+            eventBus.emit(NimbusEvent.StressTestUpdated(0, 0, null, emptyMap()))
             logger.info("Stress test stopped, all simulated players removed")
         }
     }
@@ -355,13 +319,11 @@ class StressTestManager(
         val backendOverrides = overrides.filter { (name, _) ->
             val service = registry.get(name)
             service != null && !isProxyService(service)
-        }.mapValues { it.value.size }
+        }
 
         val proxyOverrides = overrides.filter { (name, _) ->
             val service = registry.get(name)
             service != null && isProxyService(service)
-        }.mapValues { (name, _) ->
-            registry.get(name)?.playerCount ?: 0
         }
 
         val totalCapacity = getBackendServices(p.groupName).sumOf { service ->

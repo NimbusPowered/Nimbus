@@ -27,9 +27,6 @@ class PluginDeployer(private val baseDir: Path) {
         // Deploy Nimbus SDK plugin to global (all backend servers: Paper, Purpur, etc.)
         deploySdkPlugin(globalTemplateDir, config.permissions.deployPlugin)
 
-        // Deploy ProtocolLib to global (required by SDK for fake player spawning)
-        deployPlugin(globalTemplateDir, "ProtocolLib.jar", "plugins/ProtocolLib.jar")
-
         // Deploy FancyNpcs to global (required by Display plugin for player NPCs)
         deployPlugin(globalTemplateDir, "FancyNpcs.jar", "plugins/FancyNpcs.jar")
 

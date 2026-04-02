@@ -55,8 +55,7 @@ public class ProxySyncListener {
     // Nimbus version (from API)
     private volatile String nimbusVersion = "dev";
 
-    // Stress test: fake player samples for server list hover
-    private volatile java.util.List<String> stressBotSamples = java.util.Collections.emptyList();
+    // Stress test: simulated player count for MOTD/tab
     private volatile int stressSimulatedPlayers = 0;
 
     // Per-player tab overrides (UUID string -> MiniMessage format)
@@ -144,19 +143,13 @@ public class ProxySyncListener {
             refreshPlayerTab(uuid);
         });
 
-        // Stress test: fake player samples in server list
+        // Stress test: simulated player count for MOTD/tab
         eventStream.onEvent("STRESS_TEST_UPDATED", e -> {
             String simulated = e.get("simulatedPlayers");
             if (simulated != null) {
                 try { stressSimulatedPlayers = Integer.parseInt(simulated); } catch (NumberFormatException ignored) {}
             }
-            String samples = e.get("sampleNames");
-            if (samples != null && !samples.isEmpty()) {
-                stressBotSamples = java.util.Arrays.asList(samples.split(","));
-            } else {
-                stressBotSamples = java.util.Collections.emptyList();
-            }
-            logger.debug("Stress test update: {} simulated players, {} samples", stressSimulatedPlayers, stressBotSamples.size());
+            logger.debug("Stress test update: {} simulated players", stressSimulatedPlayers);
         });
 
         // Refresh display cache when permissions change
@@ -260,16 +253,6 @@ public class ProxySyncListener {
         builder.onlinePlayers(online);
         if (motdMaxPlayers > 0) {
             builder.maximumPlayers(motdMaxPlayers);
-        }
-
-        // Add fake player samples from stress test to server list hover
-        if (stressSimulatedPlayers > 0 && !stressBotSamples.isEmpty()) {
-            builder.clearSamplePlayers();
-            for (String botName : stressBotSamples) {
-                builder.samplePlayers(new ServerPing.SamplePlayer(
-                        botName, UUID.randomUUID()
-                ));
-            }
         }
 
         event.setPing(builder.build());

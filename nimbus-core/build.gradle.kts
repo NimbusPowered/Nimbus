@@ -83,25 +83,6 @@ val sdkJar = tasks.register("copySdkJar", Copy::class) {
     rename { "nimbus-sdk.jar" }
 }
 
-// Download ProtocolLib and embed as resource for auto-deploy to backend servers
-val protocolLibVersion = "5.4.0" // GitHub release, SNAPSHOT in Maven repo
-val downloadProtocolLib = tasks.register("downloadProtocolLib") {
-    val outputFile = layout.buildDirectory.file("resources/main/plugins/ProtocolLib.jar")
-    outputs.file(outputFile)
-    doLast {
-        val url = "https://github.com/dmulloy2/ProtocolLib/releases/download/$protocolLibVersion/ProtocolLib.jar"
-        val target = outputFile.get().asFile
-        target.parentFile.mkdirs()
-        if (!target.exists()) {
-            logger.lifecycle("Downloading ProtocolLib $protocolLibVersion...")
-            URI.create(url).toURL().openStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            }
-            logger.lifecycle("Downloaded ProtocolLib to ${target.absolutePath}")
-        }
-    }
-}
-
 // Download FancyNpcs and embed as resource for auto-deploy to backend servers
 val fancyNpcsVersion = "2.9.2.349"
 val downloadFancyNpcs = tasks.register("downloadFancyNpcs") {
@@ -138,7 +119,7 @@ val permsJar = tasks.register("copyPermsJar", Copy::class) {
 }
 
 tasks.processResources {
-    dependsOn(pluginJar, sdkJar, displayJar, permsJar, downloadProtocolLib, downloadFancyNpcs)
+    dependsOn(pluginJar, sdkJar, displayJar, permsJar, downloadFancyNpcs)
 }
 
 tasks.jar {
@@ -150,7 +131,7 @@ tasks.jar {
 tasks.shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
-    dependsOn(pluginJar, sdkJar, displayJar, permsJar, downloadProtocolLib, downloadFancyNpcs)
+    dependsOn(pluginJar, sdkJar, displayJar, permsJar, downloadFancyNpcs)
 }
 
 kotlin {

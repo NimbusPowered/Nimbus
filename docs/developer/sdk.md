@@ -429,12 +429,7 @@ All player messages, sign rendering, and scoreboard operations go through `TextC
 | Chat formatting (Modern) | Paper 1.16.5 | AsyncChatEvent + MiniMessage |
 | Chat formatting (Legacy) | Spigot 1.8.8 | AsyncPlayerChatEvent + `&` color codes |
 | PersistentDataContainer | Bukkit 1.14 | Falls back to scoreboard tags on older versions |
-| StressBots | Paper 1.13+ | Requires ProtocolLib (excluded on Folia) |
 | Folia scheduler support | Folia 1.19.4+ | Region-aware via `SchedulerCompat` |
-
-::: warning StressBots on Folia
-StressBots require ProtocolLib, which is not compatible with Folia's regionized threading. ProtocolLib is automatically excluded from Folia services. All other SDK features work fully on Folia.
-:::
 
 ## Next steps
 

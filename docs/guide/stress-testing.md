@@ -4,11 +4,10 @@ Nimbus includes a built-in stress testing system that simulates player load acro
 
 ## How it works
 
-The stress test manager creates simulated player sessions on backend servers. These fake players:
+The stress test manager simulates player load on backend servers. Simulated players:
 
 - Count toward each service's player total (triggering the scaling engine naturally)
-- Appear in the tab list on backend servers via ProtocolLib
-- Are reflected in proxy player counts
+- Are reflected in proxy player counts and MOTD
 - Respect each service's `max_players` cap
 
 ::: info
@@ -177,7 +176,7 @@ nimbus> screen Lobby-1
 The `status` command shows per-instance player counts during the test. The REST API at `/api/metrics` provides historical data for post-test analysis.
 
 ::: warning
-Stress tests consume real server resources (CPU, memory) even though the players are simulated. ProtocolLib creates fake player entities that the server must track. Start with small numbers and ramp up.
+Stress tests simulate player counts without spawning actual entities on servers. This is a lightweight way to test your auto-scaling configuration.
 :::
 
 ## Limitations

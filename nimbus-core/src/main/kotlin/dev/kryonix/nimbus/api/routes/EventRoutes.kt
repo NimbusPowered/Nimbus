@@ -343,7 +343,6 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             data = buildMap {
                 put("simulatedPlayers", simulatedPlayers.toString())
                 put("targetPlayers", targetPlayers.toString())
-                if (sampleNames.isNotEmpty()) put("sampleNames", sampleNames.joinToString(","))
                 if (targetGroup != null) put("targetGroup", targetGroup)
                 if (perService.isNotEmpty()) put("perService", perService.entries.joinToString(",") { "${it.key}=${it.value}" })
             }

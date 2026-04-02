@@ -243,7 +243,6 @@ templates/
   global/
     plugins/
       NimbusSDK.jar          # SDK plugin for all backends
-      ProtocolLib.jar         # Required by SDK
       floodgate/
         key.pem              # Shared Floodgate key (if Bedrock enabled)
       ChatFormat.jar          # Shared chat plugin

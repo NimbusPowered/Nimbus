@@ -44,7 +44,7 @@ All message handling uses `kotlinx-coroutines` with a `SupervisorJob` scope -- i
 Agent requests template "Lobby" with hash "abc123"
   ├── Local cache has matching hash? → Skip download
   └── Hash mismatch or missing?
-      ├── Download ZIP from controller (includes global plugins like SDK, ProtocolLib)
+      ├── Download ZIP from controller (includes global plugins like SDK)
       ├── Extract to templates/{name}/
       └── Store hash for future comparisons
 ```

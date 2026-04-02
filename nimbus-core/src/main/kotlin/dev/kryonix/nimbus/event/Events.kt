@@ -83,7 +83,7 @@ sealed class NimbusEvent {
     data class MaintenanceDisabled(val scope: String) : NimbusEvent()
 
     // Stress Test
-    data class StressTestUpdated(val simulatedPlayers: Int, val targetPlayers: Int, val sampleNames: List<String>, val targetGroup: String?, val perService: Map<String, Int>) : NimbusEvent()
+    data class StressTestUpdated(val simulatedPlayers: Int, val targetPlayers: Int, val targetGroup: String?, val perService: Map<String, Int>) : NimbusEvent()
 
     // Config
     data class ConfigReloaded(val groupsLoaded: Int) : NimbusEvent()

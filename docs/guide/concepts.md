@@ -128,7 +128,7 @@ When Nimbus starts a `Lobby` service, it merges templates in order:
 For proxy services, `templates/global_proxy/` is used instead of `templates/global/`.
 
 ::: info Auto-deployed plugins
-Nimbus automatically deploys `nimbus-bridge.jar` to `global_proxy/plugins/` and `nimbus-sdk.jar` + `ProtocolLib.jar` to `global/plugins/`. When [Bedrock support](/guide/proxy-setup#bedrock-support) is enabled, Geyser is deployed to `global_proxy/plugins/` and Floodgate to both `global/plugins/` and `global_proxy/plugins/`. You don't need to manage these manually.
+Nimbus automatically deploys `nimbus-bridge.jar` to `global_proxy/plugins/` and `nimbus-sdk.jar` to `global/plugins/`. When [Bedrock support](/guide/proxy-setup#bedrock-support) is enabled, Geyser is deployed to `global_proxy/plugins/` and Floodgate to both `global/plugins/` and `global_proxy/plugins/`. You don't need to manage these manually.
 :::
 
 ### What to Put in Templates
@@ -211,7 +211,7 @@ Fabric servers can optionally install [Cardboard](https://modrinth.com/mod/cardb
 :::
 
 ::: tip Folia
-Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus plugins (SDK, NimbusPerms, NimbusDisplay) are **fully Folia-compatible** using region-aware scheduling. Only **ProtocolLib** is automatically excluded from Folia services (StressBots are therefore not available on Folia).
+Folia uses regionized multithreading which breaks most Bukkit/Paper plugins. The Nimbus plugins (SDK, NimbusPerms, NimbusDisplay) are **fully Folia-compatible** using region-aware scheduling.
 :::
 
 Modded servers are first-class citizens in Nimbus. When you create a Forge, Fabric, or NeoForge group, Nimbus:

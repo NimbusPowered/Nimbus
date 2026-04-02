@@ -342,7 +342,7 @@ optimize = true
 ```
 
 ::: warning Folia Plugin Compatibility
-Folia uses regionized multithreading, which breaks most Bukkit/Paper plugins. The Nimbus SDK and ProtocolLib are **automatically excluded** from Folia services. Only use plugins that explicitly support Folia's threading model.
+Folia uses regionized multithreading, which breaks most Bukkit/Paper plugins. Only use plugins that explicitly support Folia's threading model. The Nimbus SDK and NimbusPerms are fully Folia-compatible.
 :::
 
 ### Custom Server Software

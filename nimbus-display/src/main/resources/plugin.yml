@@ -6,7 +6,7 @@ description: Server selector signs and NPCs for Nimbus cloud networks
 author: Kryonix
 folia-supported: true
 depend: [NimbusSDK]
-softdepend: [ProtocolLib, FancyNpcs]
+softdepend: [FancyNpcs]
 
 commands:
   ndisplay:

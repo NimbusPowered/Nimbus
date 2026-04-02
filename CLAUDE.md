@@ -115,12 +115,11 @@ nimbus-core/src/main/kotlin/dev/kryonix/nimbus/
 - EULA auto-accepted for Paper/Purpur/Pufferfish/Folia templates
 - Pufferfish support: downloads from Jenkins CI (`ci.pufferfish.host`), treated as Paper-based (plugins, Via, performance optimizer)
 - Cardboard (BETA): optional Bukkit/Paper plugin support for Fabric servers, auto-downloads with iCommon dependency from Modrinth
-- Folia: ProtocolLib auto-excluded (incompatible with regionized threading); SDK + NimbusPerms are Folia-compatible via SchedulerCompat
+- Folia: SDK + NimbusPerms are Folia-compatible via SchedulerCompat
 - Performance optimizer: Aikar's JVM flags + Paper/Purpur/Pufferfish/Folia config tuning (optimize=true default)
 - Process ready detection: watches stdout for "Done" pattern (120s timeout, 180s for modded)
 - Graceful shutdown order: game servers → lobbies → proxies
 - Shutdown requires confirmation: `shutdown` then `shutdown confirm` within 30s
-- ProtocolLib auto-deployed to backend servers (embedded in JAR, tracked via `.nimbus-plugins`)
 - NimbusPerms auto-deployed to backend servers (configurable via `[permissions].deploy_plugin`)
 - Bedrock support: Geyser + Floodgate auto-downloaded from GeyserMC API, key.pem centrally managed
 - Permission system: groups, inheritance, tracks, meta, weight, audit log, debug — central DB on controller
@@ -178,11 +177,10 @@ stress status                                        # Show live status
 ### Behavior
 - Only backend groups receive simulated players (proxy groups are excluded)
 - Each service is capped at its `max_players` config value
-- ScalingEngine is **paused** during active stress tests (won't scale up/down based on fake players)
+- ScalingEngine is **paused** during active stress tests (won't scale up/down based on simulated players)
 - Proxy services auto-reflect total backend player count
-- Fake player entities appear in tab list on backend servers via ProtocolLib
-- `StressBot-*` events are suppressed from the console to avoid spam
-- Template download to agent nodes includes global plugins (SDK, ProtocolLib)
+- Simulated player counts are reflected in proxy MOTD and tab header/footer
+- Template download to agent nodes includes global plugins (SDK)
 
 ### REST API
 ```
