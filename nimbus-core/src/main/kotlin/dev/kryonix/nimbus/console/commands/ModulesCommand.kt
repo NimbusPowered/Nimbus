@@ -9,18 +9,42 @@ import dev.kryonix.nimbus.console.ConsoleFormatter.GREEN
 import dev.kryonix.nimbus.console.ConsoleFormatter.RED
 import dev.kryonix.nimbus.console.ConsoleFormatter.RESET
 import dev.kryonix.nimbus.console.ConsoleFormatter.YELLOW
+import dev.kryonix.nimbus.console.InteractivePicker
+import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.module.ModuleInfo
 import dev.kryonix.nimbus.module.ModuleManager
 import org.jline.terminal.Terminal
-import org.jline.utils.NonBlockingReader
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.name
 
 class ModulesCommand(
     private val moduleManager: ModuleManager,
-    private val terminal: Terminal
+    private val terminal: Terminal,
+    private val groupManager: GroupManager? = null,
+    private val templatesDir: Path? = null
 ) : Command {
     override val name = "modules"
     override val description = "Manage controller modules"
     override val usage = "modules [list|install|uninstall <id>]"
+
+    /**
+     * Maps module IDs to the server-side plugins they need deployed on backend groups.
+     * Key = module id, Value = list of (plugin resource path, target filename)
+     */
+    private val modulePlugins = mapOf(
+        "perms" to listOf(PluginMapping("plugins/nimbus-perms.jar", "nimbus-perms.jar", "NimbusPerms")),
+        "display" to listOf(
+            PluginMapping("plugins/nimbus-display.jar", "nimbus-display.jar", "NimbusDisplay"),
+            PluginMapping("plugins/FancyNpcs.jar", "FancyNpcs.jar", "FancyNpcs")
+        )
+    )
+
+    private data class PluginMapping(val resource: String, val fileName: String, val displayName: String)
 
     override suspend fun execute(args: List<String>) {
         val sub = args.firstOrNull()?.lowercase() ?: "list"
@@ -59,11 +83,14 @@ class ModulesCommand(
 
         if (loaded.isNotEmpty()) {
             for (module in loaded) {
-                println("  ${GREEN}●$RESET ${CYAN}${module.name}$RESET ${DIM}v${module.version}$RESET — ${module.description}")
+                val pluginInfo = modulePlugins[module.id]
+                val pluginHint = if (pluginInfo != null) {
+                    " ${DIM}(plugins: ${pluginInfo.joinToString(", ") { it.displayName }})$RESET"
+                } else ""
+                println("  ${GREEN}●$RESET ${CYAN}${module.name}$RESET ${DIM}v${module.version}$RESET — ${module.description}$pluginHint")
             }
         }
 
-        // Show available but not installed modules
         val notInstalled = available.filter { it.id !in loadedIds }
         if (notInstalled.isNotEmpty()) {
             if (loaded.isNotEmpty()) println()
@@ -91,60 +118,13 @@ class ModulesCommand(
             return
         }
 
+        val options = notInstalled.map { InteractivePicker.Option(it.id, it.name, it.description) }
         val selected = mutableSetOf<String>()
-        var cursor = 0
-        val w = terminal.writer()
-
-        // Save terminal into raw mode for key reading
-        val originalAttrs = terminal.enterRawMode()
-        val reader = terminal.reader()
-
-        try {
-            // Hide cursor
-            w.print("\u001B[?25l")
-            w.flush()
-
-            // Draw initial picker
-            drawPicker(w, notInstalled, selected, cursor)
-
-            while (true) {
-                val key = readKey(reader)
-                when (key) {
-                    Key.UP -> cursor = (cursor - 1 + notInstalled.size) % notInstalled.size
-                    Key.DOWN -> cursor = (cursor + 1) % notInstalled.size
-                    Key.SPACE -> {
-                        val id = notInstalled[cursor].id
-                        if (id in selected) selected.remove(id) else selected.add(id)
-                    }
-                    Key.ENTER -> break
-                    Key.ESCAPE, Key.CTRL_C -> {
-                        // Clear and abort
-                        clearPicker(w, notInstalled.size)
-                        w.print("\u001B[?25h") // show cursor
-                        w.flush()
-                        println("${DIM}Cancelled.$RESET")
-                        return
-                    }
-                    else -> {}
-                }
-
-                // Redraw
-                clearPicker(w, notInstalled.size)
-                drawPicker(w, notInstalled, selected, cursor)
-            }
-
-            // Clear picker and show cursor
-            clearPicker(w, notInstalled.size)
-            w.print("\u001B[?25h")
-            w.flush()
-        } finally {
-            terminal.setAttributes(originalAttrs)
-            // Ensure cursor is visible even on error
-            w.print("\u001B[?25h")
-            w.flush()
+        if (!InteractivePicker.pickMany(terminal, options, selected)) {
+            println("${DIM}Cancelled.$RESET")
+            return
         }
 
-        // Install selected modules
         if (selected.isEmpty()) {
             println("${DIM}No modules selected.$RESET")
             return
@@ -157,66 +137,12 @@ class ModulesCommand(
                 val info = available.find { it.id == id }
                 println("  ${GREEN}●$RESET Installed ${CYAN}${info?.name ?: id}$RESET")
                 installed++
+                offerPluginDeploy(id, info?.name ?: id)
             }
         }
         if (installed > 0) {
             println()
             println("  ${YELLOW}Restart Nimbus to activate ${if (installed == 1) "the module" else "$installed modules"}.$RESET")
-        }
-    }
-
-    private fun drawPicker(w: java.io.Writer, modules: List<ModuleInfo>, selected: Set<String>, cursor: Int) {
-        w.write("  ${BOLD}Select modules to install:$RESET ${DIM}(↑↓ navigate, space toggle, enter confirm)$RESET\n")
-        for ((i, mod) in modules.withIndex()) {
-            val isSelected = mod.id in selected
-            val isCursor = i == cursor
-            val checkbox = if (isSelected) "${GREEN}✓$RESET" else "${DIM}○$RESET"
-            val pointer = if (isCursor) "${CYAN}›$RESET " else "  "
-            val nameColor = if (isCursor) CYAN else ""
-            val nameReset = if (isCursor) RESET else ""
-            w.write("  $pointer$checkbox $nameColor${mod.name}$nameReset ${DIM}— ${mod.description}$RESET\n")
-        }
-        w.flush()
-    }
-
-    private fun clearPicker(w: java.io.Writer, itemCount: Int) {
-        // Move cursor up (items + header) and clear each line
-        val lines = itemCount + 1
-        for (i in 0 until lines) {
-            w.write("\u001B[A") // up
-        }
-        for (i in 0 until lines) {
-            w.write("\u001B[2K") // clear line
-            if (i < lines - 1) w.write("\u001B[B") // down
-        }
-        // Move back to top
-        for (i in 0 until lines - 1) {
-            w.write("\u001B[A")
-        }
-        w.write("\r")
-        w.flush()
-    }
-
-    private enum class Key { UP, DOWN, SPACE, ENTER, ESCAPE, CTRL_C, OTHER }
-
-    private fun readKey(reader: NonBlockingReader): Key {
-        val c = reader.read()
-        return when (c) {
-            13, 10 -> Key.ENTER
-            32 -> Key.SPACE
-            27 -> {
-                // Escape sequence or standalone ESC
-                val next = reader.peek(50)
-                if (next == -2 || next == -1) return Key.ESCAPE
-                reader.read() // consume '['
-                when (reader.read()) {
-                    65 -> Key.UP    // ESC[A
-                    66 -> Key.DOWN  // ESC[B
-                    else -> Key.OTHER
-                }
-            }
-            3 -> Key.CTRL_C
-            else -> Key.OTHER
         }
     }
 
@@ -228,6 +154,7 @@ class ModulesCommand(
             ModuleManager.InstallResult.INSTALLED -> {
                 val info = moduleManager.discoverAvailable().find { it.id == id }
                 println("${GREEN}●$RESET Installed ${CYAN}${info?.name ?: id}$RESET")
+                offerPluginDeploy(id, info?.name ?: id)
                 println("  ${YELLOW}Restart Nimbus to activate the module.$RESET")
             }
             ModuleManager.InstallResult.ALREADY_INSTALLED -> {
@@ -251,6 +178,109 @@ class ModulesCommand(
         println("${RED}●$RESET Uninstalled ${CYAN}$id$RESET")
         if (moduleManager.isLoaded(id)) {
             println("  ${YELLOW}Module is still active until restart.$RESET")
+        }
+
+        warnOrphanedPlugins(id)
+    }
+
+    // ── Plugin linkage ─────────────────────────────────────
+
+    /**
+     * After installing a module, offer to deploy its related plugins
+     * to all backend groups via `global/plugins/`.
+     */
+    private fun offerPluginDeploy(moduleId: String, moduleName: String) {
+        val plugins = modulePlugins[moduleId] ?: return
+        if (templatesDir == null) return
+
+        val globalPluginsDir = templatesDir.resolve("global").resolve("plugins")
+
+        // Check which plugins are not yet deployed globally
+        val missing = plugins.filter { p ->
+            !globalPluginsDir.resolve(p.fileName).exists()
+        }
+        if (missing.isEmpty()) return
+
+        println()
+        val pluginNames = missing.joinToString(", ") { "${CYAN}${it.displayName}$RESET" }
+        println("  ${DIM}$moduleName needs server-side plugins: $pluginNames$RESET")
+
+        val options = listOf(
+            InteractivePicker.Option("global", "Deploy to all backends", "install to templates/global/plugins/"),
+            InteractivePicker.Option("skip", "Skip for now", "install later with: plugins install")
+        )
+        val choice = InteractivePicker.pickOne(terminal, options)
+        if (choice == 0) {
+            if (!globalPluginsDir.exists()) globalPluginsDir.createDirectories()
+            for (plugin in missing) {
+                val resource = javaClass.classLoader.getResourceAsStream(plugin.resource)
+                if (resource != null) {
+                    resource.use { Files.copy(it, globalPluginsDir.resolve(plugin.fileName), StandardCopyOption.REPLACE_EXISTING) }
+                    println("    ${GREEN}+$RESET ${plugin.fileName} → global/plugins/")
+                }
+            }
+        }
+    }
+
+    /**
+     * After uninstalling a module, warn about orphaned server-side plugins.
+     */
+    private fun warnOrphanedPlugins(moduleId: String) {
+        val plugins = modulePlugins[moduleId] ?: return
+        if (templatesDir == null) return
+
+        // Find where these plugins are installed
+        val locations = mutableListOf<Pair<PluginMapping, String>>()
+
+        // Check global
+        val globalDir = templatesDir.resolve("global").resolve("plugins")
+        if (globalDir.exists()) {
+            for (p in plugins) {
+                if (globalDir.resolve(p.fileName).exists()) {
+                    locations.add(p to "global")
+                }
+            }
+        }
+
+        // Check per-group templates
+        if (groupManager != null) {
+            for (group in groupManager.getAllGroups()) {
+                val groupDir = templatesDir.resolve(group.name.lowercase()).resolve("plugins")
+                if (groupDir.exists()) {
+                    for (p in plugins) {
+                        if (groupDir.resolve(p.fileName).exists()) {
+                            locations.add(p to group.name)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (locations.isEmpty()) return
+
+        println()
+        println("  ${YELLOW}These server-side plugins will no longer function without the module:$RESET")
+        for ((plugin, loc) in locations) {
+            println("    ${DIM}●$RESET ${plugin.displayName} ${DIM}in $loc$RESET")
+        }
+
+        val options = listOf(
+            InteractivePicker.Option("remove", "Remove all orphaned plugins", "delete from templates"),
+            InteractivePicker.Option("keep", "Keep for now", "remove later with: plugins remove")
+        )
+        val choice = InteractivePicker.pickOne(terminal, options)
+        if (choice == 0) {
+            for ((plugin, loc) in locations) {
+                val dir = when (loc) {
+                    "global" -> templatesDir.resolve("global").resolve("plugins")
+                    else -> templatesDir.resolve(loc.lowercase()).resolve("plugins")
+                }
+                val file = dir.resolve(plugin.fileName)
+                if (file.exists()) {
+                    Files.deleteIfExists(file)
+                    println("    ${RED}-$RESET ${plugin.fileName} removed from $loc")
+                }
+            }
         }
     }
 }

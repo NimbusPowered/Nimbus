@@ -129,7 +129,8 @@ class NimbusConsole(
             dispatcher.register(StressCommand(stressTestManager, registry, groupManager))
         }
         if (moduleManager != null) {
-            dispatcher.register(ModulesCommand(moduleManager, terminal))
+            val templatesPath = java.nio.file.Path.of(config.paths.templates)
+            dispatcher.register(ModulesCommand(moduleManager, terminal, groupManager, templatesPath))
         }
         dispatcher.register(ClearCommand(terminal))
         dispatcher.register(ShutdownCommand(serviceManager, registry))
