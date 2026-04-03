@@ -97,6 +97,11 @@ class ScalingEngineTest {
                 service.transitionTo(ServiceState.STARTING)
                 service.transitionTo(ServiceState.CRASHED)
             }
+            ServiceState.DRAINING -> {
+                service.transitionTo(ServiceState.STARTING)
+                service.transitionTo(ServiceState.READY)
+                service.transitionTo(ServiceState.DRAINING)
+            }
             ServiceState.PREPARING -> {} // already in PREPARING
         }
         service.playerCount = playerCount

@@ -202,7 +202,7 @@ fun nimbusMain() = runBlocking {
     val groupManager = GroupManager()
 
     // Start metrics collector
-    val metricsCollector = MetricsCollector(databaseManager, eventBus)
+    val metricsCollector = MetricsCollector(databaseManager, eventBus, scope)
     val metricsJobs = metricsCollector.start()
     metricsCollector.startRetentionCleanup(scope)
 
@@ -338,6 +338,7 @@ fun nimbusMain() = runBlocking {
                     } catch (_: Exception) {}
                 }
             }
+            metricsCollector.shutdown()
             metricsJobs.forEach { it.cancel() }
             scalingEngine.shutdown()
             scalingJob.cancel()

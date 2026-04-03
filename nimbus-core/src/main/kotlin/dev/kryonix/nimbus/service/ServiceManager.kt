@@ -16,6 +16,7 @@ import dev.kryonix.nimbus.template.TemplateManager
 import dev.kryonix.nimbus.velocity.VelocityConfigGen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -299,8 +300,8 @@ class ServiceManager(
         val serviceName = service.name
         handle.awaitExit()
 
-        // If we intentionally stopped it, do nothing
-        if (service.state == ServiceState.STOPPING || service.state == ServiceState.STOPPED) {
+        // If we intentionally stopped/drained it, do nothing
+        if (service.state == ServiceState.DRAINING || service.state == ServiceState.STOPPING || service.state == ServiceState.STOPPED) {
             return
         }
 
@@ -345,12 +346,61 @@ class ServiceManager(
         }
     }
 
-    suspend fun stopService(name: String): Boolean {
+    /**
+     * Stop a service. If the service has players and [forceful] is false, it enters DRAINING
+     * first — no new players are routed to it, and it transitions to STOPPING once all players
+     * leave or the drain timeout expires.
+     */
+    suspend fun stopService(name: String, forceful: Boolean = false): Boolean {
         val service = registry.get(name)
         if (service == null) {
             logger.warn("Cannot stop service '{}': not found", name)
             return false
         }
+
+        // Already draining or stopping — idempotent
+        if (service.state == ServiceState.DRAINING || service.state == ServiceState.STOPPING) {
+            return true
+        }
+
+        // Skip draining if forced, no players, or service not ready
+        if (forceful || service.playerCount == 0 || service.state != ServiceState.READY) {
+            return doStop(service)
+        }
+
+        // Enter DRAINING state
+        if (!service.transitionTo(ServiceState.DRAINING)) {
+            return doStop(service)
+        }
+
+        val group = groupManager.getGroup(service.groupName)
+        val drainTimeout = group?.config?.group?.lifecycle?.drainTimeout ?: 30L
+        logger.info("Service '{}' entering drain state ({} players, {}s timeout)", name, service.playerCount, drainTimeout)
+        eventBus.emit(NimbusEvent.ServiceDraining(name, service.groupName))
+
+        // Launch drain monitor
+        scope.launch {
+            val deadline = Instant.now().plusSeconds(drainTimeout)
+            while (service.state == ServiceState.DRAINING) {
+                if (service.playerCount == 0) {
+                    logger.info("Service '{}' drained (0 players), proceeding to stop", name)
+                    doStop(service)
+                    return@launch
+                }
+                if (Instant.now().isAfter(deadline)) {
+                    logger.warn("Service '{}' drain timeout expired with {} players, force-stopping", name, service.playerCount)
+                    doStop(service)
+                    return@launch
+                }
+                delay(1000)
+            }
+        }
+
+        return true
+    }
+
+    private suspend fun doStop(service: Service): Boolean {
+        val name = service.name
 
         // Atomic guard: only one thread can transition to STOPPING
         if (!service.transitionTo(ServiceState.STOPPING)) {
@@ -369,7 +419,7 @@ class ServiceManager(
             }
 
             portAllocator.release(service.port)
-        service.bedrockPort?.let { portAllocator.releaseBedrockPort(it) }
+            service.bedrockPort?.let { portAllocator.releaseBedrockPort(it) }
             service.transitionTo(ServiceState.STOPPED)
             eventBus.emit(NimbusEvent.ServiceStopped(name))
 
@@ -475,21 +525,21 @@ class ServiceManager(
         if (gameServers.isNotEmpty()) {
             logger.info("Stopping {} game server(s)...", gameServers.size)
             for (service in gameServers) {
-                stopService(service.name)
+                stopService(service.name, forceful = true)
             }
         }
 
         if (lobbies.isNotEmpty()) {
             logger.info("Stopping {} lobby/lobbies...", lobbies.size)
             for (service in lobbies) {
-                stopService(service.name)
+                stopService(service.name, forceful = true)
             }
         }
 
         if (proxies.isNotEmpty()) {
             logger.info("Stopping {} proxy/proxies...", proxies.size)
             for (service in proxies) {
-                stopService(service.name)
+                stopService(service.name, forceful = true)
             }
         }
 

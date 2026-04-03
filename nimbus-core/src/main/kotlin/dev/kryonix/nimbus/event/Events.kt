@@ -8,6 +8,7 @@ sealed class NimbusEvent {
     // Service lifecycle
     data class ServiceStarting(val serviceName: String, val groupName: String, val port: Int, val nodeId: String = "local") : NimbusEvent()
     data class ServiceReady(val serviceName: String, val groupName: String) : NimbusEvent()
+    data class ServiceDraining(val serviceName: String, val groupName: String) : NimbusEvent()
     data class ServiceStopping(val serviceName: String) : NimbusEvent()
     data class ServiceStopped(val serviceName: String) : NimbusEvent()
     data class ServiceCrashed(val serviceName: String, val exitCode: Int, val restartAttempt: Int) : NimbusEvent()

@@ -5,6 +5,9 @@ import dev.kryonix.nimbus.sdk.event.TypedEvent;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -42,6 +45,8 @@ public final class Nimbus {
     private static PlayerTracker tracker;
     private static NimbusEventStream eventStream;
     private static ServiceRouter router;
+    private static TpsTracker tpsTracker;
+    private static ScheduledExecutorService healthScheduler;
     private static boolean initialized = false;
 
     private Nimbus() {}
@@ -61,10 +66,29 @@ public final class Nimbus {
         cache = new ServiceCache(clientRef, eventStream);
         tracker = new PlayerTracker(clientRef);
         router = new ServiceRouter(clientRef);
+        tpsTracker = new TpsTracker();
 
         cache.start();
         tracker.start();
         eventStream.connect();
+
+        // Start periodic health reporting (every 5 seconds)
+        healthScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "nimbus-health-reporter");
+            t.setDaemon(true);
+            return t;
+        });
+        healthScheduler.scheduleAtFixedRate(() -> {
+            try {
+                self.reportHealth(
+                    tpsTracker.getTps(),
+                    TpsTracker.getUsedMemoryMb(),
+                    TpsTracker.getMaxMemoryMb()
+                );
+            } catch (Exception ignored) {
+                // Health reporting is best-effort
+            }
+        }, 5, 5, TimeUnit.SECONDS);
 
         initialized = true;
     }
@@ -98,10 +122,12 @@ public final class Nimbus {
     /** Shut down all SDK components. Call in onDisable(). */
     public static void shutdown() {
         if (!initialized) return;
+        if (healthScheduler != null) healthScheduler.shutdownNow();
         if (eventStream != null) eventStream.close();
         if (cache != null) cache.close();
         if (tracker != null) tracker.close();
         clientRef = null;
+        tpsTracker = null;
         initialized = false;
     }
 
@@ -139,6 +165,18 @@ public final class Nimbus {
     public static CompletableFuture<Void> reportPlayerCount(int playerCount) {
         requireSelf();
         return self.reportPlayerCount(playerCount);
+    }
+
+    // ── Health ────────────────────────────────────────────────────────
+
+    /**
+     * Get the TPS tracker. Call {@code tpsTracker().onTick()} from your server's
+     * tick scheduler to enable TPS measurement. Health reports are sent automatically
+     * every 5 seconds.
+     */
+    public static TpsTracker tpsTracker() {
+        requireInit();
+        return tpsTracker;
     }
 
     // ── Routing ───────────────────────────────────────────────────────

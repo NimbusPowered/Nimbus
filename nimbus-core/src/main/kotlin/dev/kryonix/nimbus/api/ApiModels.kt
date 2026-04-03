@@ -19,7 +19,11 @@ data class ServiceResponse(
     val restartCount: Int,
     val uptime: String?,
     val isStatic: Boolean = false,
-    val bedrockPort: Int? = null
+    val bedrockPort: Int? = null,
+    val tps: Double = 20.0,
+    val memoryUsedMb: Long = 0,
+    val memoryMaxMb: Long = 0,
+    val healthy: Boolean = true
 )
 
 @Serializable
@@ -214,6 +218,19 @@ data class CustomStateResponse(
 @Serializable
 data class ReportPlayerCountRequest(
     val playerCount: Int
+)
+
+@Serializable
+data class ReportHealthRequest(
+    val tps: Double,
+    val memoryUsedMb: Long,
+    val memoryMaxMb: Long
+)
+
+@Serializable
+data class HealthReportResponse(
+    val service: String,
+    val healthy: Boolean
 )
 
 @Serializable

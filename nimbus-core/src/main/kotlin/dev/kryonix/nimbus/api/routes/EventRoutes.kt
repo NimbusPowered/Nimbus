@@ -131,6 +131,11 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("service" to serviceName, "group" to groupName)
         )
+        is NimbusEvent.ServiceDraining -> EventMessage(
+            type = "SERVICE_DRAINING",
+            timestamp = timestamp.toString(),
+            data = mapOf("service" to serviceName, "group" to groupName)
+        )
         is NimbusEvent.ServiceStopping -> EventMessage(
             type = "SERVICE_STOPPING",
             timestamp = timestamp.toString(),

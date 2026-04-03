@@ -153,6 +153,18 @@ fun Route.serviceRoutes(
             call.respond(CustomStateResponse(name, service.customState))
         }
 
+        // PUT /api/services/{name}/health — Report TPS + memory (used by SDK on backend servers)
+        put("{name}/health") {
+            val name = call.parameters["name"]!!
+            val service = registry.get(name)
+                ?: return@put call.respond(HttpStatusCode.NotFound, ApiMessage(false, "Service '$name' not found"))
+
+            val request = call.receive<ReportHealthRequest>()
+            service.updateHealth(request.tps, request.memoryUsedMb, request.memoryMaxMb)
+
+            call.respond(HealthReportResponse(name, service.healthy))
+        }
+
         // PUT /api/services/{name}/players — Report player count (used by SDK on backend servers)
         put("{name}/players") {
             val name = call.parameters["name"]!!
@@ -269,6 +281,10 @@ private fun dev.kryonix.nimbus.service.Service.toResponse(): ServiceResponse {
         restartCount = restartCount,
         uptime = uptime,
         isStatic = isStatic,
-        bedrockPort = bedrockPort
+        bedrockPort = bedrockPort,
+        tps = tps,
+        memoryUsedMb = memoryUsedMb,
+        memoryMaxMb = memoryMaxMb,
+        healthy = healthy
     )
 }
