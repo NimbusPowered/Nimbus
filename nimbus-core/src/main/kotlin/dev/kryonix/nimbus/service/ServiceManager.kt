@@ -488,7 +488,11 @@ class ServiceManager(
 
     suspend fun startMinimumInstances() {
         logger.info("Starting minimum instances for all groups")
-        for (group in groupManager.getAllGroups()) {
+        // Start proxy groups first so forwarding.secret exists before backends need it
+        val groups = groupManager.getAllGroups().sortedByDescending {
+            it.config.group.software == ServerSoftware.VELOCITY
+        }
+        for (group in groups) {
             val currentCount = registry.countByGroup(group.name)
             val needed = group.minInstances - currentCount
             if (needed > 0) {

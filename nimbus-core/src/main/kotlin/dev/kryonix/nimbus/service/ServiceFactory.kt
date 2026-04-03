@@ -204,6 +204,8 @@ class ServiceFactory(
                             val minor = group.config.group.version.split(".").getOrNull(1)?.toIntOrNull() ?: 99
                             if (minor >= 13 && velocityTemplateDir.resolve("forwarding.secret").exists()) {
                                 configPatcher.patchPaperForVelocity(workDir, velocityTemplateDir)
+                            } else if (minor >= 13) {
+                                logger.warn("Velocity forwarding.secret not found — '{}' will not have modern forwarding configured. Start the proxy group first.", serviceName)
                             }
                         } else {
                             configPatcher.patchSpigotForBungeeCord(workDir)
