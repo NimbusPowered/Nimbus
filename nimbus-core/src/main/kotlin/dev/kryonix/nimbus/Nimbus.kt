@@ -12,7 +12,8 @@ import dev.kryonix.nimbus.event.EventBus
 import dev.kryonix.nimbus.event.NimbusEvent
 import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.loadbalancer.TcpLoadBalancer
-import dev.kryonix.nimbus.permissions.PermissionManager
+import dev.kryonix.nimbus.module.ModuleContextImpl
+import dev.kryonix.nimbus.module.ModuleManager
 import dev.kryonix.nimbus.protocol.ClusterMessage
 import dev.kryonix.nimbus.scaling.ScalingEngine
 import dev.kryonix.nimbus.scaling.VelocityUpdater
@@ -199,35 +200,47 @@ fun nimbusMain() = runBlocking {
     )
     val templateManager = TemplateManager()
     val groupManager = GroupManager()
-    val permissionManager = PermissionManager(databaseManager)
-    permissionManager.init()
 
     // Start metrics collector
-    val metricsCollector = MetricsCollector(databaseManager, eventBus)
+    val metricsCollector = MetricsCollector(databaseManager, eventBus, scope)
     val metricsJobs = metricsCollector.start()
     metricsCollector.startRetentionCleanup(scope)
-
-    val displayManager = dev.kryonix.nimbus.display.DisplayManager(displaysDir)
-    displayManager.init()
 
     val proxySyncManager = dev.kryonix.nimbus.proxy.ProxySyncManager(proxyDir)
     proxySyncManager.init()
 
-    // Refinery performance engine integration
-    val refineryIntegration = dev.kryonix.nimbus.refinery.RefineryIntegration(eventBus, registry, groupManager, scope, templatesDir)
-    refineryIntegration.init()
-
-    // Load group configs
+    // Load group configs (before module init, so modules can access groups)
     val groupConfigs = ConfigLoader.loadGroupConfigs(groupsDir)
     if (groupConfigs.isEmpty()) {
         logger.warn("No valid group configs found in {}/ — nothing to start", groupsDir)
     }
     groupManager.loadGroups(groupConfigs)
-
-    // Auto-generate display configs for groups (signs + NPCs)
-    displayManager.ensureDisplays(groupConfigs)
-
     logger.info("Found ${groupConfigs.size} groups: ${groupConfigs.joinToString { it.group.name }}")
+
+    // ── Module system ─────────────────────────────────
+    val controllerModulesDir = baseDir.resolve("modules")
+    if (!controllerModulesDir.exists()) controllerModulesDir.createDirectories()
+
+    // Console dispatcher is created early so modules can register commands during init
+    val dispatcher = dev.kryonix.nimbus.console.CommandDispatcher()
+    dispatcher.registry = registry
+    dispatcher.groupManager = groupManager
+
+    val moduleContext = ModuleContextImpl(
+        eventBus = eventBus,
+        databaseManager = databaseManager,
+        registry = registry,
+        groupManager = groupManager,
+        config = config,
+        scope = scope,
+        baseDir = baseDir,
+        templatesDir = templatesDir,
+        dispatcher = dispatcher,
+        modulesConfigDir = modulesDir
+    )
+    val moduleManager = ModuleManager(controllerModulesDir, moduleContext, eventBus)
+    moduleManager.loadAll()
+    moduleManager.enableAll()
 
     // ── Cluster mode ───────────────────────────────────
     val nodeManager: NodeManager? = if (config.cluster.enabled) {
@@ -256,7 +269,8 @@ fun nimbusMain() = runBlocking {
         eventBus = eventBus,
         scope = scope,
         softwareResolver = softwareResolver,
-        nodeManager = nodeManager
+        nodeManager = nodeManager,
+        moduleManager = moduleManager
     )
 
     // Start scaling engine
@@ -293,8 +307,6 @@ fun nimbusMain() = runBlocking {
         registry = registry,
         serviceManager = serviceManager,
         groupManager = groupManager,
-        permissionManager = permissionManager,
-        displayManager = displayManager,
         proxySyncManager = proxySyncManager,
         eventBus = eventBus,
         scope = scope,
@@ -304,7 +316,9 @@ fun nimbusMain() = runBlocking {
         nodeManager = nodeManager,
         loadBalancer = loadBalancer,
         templatesDir = templatesDir,
-        stressTestManager = stressTestManager
+        stressTestManager = stressTestManager,
+        moduleContext = moduleContext,
+        moduleManager = moduleManager
     )
 
     // Register shutdown hook for external signals (SIGTERM, SIGINT, terminal close)
@@ -324,9 +338,11 @@ fun nimbusMain() = runBlocking {
                     } catch (_: Exception) {}
                 }
             }
+            metricsCollector.shutdown()
             metricsJobs.forEach { it.cancel() }
+            scalingEngine.shutdown()
             scalingJob.cancel()
-            refineryIntegration.shutdown()
+            moduleManager.disableAll()
             api.stop()
             try {
                 serviceManager.stopAll()
@@ -349,13 +365,14 @@ fun nimbusMain() = runBlocking {
         groupsDir = groupsDir,
         softwareResolver = softwareResolver,
         api = api,
-        permissionManager = permissionManager,
         proxySyncManager = proxySyncManager,
         nodeManager = nodeManager,
         loadBalancer = loadBalancer,
         configPath = configPath,
         stressTestManager = stressTestManager,
-        refineryIntegration = refineryIntegration
+        moduleManager = moduleManager,
+        scalingEngine = scalingEngine,
+        sharedDispatcher = dispatcher
     )
     console.init()
 
@@ -411,7 +428,9 @@ fun nimbusMain() = runBlocking {
         }
         metricsJobs.forEach { it.cancel() }
         updaterJob.cancel()
+        scalingEngine.shutdown()
         scalingJob.cancel()
+        moduleManager.disableAll()
         api.stop()
         serviceManager.stopAll()
         scope.cancel()

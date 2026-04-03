@@ -560,6 +560,18 @@ class SoftwareResolver {
     }
 
     /**
+     * Downloads PacketEvents to the plugins directory if not already present.
+     * Required by NimbusPerms on Folia for packet-based name tags.
+     */
+    suspend fun ensurePacketEventsPlugin(pluginsDir: Path, mcVersion: String): Boolean {
+        val hasPacketEvents = pluginsDir.toFile().listFiles()?.any {
+            it.name.lowercase().contains("packetevents") && it.name.endsWith(".jar")
+        } ?: false
+        if (hasPacketEvents) return true
+        return downloadFromModrinth("packetevents", "paper", pluginsDir, "PacketEvents", mcVersion)
+    }
+
+    /**
      * Downloads a mod from Modrinth by project slug, filtered by game version.
      */
     private suspend fun downloadModrinthMod(projectSlug: String, loader: String, modsDir: Path, displayName: String, mcVersion: String = ""): Boolean {

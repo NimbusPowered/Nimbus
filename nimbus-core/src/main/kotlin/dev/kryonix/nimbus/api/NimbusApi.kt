@@ -9,7 +9,7 @@ import dev.kryonix.nimbus.event.EventBus
 import dev.kryonix.nimbus.event.NimbusEvent
 import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.loadbalancer.TcpLoadBalancer
-import dev.kryonix.nimbus.permissions.PermissionManager
+import dev.kryonix.nimbus.module.ModuleContextImpl
 import dev.kryonix.nimbus.service.ServiceManager
 import dev.kryonix.nimbus.service.ServiceRegistry
 import io.ktor.http.*
@@ -43,8 +43,6 @@ class NimbusApi(
     private val registry: ServiceRegistry,
     private val serviceManager: ServiceManager,
     private val groupManager: GroupManager,
-    private val permissionManager: PermissionManager,
-    private val displayManager: dev.kryonix.nimbus.display.DisplayManager,
     private val proxySyncManager: dev.kryonix.nimbus.proxy.ProxySyncManager,
     private val eventBus: EventBus,
     private val scope: CoroutineScope,
@@ -54,7 +52,9 @@ class NimbusApi(
     private val nodeManager: NodeManager? = null,
     private val loadBalancer: TcpLoadBalancer? = null,
     private val templatesDir: Path = baseDir.resolve("templates"),
-    private val stressTestManager: dev.kryonix.nimbus.stress.StressTestManager? = null
+    private val stressTestManager: dev.kryonix.nimbus.stress.StressTestManager? = null,
+    private val moduleContext: ModuleContextImpl? = null,
+    private val moduleManager: dev.kryonix.nimbus.module.ModuleManager? = null
 ) {
     private val logger = LoggerFactory.getLogger(NimbusApi::class.java)
 
@@ -235,13 +235,13 @@ class NimbusApi(
             // Service-level routes — accessible with both master and service tokens
             val serviceRouteBlock: Route.() -> Unit = {
                 serviceRoutes(registry, serviceManager, groupManager, eventBus)
-                permissionRoutes(permissionManager, eventBus)
-                displayRoutes(displayManager)
                 proxySyncRoutes(proxySyncManager, eventBus)
                 groupRoutes(registry, groupManager, groupsDir, eventBus)
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
                 maintenanceRoutes(proxySyncManager, eventBus)
                 metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt)
+                // Module service-level routes
+                moduleContext?.serviceRoutes?.forEach { block -> block() }
             }
 
             // Admin-only routes — only accessible with the master API token
@@ -257,10 +257,19 @@ class NimbusApi(
                 if (nodeManager != null || loadBalancer != null) {
                     clusterRoutes(nodeManager, loadBalancer, registry)
                 }
+                if (moduleManager != null) {
+                    moduleRoutes(moduleManager)
+                }
+                // Module admin-level routes
+                moduleContext?.adminRoutes?.forEach { block -> block() }
             }
 
+            // Module public routes (no auth)
+            moduleContext?.publicRoutes?.forEach { block -> block() }
+
             // Routes with their own auth (query param token, not Bearer)
-            eventRoutes(eventBus, registry, serviceManager, token)
+            val serviceToken = if (token.isNotBlank()) deriveServiceToken(token) else ""
+            eventRoutes(eventBus, registry, serviceManager, token, serviceToken)
             templateRoutes(templatesDir, config.cluster.token)
 
             if (token.isNotBlank()) {

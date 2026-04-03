@@ -15,6 +15,10 @@ dependencies {
     // Protocol module (shared cluster messages)
     implementation(project(":nimbus-protocol"))
 
+    // Module API (interfaces for NimbusModule, ModuleContext, ModuleCommand)
+    api(project(":nimbus-module-api"))
+
+
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
 
@@ -132,6 +136,17 @@ tasks.shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
     dependsOn(pluginJar, sdkJar, displayJar, permsJar, downloadFancyNpcs)
+
+    // Embed controller module JARs (extracted by SetupWizard to modules/)
+    // These are added only to shadowJar to avoid circular dependency during compileKotlin
+    from(project(":nimbus-module-perms").tasks.named("jar").map { (it as Jar).archiveFile }) {
+        into("controller-modules")
+        rename { "nimbus-module-perms.jar" }
+    }
+    from(project(":nimbus-module-display").tasks.named("jar").map { (it as Jar).archiveFile }) {
+        into("controller-modules")
+        rename { "nimbus-module-display.jar" }
+    }
 }
 
 kotlin {

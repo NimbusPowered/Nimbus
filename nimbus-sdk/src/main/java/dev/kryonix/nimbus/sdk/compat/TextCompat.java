@@ -167,6 +167,37 @@ public final class TextCompat {
         }
     }
 
+    // ── ActionBar ────────────────────────────────────────────────────
+
+    /** Send an action bar message with legacy color codes. */
+    @SuppressWarnings("deprecation")
+    public static void sendActionBar(Player player, String legacyText) {
+        if (VersionHelper.hasAdventure()) {
+            AdventureHelper.sendActionBar(player, legacyText);
+        } else {
+            // Fallback: send as chat message on legacy servers
+            player.sendMessage(colorize(legacyText));
+        }
+    }
+
+    // ── Title ───────────────────────────────────────────────────────
+
+    /**
+     * Send a title and subtitle to a player.
+     * @param fadeIn  fade-in duration in ticks
+     * @param stay    stay duration in ticks
+     * @param fadeOut fade-out duration in ticks
+     */
+    @SuppressWarnings("deprecation")
+    public static void sendTitle(Player player, String title, String subtitle,
+                                  int fadeIn, int stay, int fadeOut) {
+        if (VersionHelper.hasAdventure()) {
+            AdventureHelper.sendTitle(player, title, subtitle, fadeIn, stay, fadeOut);
+        } else {
+            player.sendTitle(colorize(title), colorize(subtitle), fadeIn, stay, fadeOut);
+        }
+    }
+
     // ── Color Mapping ────────────────────────────────────────────────
 
     private static ChatColor mapColor(String name) {

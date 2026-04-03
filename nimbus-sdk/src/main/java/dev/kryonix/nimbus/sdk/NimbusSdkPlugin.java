@@ -36,6 +36,9 @@ public class NimbusSdkPlugin extends JavaPlugin implements Listener {
 
                     // Report player count every 10 seconds to keep controller's data fresh
                     SchedulerCompat.runTaskTimerAsync(this, this::reportPlayerCount, 200L, 200L);
+
+                    // Tick the TPS tracker every tick for accurate TPS measurement
+                    SchedulerCompat.runTaskTimer(this, () -> Nimbus.tpsTracker().onTick(), 1L, 1L);
                 }
             } catch (Exception e) {
                 getLogger().warning("Failed to initialize Nimbus SDK: " + e.getMessage());

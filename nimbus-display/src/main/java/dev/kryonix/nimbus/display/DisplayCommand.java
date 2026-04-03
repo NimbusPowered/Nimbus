@@ -385,7 +385,7 @@ public class DisplayCommand implements CommandExecutor, TabCompleter {
         msg(p, "&7  lookat &f<true|false>");
         msg(p, "&7  left_click &f<CONNECT|COMMAND|INVENTORY|NONE> [value]");
         msg(p, "&7  right_click &f<CONNECT|COMMAND|INVENTORY|NONE> [value]");
-        msg(p, "&7  hologram &f<Line1|Line2|Line3> or 'clear'");
+        msg(p, "&7  hologram &f<Line1|Line2|Line3> or 'clear' &8(use || for animated frames)");
         msg(p, "&7  floating_item &f<true|MATERIAL|off> (true=from display config)");
         msg(p, "&7  mainhand/offhand/head/chest/legs/feet &f<MATERIAL|none>");
         msg(p, "&7  burning &f<true|false>");

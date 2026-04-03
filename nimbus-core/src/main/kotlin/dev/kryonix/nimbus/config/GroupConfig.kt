@@ -76,7 +76,9 @@ data class LifecycleConfig(
     @SerialName("restart_on_crash")
     val restartOnCrash: Boolean = true,
     @SerialName("max_restarts")
-    val maxRestarts: Int = 5
+    val maxRestarts: Int = 5,
+    @SerialName("drain_timeout")
+    val drainTimeout: Long = 30
 )
 
 @Serializable

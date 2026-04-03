@@ -28,4 +28,7 @@ public interface PermissionProvider {
     String getSuffix(UUID uuid);
 
     int getPriority(UUID uuid);
+
+    /** Set a callback invoked on the main thread after display data is loaded for a player. */
+    default void setDisplayLoadedCallback(java.util.function.Consumer<Player> callback) {}
 }

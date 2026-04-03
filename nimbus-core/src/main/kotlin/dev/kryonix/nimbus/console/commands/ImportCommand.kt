@@ -6,6 +6,7 @@ import dev.kryonix.nimbus.console.Command
 import dev.kryonix.nimbus.console.ConsoleFormatter
 import dev.kryonix.nimbus.console.ConsoleFormatter.CYAN
 import dev.kryonix.nimbus.console.ConsoleFormatter.RESET
+import dev.kryonix.nimbus.console.InteractivePicker
 import dev.kryonix.nimbus.console.NimbusConsole
 import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.service.ServiceManager
@@ -113,7 +114,13 @@ class ImportCommand(
         w.println()
         w.println(ConsoleFormatter.hint("Static services keep their data (world, configs) across restarts."))
         w.println(ConsoleFormatter.hint("Dynamic services start fresh from the template every time."))
-        val isStatic = promptYesNo("Static service", true)
+        val staticOptions = listOf(
+            InteractivePicker.Option("static", "Static", "keep world, configs across restarts"),
+            InteractivePicker.Option("dynamic", "Dynamic", "start fresh from template every time")
+        )
+        val staticIndex = InteractivePicker.pickOne(terminal, staticOptions, 0)
+        val isStatic = if (staticIndex == InteractivePicker.BACK) true else staticOptions[staticIndex].id == "static"
+        w.println(ConsoleFormatter.successLine(if (isStatic) "Static" else "Dynamic"))
 
         // Step 6: Memory & instances
         val memory = prompt("Memory per instance", "2G")
@@ -191,7 +198,17 @@ class ImportCommand(
         w.println()
 
         // Step 13: Start?
-        if (minInstances > 0 || promptYesNo("Start an instance now?", true)) {
+        val shouldStart = if (minInstances > 0) {
+            true
+        } else {
+            val startOptions = listOf(
+                InteractivePicker.Option("yes", "Yes, start now"),
+                InteractivePicker.Option("no", "No, start later")
+            )
+            val startIndex = InteractivePicker.pickOne(terminal, startOptions, 0)
+            startIndex != InteractivePicker.BACK && startOptions[startIndex].id == "yes"
+        }
+        if (shouldStart) {
             try {
                 serviceManager.startService(groupName)
                 w.println(ConsoleFormatter.successLine("Service start initiated."))
@@ -217,16 +234,6 @@ class ImportCommand(
         val hint = if (default.isNotEmpty()) " ${ConsoleFormatter.hint("[$default]")}" else ""
         val line = reader.readLine("$label$hint${ConsoleFormatter.hint(":")} ").trim()
         return line.ifEmpty { default }
-    }
-
-    private fun promptYesNo(label: String, default: Boolean): Boolean {
-        val hint = if (default) "Y/n" else "y/N"
-        val answer = prompt(label, hint, candidates = listOf("y", "n"))
-        return when (answer.lowercase()) {
-            "y", "yes" -> true
-            "n", "no" -> false
-            else -> default
-        }
     }
 
     private fun promptInt(label: String, default: Int): Int {

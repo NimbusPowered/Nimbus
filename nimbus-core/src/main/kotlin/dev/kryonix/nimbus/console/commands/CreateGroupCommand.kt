@@ -7,6 +7,7 @@ import dev.kryonix.nimbus.console.ConsoleFormatter
 import dev.kryonix.nimbus.console.ConsoleFormatter.CYAN
 import dev.kryonix.nimbus.console.ConsoleFormatter.RESET
 import dev.kryonix.nimbus.console.ConsoleFormatter.YELLOW
+import dev.kryonix.nimbus.console.InteractivePicker
 import dev.kryonix.nimbus.console.NimbusConsole
 import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.service.ServiceManager
@@ -142,9 +143,14 @@ class CreateGroupCommand(
 
             // Step 4: Static or dynamic
             w.println()
-            w.println(ConsoleFormatter.hint("Static services keep their data (world, configs) across restarts."))
-            w.println(ConsoleFormatter.hint("Dynamic services start fresh from the template every time."))
-            val isStatic = promptYesNo("Static service", false)
+            w.println(ConsoleFormatter.hint("Static services keep their data. Dynamic services start fresh from template."))
+            val staticOptions = listOf(
+                InteractivePicker.Option("dynamic", "Dynamic", "start fresh from template every time"),
+                InteractivePicker.Option("static", "Static", "keep world, configs across restarts")
+            )
+            val staticIndex = InteractivePicker.pickOne(terminal, staticOptions, 0)
+            val isStatic = if (staticIndex == InteractivePicker.BACK) false else staticOptions[staticIndex].id == "static"
+            w.println(ConsoleFormatter.successLine(if (isStatic) "Static" else "Dynamic"))
 
             // Step 5-7: Instances & memory
             val minInstances = promptInt("Min instances", 1)
@@ -202,7 +208,12 @@ class CreateGroupCommand(
                     w.println()
                     w.println("${YELLOW}[BETA] Cardboard allows running Bukkit/Paper plugins on Fabric servers.")
                     w.println("This is experimental software — not all plugins will work correctly.$RESET")
-                    if (promptYesNo("Install Cardboard?", false)) {
+                    val cardboardOptions = listOf(
+                        InteractivePicker.Option("no", "No"),
+                        InteractivePicker.Option("yes", "Yes — install Cardboard (BETA)")
+                    )
+                    val cardboardIndex = InteractivePicker.pickOne(terminal, cardboardOptions, 0)
+                    if (cardboardIndex != InteractivePicker.BACK && cardboardOptions[cardboardIndex].id == "yes") {
                         download(w, "Cardboard (BETA)") {
                             softwareResolver.ensureCardboardMod(templateDir, version)
                         }
@@ -238,7 +249,12 @@ class CreateGroupCommand(
 
             // Step 12: Start?
             if (software != ServerSoftware.CUSTOM || templateDir.toFile().listFiles()?.any { it.name.endsWith(".jar") } == true) {
-                if (promptYesNo("Start an instance now?", true)) {
+                val startOptions = listOf(
+                    InteractivePicker.Option("yes", "Yes, start now"),
+                    InteractivePicker.Option("no", "No, start later")
+                )
+                val startIndex = InteractivePicker.pickOne(terminal, startOptions, 0)
+                if (startIndex != InteractivePicker.BACK && startOptions[startIndex].id == "yes") {
                     try {
                         serviceManager.startService(groupName)
                         w.println(ConsoleFormatter.successLine("Service start initiated."))
@@ -279,16 +295,6 @@ class CreateGroupCommand(
         return line.ifEmpty { default }
     }
 
-    private fun promptYesNo(label: String, default: Boolean): Boolean {
-        val hint = if (default) "Y/n" else "y/N"
-        val answer = prompt(label, hint, candidates = listOf("y", "n"))
-        return when (answer.lowercase()) {
-            "y", "yes" -> true
-            "n", "no" -> false
-            else -> default
-        }
-    }
-
     private fun promptInt(label: String, default: Int): Int {
         return prompt(label, default.toString()).toIntOrNull() ?: default
     }
@@ -303,21 +309,26 @@ class CreateGroupCommand(
     }
 
     private fun promptSoftware(w: java.io.PrintWriter): ServerSoftware? {
-        w.println(ConsoleFormatter.hint("Available server software:"))
-        w.println("  ${CYAN}paper$RESET      — Paper (optimized vanilla, plugins)")
-        w.println("  ${CYAN}pufferfish$RESET — Pufferfish (Paper fork, high-performance)")
-        w.println("  ${CYAN}purpur$RESET     — Purpur (Paper fork, extra features)")
-        w.println("  ${CYAN}folia$RESET      — Folia (regionized multithreading, 1.19.4+)")
-        w.println("  ${CYAN}forge$RESET      — Forge (mods, auto-installs)")
-        w.println("  ${CYAN}neoforge$RESET   — NeoForge (modern Forge fork)")
-        w.println("  ${CYAN}fabric$RESET     — Fabric (lightweight mods)")
-        w.println("  ${CYAN}modpack$RESET    — Import a Modrinth modpack")
-        w.println("  ${CYAN}custom$RESET     — Custom JAR (bring your own)")
-        w.flush()
-
-        val answer = prompt("Server software", "paper",
-            candidates = listOf("paper", "pufferfish", "purpur", "folia", "forge", "neoforge", "fabric", "modpack", "custom"))
-        return when (answer.lowercase()) {
+        w.println(ConsoleFormatter.hint("Select server software:"))
+        val options = listOf(
+            InteractivePicker.Option("paper", "Paper", "optimized vanilla, plugins"),
+            InteractivePicker.Option("purpur", "Purpur", "Paper fork, extra features"),
+            InteractivePicker.Option("pufferfish", "Pufferfish", "Paper fork, high-performance"),
+            InteractivePicker.Option("folia", "Folia", "regionized multithreading, 1.19.4+"),
+            InteractivePicker.Option("forge", "Forge", "mods, auto-installs"),
+            InteractivePicker.Option("neoforge", "NeoForge", "modern Forge fork"),
+            InteractivePicker.Option("fabric", "Fabric", "lightweight mods"),
+            InteractivePicker.Option("modpack", "Import Modpack", "Modrinth modpack"),
+            InteractivePicker.Option("custom", "Custom JAR", "bring your own")
+        )
+        val index = InteractivePicker.pickOne(terminal, options)
+        if (index == InteractivePicker.BACK) {
+            w.println(ConsoleFormatter.hint("Cancelled."))
+            return ServerSoftware.PAPER // fallback, won't reach here in normal flow
+        }
+        val chosen = options[index]
+        w.println(ConsoleFormatter.successLine(chosen.label))
+        return when (chosen.id) {
             "pufferfish" -> ServerSoftware.PUFFERFISH
             "purpur" -> ServerSoftware.PURPUR
             "folia" -> ServerSoftware.FOLIA
@@ -331,7 +342,6 @@ class CreateGroupCommand(
     }
 
     private fun promptViaPlugins(w: java.io.PrintWriter, version: String, latestVersion: String?): List<ViaPlugin> {
-        val plugins = mutableListOf<ViaPlugin>()
         w.println()
         w.println(ConsoleFormatter.colorize("Protocol support:", ConsoleFormatter.BOLD))
         w.println(ConsoleFormatter.hint("ViaVersion allows newer clients, ViaBackwards allows older clients."))
@@ -340,27 +350,36 @@ class CreateGroupCommand(
         val minor = version.split(".").getOrNull(1)?.toIntOrNull() ?: 21
         val isLatest = (latestVersion ?: "1.21.4") == version
 
-        if (!isLatest) {
-            if (promptYesNo("Install ${CYAN}ViaVersion$RESET? ${ConsoleFormatter.hint("(newer clients can join)")}", true)) {
-                plugins.add(ViaPlugin.VIA_VERSION)
-            }
-        } else {
-            if (promptYesNo("Install ${CYAN}ViaVersion$RESET?", false)) {
-                plugins.add(ViaPlugin.VIA_VERSION)
-            }
+        val options = mutableListOf(
+            InteractivePicker.Option("viaversion", "ViaVersion", "newer clients can join older servers"),
+            InteractivePicker.Option("viabackwards", "ViaBackwards", "older clients can join newer servers")
+        )
+        if (minor >= 9) {
+            options.add(InteractivePicker.Option("viarewind", "ViaRewind", "extends backwards support to 1.7/1.8"))
         }
 
-        if (promptYesNo("Install ${CYAN}ViaBackwards$RESET? ${ConsoleFormatter.hint("(older clients can join)")}", minor >= 17)) {
-            plugins.add(ViaPlugin.VIA_BACKWARDS)
-            // ViaBackwards requires ViaVersion — auto-add if not already selected
-            if (ViaPlugin.VIA_VERSION !in plugins) {
-                plugins.add(0, ViaPlugin.VIA_VERSION)
-                w.println(ConsoleFormatter.hint("  → ViaVersion auto-included (required by ViaBackwards)"))
-            }
-            if (minor >= 9 && promptYesNo("Install ${CYAN}ViaRewind$RESET? ${ConsoleFormatter.hint("(1.7/1.8 clients)")}", false)) {
-                plugins.add(ViaPlugin.VIA_REWIND)
-            }
+        // Pre-select based on version
+        val preSelected = mutableSetOf<String>()
+        if (!isLatest) preSelected.add("viaversion")
+        if (minor >= 17) preSelected.add("viabackwards")
+
+        InteractivePicker.pickMany(terminal, options, preSelected)
+
+        val plugins = mutableListOf<ViaPlugin>()
+
+        // Enforce dependency chain: ViaBackwards requires ViaVersion, ViaRewind requires ViaBackwards
+        if ("viarewind" in preSelected && "viabackwards" !in preSelected) {
+            preSelected.add("viabackwards")
+            w.println(ConsoleFormatter.hint("  → ViaBackwards auto-included (required by ViaRewind)"))
         }
+        if ("viabackwards" in preSelected && "viaversion" !in preSelected) {
+            preSelected.add("viaversion")
+            w.println(ConsoleFormatter.hint("  → ViaVersion auto-included (required by ViaBackwards)"))
+        }
+
+        if ("viaversion" in preSelected) plugins.add(ViaPlugin.VIA_VERSION)
+        if ("viabackwards" in preSelected) plugins.add(ViaPlugin.VIA_BACKWARDS)
+        if ("viarewind" in preSelected) plugins.add(ViaPlugin.VIA_REWIND)
 
         if (plugins.isNotEmpty()) {
             w.println(ConsoleFormatter.successLine("Via plugins: ${plugins.joinToString(", ") { it.slug }}"))

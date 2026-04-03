@@ -5,7 +5,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.kryonix.nimbus.perms.NimbusPermsPlugin;
 import dev.kryonix.nimbus.sdk.Nimbus;
-import dev.kryonix.nimbus.sdk.NimbusEventStream;
 import dev.kryonix.nimbus.sdk.compat.SchedulerCompat;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
@@ -22,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.util.function.Consumer;
 
 /**
  * Built-in permission provider that fetches permissions from the Nimbus API.
@@ -33,11 +33,10 @@ public class BuiltinProvider implements PermissionProvider {
     private String apiUrl;
     private String token;
     private HttpClient httpClient;
-    private NimbusEventStream eventStream;
 
     private final Map<UUID, PermissionAttachment> attachments = new ConcurrentHashMap<>();
     private final Map<UUID, DisplayInfo> displayCache = new ConcurrentHashMap<>();
-    private java.util.function.Consumer<Player> displayLoadedCallback;
+    private Consumer<Player> displayLoadedCallback;
 
     @Override
     public void enable(NimbusPermsPlugin plugin) {
@@ -52,9 +51,7 @@ public class BuiltinProvider implements PermissionProvider {
 
     @Override
     public void disable() {
-        if (eventStream != null) {
-            eventStream.close();
-        }
+        // Event stream is managed by the SDK — no need to close it here
         for (Map.Entry<UUID, PermissionAttachment> entry : attachments.entrySet()) {
             Player player = plugin.getServer().getPlayer(entry.getKey());
             if (player != null) {
@@ -117,7 +114,8 @@ public class BuiltinProvider implements PermissionProvider {
     }
 
     /** Set a callback that is invoked on the main thread after display data is loaded for a player. */
-    public void setDisplayLoadedCallback(java.util.function.Consumer<Player> callback) {
+    @Override
+    public void setDisplayLoadedCallback(Consumer<Player> callback) {
         this.displayLoadedCallback = callback;
     }
 
@@ -128,8 +126,15 @@ public class BuiltinProvider implements PermissionProvider {
         JsonObject body = new JsonObject();
         body.addProperty("name", name);
 
+        // Pass server name for context-aware permission resolution
+        String urlStr = apiUrl + "/api/permissions/players/" + uuid;
+        String serverName = System.getProperty("nimbus.service.name", "");
+        if (!serverName.isEmpty()) {
+            urlStr += "?server=" + java.net.URLEncoder.encode(serverName, java.nio.charset.StandardCharsets.UTF_8);
+        }
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiUrl + "/api/permissions/players/" + uuid))
+                .uri(URI.create(urlStr))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + token)
                 .timeout(Duration.ofSeconds(10))
@@ -236,18 +241,13 @@ public class BuiltinProvider implements PermissionProvider {
     }
 
     private void startEventStream() {
-        try {
-            String wsUrl = apiUrl.replace("http://", "ws://").replace("https://", "wss://");
-            String url = wsUrl + "/api/events";
-            if (token != null && !token.isEmpty()) {
-                url += "?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
-            }
-
-            eventStream = new NimbusEventStream(URI.create(url));
-            eventStream.onEvent("PERMISSION_GROUP_CREATED", e -> refreshAll());
-            eventStream.onEvent("PERMISSION_GROUP_UPDATED", e -> refreshAll());
-            eventStream.onEvent("PERMISSION_GROUP_DELETED", e -> refreshAll());
-            eventStream.onEvent("PLAYER_PERMISSIONS_UPDATED", e -> {
+        // Reuse the SDK's event stream instead of creating a duplicate connection
+        var sdkStream = Nimbus.events();
+        if (sdkStream != null) {
+            sdkStream.onEvent("PERMISSION_GROUP_CREATED", e -> refreshAll());
+            sdkStream.onEvent("PERMISSION_GROUP_UPDATED", e -> refreshAll());
+            sdkStream.onEvent("PERMISSION_GROUP_DELETED", e -> refreshAll());
+            sdkStream.onEvent("PLAYER_PERMISSIONS_UPDATED", e -> {
                 String uuidStr = e.get("uuid");
                 if (uuidStr != null) {
                     try {
@@ -259,9 +259,9 @@ public class BuiltinProvider implements PermissionProvider {
                     refreshAll();
                 }
             });
-            eventStream.connect();
-        } catch (Exception e) {
-            plugin.getLogger().warning("Failed to start permission event stream: " + e.getMessage());
+            plugin.getLogger().info("Using SDK event stream for permission updates");
+        } else {
+            plugin.getLogger().warning("SDK event stream not available — permission updates will only apply on player join");
         }
     }
 

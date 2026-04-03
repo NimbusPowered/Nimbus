@@ -4,6 +4,7 @@ import dev.kryonix.nimbus.perms.provider.PermissionProvider;
 import dev.kryonix.nimbus.sdk.Nimbus;
 import dev.kryonix.nimbus.sdk.compat.SchedulerCompat;
 import dev.kryonix.nimbus.sdk.compat.TextCompat;
+import dev.kryonix.nimbus.sdk.compat.VersionHelper;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -18,7 +19,9 @@ import java.util.logging.Logger;
  * Manages player name tags (above head) using Scoreboard Teams.
  * Syncs prefix/suffix from the permission provider.
  * <p>
- * Compatible with both modern Paper (Adventure) and legacy Spigot (1.8+).
+ * On Folia with PacketEvents: uses packet-based teams via {@link PacketNameTagHandler}.
+ * On Folia without PacketEvents: disabled (scoreboard API is read-only).
+ * On Bukkit/Paper: uses the main scoreboard (shared, efficient).
  */
 public class NameTagHandler {
 
@@ -29,6 +32,11 @@ public class NameTagHandler {
     private final ConcurrentHashMap<UUID, String> tabOverrides = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> playerTeams = new ConcurrentHashMap<>();
 
+    private boolean disabled = false;
+
+    /** Packet-based handler for Folia (null if not on Folia or PacketEvents not available). */
+    private PacketNameTagHandler packetHandler;
+
     private static final String TEAM_PREFIX = "nimbus_";
 
     public NameTagHandler(JavaPlugin plugin, PermissionProvider provider) {
@@ -38,9 +46,26 @@ public class NameTagHandler {
     }
 
     public void start() {
+        if (VersionHelper.isFolia()) {
+            // Folia: scoreboard API is read-only — need PacketEvents for name tags
+            if (Bukkit.getPluginManager().getPlugin("packetevents") != null) {
+                try {
+                    packetHandler = new PacketNameTagHandler(logger);
+                    logger.info("Folia detected — using PacketEvents for packet-based name tags");
+                } catch (Exception e) {
+                    disabled = true;
+                    logger.warning("Folia detected — PacketEvents found but failed to initialize: " + e.getMessage());
+                    return;
+                }
+            } else {
+                disabled = true;
+                logger.info("Folia detected — name tag handler disabled (install PacketEvents for name tag support)");
+                return;
+            }
+        }
+
         if (Nimbus.events() != null) {
             Nimbus.events().onEvent("PERMISSION_GROUP_UPDATED", e -> {
-                // Schedule per-player to run on each player's region thread (Folia)
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     SchedulerCompat.runForEntity(plugin, player, () -> applyNameTag(player));
                 }
@@ -82,19 +107,32 @@ public class NameTagHandler {
             });
         }
 
-        logger.info("Name tag handler started");
+        logger.info("Name tag handler started" + (packetHandler != null ? " (packet mode)" : ""));
     }
 
     public void onJoin(Player player) {
+        if (disabled) return;
+
+        // Send existing teams to the new player (packet mode only)
+        if (packetHandler != null) {
+            packetHandler.sendExistingTeams(player);
+        }
+
         // Defer to allow provider to load display data first
-        // Use entity-bound scheduling so the task runs on the player's region thread (Folia)
         SchedulerCompat.runForEntityLater(plugin, player, () -> {
-            if (player.isOnline()) applyNameTag(player);
+            if (!player.isOnline()) return;
+            // Only apply if display data has been loaded — applying with empty cache
+            // would overwrite shared team prefixes with empty values
+            UUID uuid = player.getUniqueId();
+            if (!provider.getPrefix(uuid).isEmpty() || !provider.getSuffix(uuid).isEmpty() || provider.getPriority(uuid) != 0) {
+                applyNameTag(player);
+            }
         }, 5L);
     }
 
     /** Refresh the name tag for a player (e.g. after display data is loaded). */
     public void refresh(Player player) {
+        if (disabled) return;
         SchedulerCompat.runForEntity(plugin, player, () -> {
             if (player.isOnline()) applyNameTag(player);
         });
@@ -102,17 +140,27 @@ public class NameTagHandler {
 
     public void onQuit(Player player) {
         tabOverrides.remove(player.getUniqueId());
-        String teamName = playerTeams.remove(player.getUniqueId());
-        if (teamName != null) {
-            Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
-            Team team = scoreboard.getTeam(teamName);
-            if (team != null) {
-                team.removeEntry(player.getName());
-                if (team.getEntries().isEmpty()) {
-                    team.unregister();
+        if (disabled) return;
+
+        if (packetHandler != null) {
+            packetHandler.removePlayer(player);
+        } else {
+            String teamName = playerTeams.remove(player.getUniqueId());
+            if (teamName != null) {
+                Scoreboard scoreboard = getScoreboard();
+                Team team = scoreboard.getTeam(teamName);
+                if (team != null) {
+                    team.removeEntry(player.getName());
+                    if (team.getEntries().isEmpty()) {
+                        team.unregister();
+                    }
                 }
             }
         }
+    }
+
+    private Scoreboard getScoreboard() {
+        return Bukkit.getScoreboardManager().getMainScoreboard();
     }
 
     private void applyNameTag(Player player) {
@@ -137,7 +185,18 @@ public class NameTagHandler {
             suffix = provider.getSuffix(uuid);
         }
 
-        Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
+        if (packetHandler != null) {
+            // Packet-based (Folia with PacketEvents)
+            packetHandler.applyNameTag(player, prefix, suffix, priority);
+        } else {
+            // Scoreboard-based (Bukkit/Paper)
+            applyScoreboardNameTag(player, prefix, suffix, priority, override != null);
+        }
+    }
+
+    private void applyScoreboardNameTag(Player player, String prefix, String suffix, int priority, boolean isOverride) {
+        UUID uuid = player.getUniqueId();
+        Scoreboard scoreboard = getScoreboard();
 
         String oldTeamName = playerTeams.get(uuid);
         if (oldTeamName != null) {
@@ -151,7 +210,7 @@ public class NameTagHandler {
         }
 
         String teamName;
-        if (override != null) {
+        if (isOverride) {
             teamName = TEAM_PREFIX + player.getName().substring(0, Math.min(player.getName().length(), 8));
         } else {
             String sortKey = String.format("%04d", 9999 - Math.max(0, Math.min(9999, priority)));

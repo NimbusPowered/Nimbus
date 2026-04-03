@@ -25,10 +25,7 @@ class PluginDeployer(private val baseDir: Path) {
         deployHubPlugin(globalProxyTemplateDir)
 
         // Deploy Nimbus SDK plugin to global (all backend servers: Paper, Purpur, etc.)
-        deploySdkPlugin(globalTemplateDir, config.permissions.deployPlugin)
-
-        // Deploy FancyNpcs to global (required by Display plugin for player NPCs)
-        deployPlugin(globalTemplateDir, "FancyNpcs.jar", "plugins/FancyNpcs.jar")
+        deploySdkPlugin(globalTemplateDir)
 
         // Auto-update Nimbus plugins where the user has placed them (templates + static services)
         autoUpdateNimbusPlugins(templatesDir, staticDir)
@@ -97,11 +94,8 @@ class PluginDeployer(private val baseDir: Path) {
         deployPlugin(globalProxyDir, "nimbus-bridge.jar", "plugins/nimbus-bridge.jar")
     }
 
-    private fun deploySdkPlugin(globalDir: Path, deployPerms: Boolean = true) {
+    private fun deploySdkPlugin(globalDir: Path) {
         deployPlugin(globalDir, "nimbus-sdk.jar", "plugins/nimbus-sdk.jar")
-        if (deployPerms) {
-            deployPlugin(globalDir, "nimbus-perms.jar", "plugins/nimbus-perms.jar")
-        }
     }
 
     /**

@@ -85,6 +85,7 @@ object ConsoleFormatter {
         ServiceState.READY -> "${GREEN}●$RESET"
         ServiceState.STARTING -> "${YELLOW}●$RESET"
         ServiceState.PREPARING -> "${BLUE}○$RESET"
+        ServiceState.DRAINING -> "${MAGENTA}●$RESET"
         ServiceState.STOPPING -> "${YELLOW}●$RESET"
         ServiceState.STOPPED -> "${DIM}○$RESET"
         ServiceState.CRASHED -> "${RED}●$RESET"
@@ -94,6 +95,7 @@ object ConsoleFormatter {
         ServiceState.READY -> GREEN
         ServiceState.STARTING -> YELLOW
         ServiceState.PREPARING -> BLUE
+        ServiceState.DRAINING -> MAGENTA
         ServiceState.STOPPING -> YELLOW
         ServiceState.STOPPED -> GRAY
         ServiceState.CRASHED -> RED
@@ -164,6 +166,8 @@ object ConsoleFormatter {
             }
             is NimbusEvent.ServiceReady ->
                 "${success("● READY")} ${BOLD}${event.serviceName}${RESET} ${DIM}(group=${event.groupName})${RESET}"
+            is NimbusEvent.ServiceDraining ->
+                "${warn("◉ DRAINING")} ${BOLD}${event.serviceName}${RESET} ${DIM}(group=${event.groupName})${RESET}"
             is NimbusEvent.ServiceStopping ->
                 "${warn("▼ STOPPING")} ${BOLD}${event.serviceName}${RESET}"
             is NimbusEvent.ServiceStopped ->
@@ -230,6 +234,12 @@ object ConsoleFormatter {
                 "${info("~ CHAT")} chat format updated ${DIM}(enabled=${event.enabled})${RESET}"
             is NimbusEvent.ConfigReloaded ->
                 "${info("↻ CONFIG")} reloaded ${BOLD}${event.groupsLoaded}${RESET} group(s)"
+            is NimbusEvent.ModuleLoaded ->
+                "${info("◈ MODULE")} loaded ${CYAN}${event.moduleName}${RESET} ${DIM}v${event.moduleVersion}${RESET}"
+            is NimbusEvent.ModuleEnabled ->
+                "${success("◈ MODULE")} ${CYAN}${event.moduleName}${RESET} enabled"
+            is NimbusEvent.ModuleDisabled ->
+                "${warn("◈ MODULE")} ${CYAN}${event.moduleName}${RESET} disabled"
             is NimbusEvent.ClusterStarted ->
                 "${colorize("◆ CLUSTER", MAGENTA)} started on ${BOLD}${event.bind}:${event.port}${RESET} ${DIM}(${event.strategy})${RESET}"
             is NimbusEvent.NodeConnected ->

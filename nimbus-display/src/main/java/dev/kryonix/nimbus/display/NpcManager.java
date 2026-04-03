@@ -22,6 +22,7 @@ public class NpcManager {
     private final ConcurrentHashMap<String, NimbusDisplay> displayCache;
     private final ConcurrentHashMap<String, NimbusGroup> groupCache;
     private final ConcurrentHashMap<String, NimbusNpc> npcs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> hologramFrameIndex = new ConcurrentHashMap<>();
 
     public NpcManager(JavaPlugin plugin, NpcConfig config,
                       ConcurrentHashMap<String, NimbusDisplay> displayCache,
@@ -130,10 +131,19 @@ public class NpcManager {
 
         String state = display != null ? display.resolveState(rawState) : rawState;
 
-        // Render hologram lines as legacy color-coded strings
+        // Advance frame index for this NPC
+        int frameIdx = hologramFrameIndex.merge(npc.id(), 0, (old, v) -> old + 1);
+
+        // Render hologram lines — supports "||" frame separator for animation
+        // e.g. "&b&lBedWars||&e&lBedWars" cycles between blue and yellow
         String[] lines = new String[templates.size()];
         for (int i = 0; i < templates.size(); i++) {
-            lines[i] = render(templates.get(i), target, players, maxPlayers, servers, state);
+            String template = templates.get(i);
+            if (template.contains("||")) {
+                String[] frames = template.split("\\|\\|");
+                template = frames[frameIdx % frames.length];
+            }
+            lines[i] = render(template, target, players, maxPlayers, servers, state);
         }
 
         renderer.updateHolograms(npc, lines);

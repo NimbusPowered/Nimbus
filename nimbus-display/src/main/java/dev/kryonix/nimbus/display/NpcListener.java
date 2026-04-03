@@ -5,6 +5,7 @@ import dev.kryonix.nimbus.sdk.NimbusDisplay;
 import dev.kryonix.nimbus.sdk.NimbusGroup;
 import dev.kryonix.nimbus.sdk.NimbusService;
 import dev.kryonix.nimbus.sdk.compat.TextCompat;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -64,9 +65,7 @@ public class NpcListener implements Listener {
                         TextCompat.sendRich(player, npc.target() + " is not available.", "red");
                         return;
                     }
-                    TextCompat.sendComposite(player, new String[][]{
-                            {"Connecting to ", "green"}, {npc.target(), "white"}, {"...", "green"}
-                    });
+                    sendConnectFeedback(player, npc.target());
                     Nimbus.client().sendPlayer(player.getName(), npc.target())
                             .exceptionally(e -> {
                                 TextCompat.sendRich(player, "Failed to connect.", "red");
@@ -78,9 +77,7 @@ public class NpcListener implements Listener {
                         TextCompat.sendRich(player, "No " + npc.target() + " server available.", "red");
                         return;
                     }
-                    TextCompat.sendComposite(player, new String[][]{
-                            {"Connecting to ", "green"}, {best.getName(), "white"}, {"...", "green"}
-                    });
+                    sendConnectFeedback(player, best.getName());
                     Nimbus.route(player.getName(), npc.target(), npc.strategy())
                             .exceptionally(e -> {
                                 TextCompat.sendRich(player, "Failed to connect.", "red");
@@ -97,6 +94,13 @@ public class NpcListener implements Listener {
             case INVENTORY -> new NpcInventory(plugin, npc, displayCache, groupCache).open(player);
             case NONE -> {}
         }
+    }
+
+    private void sendConnectFeedback(Player player, String serverName) {
+        TextCompat.sendActionBar(player, "&a&l▶ &fConnecting to &b" + serverName + "&f...");
+        try {
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+        } catch (Exception ignored) {} // Sound enum may differ across versions
     }
 
     private boolean checkCooldown(Player player) {

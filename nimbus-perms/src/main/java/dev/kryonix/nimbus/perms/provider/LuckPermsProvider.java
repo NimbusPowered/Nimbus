@@ -37,6 +37,7 @@ public class LuckPermsProvider implements PermissionProvider {
 
     private final Map<UUID, DisplayInfo> displayCache = new ConcurrentHashMap<>();
     private final List<EventSubscription<?>> subscriptions = new ArrayList<>();
+    private java.util.function.Consumer<Player> displayLoadedCallback;
 
     @Override
     public void enable(NimbusPermsPlugin plugin) {
@@ -91,6 +92,15 @@ public class LuckPermsProvider implements PermissionProvider {
 
             displayCache.put(player.getUniqueId(), new DisplayInfo(prefix, suffix, primaryGroup, priority));
 
+            // Refresh nametag on main thread
+            if (displayLoadedCallback != null) {
+                SchedulerCompat.runForEntity(plugin, player, () -> {
+                    if (player.isOnline()) {
+                        displayLoadedCallback.accept(player);
+                    }
+                });
+            }
+
             // Sync to Nimbus API
             syncPlayerToApi(player.getUniqueId(), player.getName(), prefix, suffix, primaryGroup);
         });
@@ -134,6 +144,11 @@ public class LuckPermsProvider implements PermissionProvider {
         return info != null ? info.priority : 0;
     }
 
+    @Override
+    public void setDisplayLoadedCallback(java.util.function.Consumer<Player> callback) {
+        this.displayLoadedCallback = callback;
+    }
+
     // ── LuckPerms Event Handlers ────────────────────────────
 
     private void onUserDataRecalculate(UserDataRecalculateEvent event) {
@@ -153,6 +168,15 @@ public class LuckPermsProvider implements PermissionProvider {
             }
 
             displayCache.put(uuid, new DisplayInfo(prefix, suffix, primaryGroup, priority));
+
+            if (displayLoadedCallback != null) {
+                SchedulerCompat.runForEntity(plugin, player, () -> {
+                    if (player.isOnline()) {
+                        displayLoadedCallback.accept(player);
+                    }
+                });
+            }
+
             syncPlayerToApi(uuid, player.getName(), prefix, suffix, primaryGroup);
         }
     }

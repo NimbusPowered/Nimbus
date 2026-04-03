@@ -2,20 +2,21 @@ package dev.kryonix.nimbus.console
 
 import dev.kryonix.nimbus.console.commands.ShutdownCommand
 import dev.kryonix.nimbus.group.GroupManager
+import dev.kryonix.nimbus.module.ModuleCommand
 import dev.kryonix.nimbus.service.ServiceRegistry
 import org.slf4j.LoggerFactory
 
-interface Command {
-    val name: String
-    val description: String
-    val usage: String
-    suspend fun execute(args: List<String>)
-}
+/**
+ * Core command interface. Extends [ModuleCommand] so module commands
+ * are fully compatible with the command system.
+ */
+interface Command : ModuleCommand
 
 class CommandDispatcher {
 
     private val logger = LoggerFactory.getLogger(CommandDispatcher::class.java)
-    private val commands = linkedMapOf<String, Command>()
+    private val commands = linkedMapOf<String, ModuleCommand>()
+    private val completers = mutableMapOf<String, (List<String>, String) -> List<String>>()
 
     // Set externally for contextual tab completion
     var registry: ServiceRegistry? = null
@@ -26,9 +27,21 @@ class CommandDispatcher {
     // Commands that take a group name as first arg
     private val groupArgCommands = setOf("start", "info", "dynamic")
 
-    fun register(command: Command) {
+    fun register(command: ModuleCommand) {
         commands[command.name.lowercase()] = command
         logger.debug("Registered command: {}", command.name)
+    }
+
+    fun unregister(name: String) {
+        val removed = commands.remove(name.lowercase())
+        if (removed != null) {
+            completers.remove(name.lowercase())
+            logger.debug("Unregistered command: {}", name)
+        }
+    }
+
+    fun registerCompleter(commandName: String, completer: (List<String>, String) -> List<String>) {
+        completers[commandName.lowercase()] = completer
     }
 
     /**
@@ -65,9 +78,9 @@ class CommandDispatcher {
         return true
     }
 
-    fun getCommands(): List<Command> = commands.values.toList()
+    fun getCommands(): List<ModuleCommand> = commands.values.toList()
 
-    fun getCommand(name: String): Command? = commands[name.lowercase()]
+    fun getCommand(name: String): ModuleCommand? = commands[name.lowercase()]
 
     /**
      * Provides tab-completion candidates for the given input buffer.
@@ -84,6 +97,12 @@ class CommandDispatcher {
             // Complete arguments based on command
             val commandName = parts[0].lowercase()
             val argPrefix = parts.last()
+
+            // Check module-registered completers first
+            val moduleCompleter = completers[commandName]
+            if (moduleCompleter != null) {
+                return moduleCompleter(parts.drop(1), argPrefix)
+            }
 
             when (commandName) {
                 in serviceArgCommands -> {
@@ -209,14 +228,36 @@ class CommandDispatcher {
                         else -> emptyList()
                     }
                 }
-                "perms" -> {
+                "modules" -> {
                     when (parts.size) {
-                        2 -> listOf("group", "user", "reload").filter { it.startsWith(argPrefix, ignoreCase = true) }
+                        2 -> listOf("list", "install", "uninstall")
+                            .filter { it.startsWith(argPrefix, ignoreCase = true) }
+                        else -> emptyList()
+                    }
+                }
+                "plugins" -> {
+                    val pluginNames = listOf("sdk", "perms", "display", "fancynpcs", "viaversion", "viabackwards", "viarewind", "geyser", "floodgate")
+                    when (parts.size) {
+                        2 -> listOf("list", "install", "remove", "check")
+                            .filter { it.startsWith(argPrefix, ignoreCase = true) }
                         3 -> when (parts[1].lowercase()) {
-                            "group" -> listOf("list", "info", "create", "delete", "addperm", "removeperm", "setdefault", "addparent", "removeparent")
+                            "install", "remove" -> pluginNames
                                 .filter { it.startsWith(argPrefix, ignoreCase = true) }
-                            "user" -> listOf("list", "info", "addgroup", "removegroup")
-                                .filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            "list", "check" -> {
+                                val targets = mutableListOf("global", "global_proxy")
+                                targets.addAll(groupManager?.getAllGroups()?.map { it.name } ?: emptyList())
+                                targets.addAll(registry?.getAll()?.filter { it.isStatic }?.map { it.name } ?: emptyList())
+                                targets.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            }
+                            else -> emptyList()
+                        }
+                        4 -> when (parts[1].lowercase()) {
+                            "install", "remove" -> {
+                                val targets = mutableListOf("global", "global_proxy")
+                                targets.addAll(groupManager?.getAllGroups()?.map { it.name } ?: emptyList())
+                                targets.addAll(registry?.getAll()?.filter { it.isStatic }?.map { it.name } ?: emptyList())
+                                targets.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            }
                             else -> emptyList()
                         }
                         else -> emptyList()

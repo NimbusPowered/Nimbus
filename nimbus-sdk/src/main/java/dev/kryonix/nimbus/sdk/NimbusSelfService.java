@@ -123,6 +123,16 @@ public class NimbusSelfService {
         return client.reportPlayerCount(serviceName, playerCount);
     }
 
+    // ── Health Reporting ──────────────────────────────────────────────
+
+    /**
+     * Report TPS and memory usage to the controller.
+     * Called automatically by the SDK at regular intervals.
+     */
+    public CompletableFuture<Void> reportHealth(double tps, long memoryUsedMb, long memoryMaxMb) {
+        return client.reportHealth(serviceName, tps, memoryUsedMb, memoryMaxMb);
+    }
+
     // ── Info ──────────────────────────────────────────────────────────
 
     /**

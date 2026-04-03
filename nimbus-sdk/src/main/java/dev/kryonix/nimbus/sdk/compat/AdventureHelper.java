@@ -82,4 +82,21 @@ class AdventureHelper {
         }
         meta.lore(lore);
     }
+
+    static void sendActionBar(Player player, String legacyText) {
+        player.sendActionBar(LEGACY_AMP.deserialize(legacyText));
+    }
+
+    static void sendTitle(Player player, String title, String subtitle, int fadeIn, int stay, int fadeOut) {
+        net.kyori.adventure.title.Title.Times times = net.kyori.adventure.title.Title.Times.times(
+                java.time.Duration.ofMillis(fadeIn * 50L),
+                java.time.Duration.ofMillis(stay * 50L),
+                java.time.Duration.ofMillis(fadeOut * 50L)
+        );
+        player.showTitle(net.kyori.adventure.title.Title.title(
+                LEGACY_AMP.deserialize(title),
+                LEGACY_AMP.deserialize(subtitle),
+                times
+        ));
+    }
 }

@@ -91,6 +91,12 @@ export default defineConfig({
           ],
         },
         {
+          text: 'Modules',
+          items: [
+            { text: 'Module Development', link: '/developer/modules' },
+          ],
+        },
+        {
           text: 'Plugins',
           items: [
             { text: 'SDK (nimbus-sdk)', link: '/developer/sdk' },

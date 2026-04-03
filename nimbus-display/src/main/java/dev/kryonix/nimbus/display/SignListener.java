@@ -12,6 +12,8 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
+import org.bukkit.Sound;
+
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -61,9 +63,7 @@ public class SignListener implements Listener {
                 return;
             }
 
-            TextCompat.sendComposite(player, new String[][]{
-                    {"Connecting to ", "green"}, {nSign.target(), "white"}, {"...", "green"}
-            });
+            sendConnectFeedback(player, nSign.target());
             Nimbus.client().sendPlayer(player.getName(), nSign.target())
                     .exceptionally(e -> {
                         TextCompat.sendRich(player, "Failed to connect.", "red");
@@ -76,15 +76,20 @@ public class SignListener implements Listener {
                 return;
             }
 
-            TextCompat.sendComposite(player, new String[][]{
-                    {"Connecting to ", "green"}, {best.getName(), "white"}, {"...", "green"}
-            });
+            sendConnectFeedback(player, best.getName());
             Nimbus.route(player.getName(), nSign.target(), nSign.strategy())
                     .exceptionally(e -> {
                         TextCompat.sendRich(player, "Failed to connect.", "red");
                         return null;
                     });
         }
+    }
+
+    private void sendConnectFeedback(Player player, String serverName) {
+        TextCompat.sendActionBar(player, "&a&l▶ &fConnecting to &b" + serverName + "&f...");
+        try {
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+        } catch (Exception ignored) {} // Sound enum may differ across versions
     }
 
     @EventHandler

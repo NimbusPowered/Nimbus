@@ -33,6 +33,7 @@ public class NpcRenderer {
     private final boolean hasPersistentData;
     private final ConcurrentHashMap<String, dev.kryonix.nimbus.sdk.NimbusDisplay> displayCache;
 
+    private final SkinCache skinCache;
     private final ConcurrentHashMap<String, NpcState> states = new ConcurrentHashMap<>();
 
     static class NpcState {
@@ -44,6 +45,7 @@ public class NpcRenderer {
     public NpcRenderer(JavaPlugin plugin, ConcurrentHashMap<String, dev.kryonix.nimbus.sdk.NimbusDisplay> displayCache) {
         this.plugin = plugin;
         this.displayCache = displayCache;
+        this.skinCache = new SkinCache(plugin);
         this.fancyNpcsAvailable = Bukkit.getPluginManager().getPlugin("FancyNpcs") != null;
         this.hasPersistentData = classExists("org.bukkit.persistence.PersistentDataContainer");
 
@@ -119,7 +121,22 @@ public class NpcRenderer {
             npcData.setType(npc.entityType());
 
             if (npc.isFakePlayer() && npc.skin() != null) {
-                npcData.setSkin(npc.skin());
+                // Try cached skin texture data first to avoid Mojang API calls
+                SkinCache.CachedSkin cached = skinCache.resolve(npc.skin());
+                if (cached != null && !cached.textureValue().isEmpty()) {
+                    try {
+                        var skinData = new de.oliver.fancynpcs.api.skins.SkinData(
+                                npc.skin(),
+                                de.oliver.fancynpcs.api.skins.SkinData.SkinVariant.AUTO,
+                                cached.textureValue(),
+                                cached.textureSignature());
+                        npcData.setSkinData(skinData);
+                    } catch (NoSuchMethodError | NoClassDefFoundError e) {
+                        npcData.setSkin(npc.skin());
+                    }
+                } else {
+                    npcData.setSkin(npc.skin());
+                }
             }
 
             npcData.setDisplayName(" ");

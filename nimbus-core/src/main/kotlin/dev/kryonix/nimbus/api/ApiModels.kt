@@ -19,7 +19,11 @@ data class ServiceResponse(
     val restartCount: Int,
     val uptime: String?,
     val isStatic: Boolean = false,
-    val bedrockPort: Int? = null
+    val bedrockPort: Int? = null,
+    val tps: Double = 20.0,
+    val memoryUsedMb: Long = 0,
+    val memoryMaxMb: Long = 0,
+    val healthy: Boolean = true
 )
 
 @Serializable
@@ -217,6 +221,19 @@ data class ReportPlayerCountRequest(
 )
 
 @Serializable
+data class ReportHealthRequest(
+    val tps: Double,
+    val memoryUsedMb: Long,
+    val memoryMaxMb: Long
+)
+
+@Serializable
+data class HealthReportResponse(
+    val service: String,
+    val healthy: Boolean
+)
+
+@Serializable
 data class PlayerCountResponse(
     val service: String,
     val playerCount: Int
@@ -374,6 +391,13 @@ data class DisplayListResponse(
     val total: Int
 )
 
+@Serializable
+data class UpdateDisplayRequest(
+    val sign: SignDisplayResponse? = null,
+    val npc: NpcDisplayResponse? = null,
+    val states: Map<String, String>? = null
+)
+
 // ── Permission DTOs ─────────────────────────────────────────────────
 
 @Serializable
@@ -518,6 +542,34 @@ data class DebugStepResponse(
     val permission: String,
     val type: String,
     val granted: Boolean
+)
+
+// ── Bulk Operations ────────────────────────────────────────────────
+
+@Serializable
+data class BulkPermissionRequest(
+    val groups: List<String>,
+    val permission: String,
+    val server: String? = null,
+    val world: String? = null,
+    val expiresAt: String? = null
+)
+
+@Serializable
+data class BulkGroupAssignRequest(
+    val players: List<String>,
+    val group: String,
+    val server: String? = null,
+    val world: String? = null,
+    val expiresAt: String? = null
+)
+
+@Serializable
+data class BulkOperationResponse(
+    val success: Boolean,
+    val processed: Int,
+    val failed: Int,
+    val errors: List<String> = emptyList()
 )
 
 // ── Audit ───────────────────────────────────────────────────────────

@@ -102,6 +102,17 @@ public class NimbusClient implements AutoCloseable {
         return put("/api/services/" + encode(serviceName) + "/players", body).thenApply(r -> null);
     }
 
+    // ── Health Reporting ────────────────────────────────────────────────
+
+    /** Report TPS and memory usage for a service (called periodically by SDK). */
+    public CompletableFuture<Void> reportHealth(String serviceName, double tps, long memoryUsedMb, long memoryMaxMb) {
+        JsonObject body = new JsonObject();
+        body.addProperty("tps", tps);
+        body.addProperty("memoryUsedMb", memoryUsedMb);
+        body.addProperty("memoryMaxMb", memoryMaxMb);
+        return put("/api/services/" + encode(serviceName) + "/health", body).thenApply(r -> null);
+    }
+
     // ── Custom State ──────────────────────────────────────────────────
 
     /** Set a custom state on a service (e.g. "WAITING", "INGAME", "ENDING"). */
@@ -311,7 +322,11 @@ public class NimbusClient implements AutoCloseable {
                 obj.has("playerCount") ? obj.get("playerCount").getAsInt() : 0,
                 getString(obj, "startedAt"),
                 obj.has("restartCount") ? obj.get("restartCount").getAsInt() : 0,
-                getString(obj, "uptime")
+                getString(obj, "uptime"),
+                obj.has("tps") ? obj.get("tps").getAsDouble() : 20.0,
+                obj.has("memoryUsedMb") ? obj.get("memoryUsedMb").getAsLong() : 0,
+                obj.has("memoryMaxMb") ? obj.get("memoryMaxMb").getAsLong() : 0,
+                !obj.has("healthy") || obj.get("healthy").getAsBoolean()
         );
     }
 
