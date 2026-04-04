@@ -238,11 +238,16 @@ class CommandDispatcher {
                 "plugins" -> {
                     val pluginNames = listOf("sdk", "viaversion", "viabackwards", "viarewind", "geyser", "floodgate")
                     when (parts.size) {
-                        2 -> listOf("list", "install", "remove", "check")
+                        2 -> listOf("list", "install", "remove", "check", "search")
                             .filter { it.startsWith(argPrefix, ignoreCase = true) }
                         3 -> when (parts[1].lowercase()) {
                             "install", "remove" -> pluginNames
                                 .filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            "search" -> {
+                                val targets = mutableListOf("global")
+                                targets.addAll(groupManager?.getAllGroups()?.map { it.name } ?: emptyList())
+                                targets.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            }
                             "list", "check" -> {
                                 val targets = mutableListOf("global", "global_proxy")
                                 targets.addAll(groupManager?.getAllGroups()?.map { it.name } ?: emptyList())

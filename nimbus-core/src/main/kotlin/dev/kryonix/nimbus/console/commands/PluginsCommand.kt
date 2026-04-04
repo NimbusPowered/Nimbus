@@ -12,8 +12,10 @@ import dev.kryonix.nimbus.console.ConsoleFormatter.RED
 import dev.kryonix.nimbus.console.ConsoleFormatter.RESET
 import dev.kryonix.nimbus.console.ConsoleFormatter.YELLOW
 import dev.kryonix.nimbus.console.InteractivePicker
+import dev.kryonix.nimbus.console.LiveSearchPicker
 import dev.kryonix.nimbus.group.GroupManager
 import dev.kryonix.nimbus.service.ServiceRegistry
+import dev.kryonix.nimbus.template.PluginSearchClient
 import dev.kryonix.nimbus.template.SoftwareResolver
 import org.jline.terminal.Terminal
 import java.nio.file.Files
@@ -34,7 +36,7 @@ class PluginsCommand(
 
     override val name = "plugins"
     override val description = "Manage server plugins"
-    override val usage = "plugins [list|install|remove|check] [plugin] [target]"
+    override val usage = "plugins [list|install|remove|check|search] [plugin] [target]"
 
     private val templatesDir: Path get() = Path.of(config.paths.templates)
     private val staticDir: Path get() = Path.of(config.paths.services).resolve("static")
@@ -68,6 +70,7 @@ class PluginsCommand(
             "install", "add" -> install(args.getOrNull(1), args.getOrNull(2))
             "remove", "rm" -> remove(args.getOrNull(1), args.getOrNull(2))
             "check" -> check(args.getOrNull(1))
+            "search", "find" -> search(args.drop(1))
             else -> {
                 println(ConsoleFormatter.error("Unknown subcommand: $sub"))
                 println("${DIM}Usage: $usage$RESET")
@@ -369,6 +372,154 @@ class PluginsCommand(
         } else {
             name.equals(pattern, ignoreCase = true)
         }
+    }
+
+    // ── Search (Hangar + Modrinth) ───────────────────────────
+
+    private suspend fun search(args: List<String>) {
+        // Determine target: first arg or interactive picker
+        val target = args.firstOrNull() ?: run {
+            val options = mutableListOf(
+                InteractivePicker.Option("global", "global", "all backend servers")
+            )
+            for (group in groupManager.getAllGroups()) {
+                if (group.config.group.software != ServerSoftware.VELOCITY) {
+                    val ver = group.config.group.version
+                    options.add(InteractivePicker.Option(group.name, group.name, ver))
+                }
+            }
+            println("${BOLD}Install target:$RESET")
+            val idx = InteractivePicker.pickOne(terminal, options)
+            if (idx == InteractivePicker.BACK) {
+                println("${DIM}Cancelled.$RESET")
+                return
+            }
+            options[idx].id
+        }
+
+        val pluginsDir = resolvePluginsDir(target)
+        if (pluginsDir == null) {
+            println(ConsoleFormatter.error("Unknown target: $target"))
+            return
+        }
+
+        // Determine MC version from target
+        val mcVersion = resolveMcVersion(target)
+        if (mcVersion == null) {
+            println(ConsoleFormatter.error("Could not determine Minecraft version for '$target'"))
+            return
+        }
+
+        val searchClient = PluginSearchClient(softwareResolver.client)
+        val initialQuery = if (args.size > 1) args.drop(1).joinToString(" ") else ""
+
+        // Live search
+        val selected = LiveSearchPicker.liveSearch(
+            terminal = terminal,
+            title = "Search plugins ${DIM}($mcVersion)${RESET}",
+            initialQuery = initialQuery,
+            search = { query -> searchClient.search(query, mcVersion) },
+            render = { result ->
+                val tag = when (result.source) {
+                    PluginSearchClient.PluginSource.HANGAR -> "H"
+                    PluginSearchClient.PluginSource.MODRINTH -> "M"
+                }
+                LiveSearchPicker.SearchLine(
+                    sourceTag = tag,
+                    name = result.name,
+                    author = result.author,
+                    downloads = formatDownloads(result.downloads),
+                    description = result.description
+                )
+            }
+        )
+
+        if (selected == null) {
+            println("${DIM}Cancelled.$RESET")
+            return
+        }
+
+        // Fetch version details + dependencies
+        println("${DIM}Fetching version info for ${selected.name}...$RESET")
+        val version = searchClient.fetchVersion(selected, mcVersion)
+        if (version == null) {
+            println(ConsoleFormatter.error("No compatible version found for ${selected.name} on $mcVersion"))
+            return
+        }
+
+        // Show details
+        println()
+        println("  ${BOLD}${selected.name}${RESET} ${DIM}v${version.versionName}${RESET}")
+        println("  ${DIM}by ${selected.author} · ${formatDownloads(selected.downloads)} downloads${RESET}")
+        if (version.fileSize > 0) {
+            println("  ${DIM}File: ${version.fileName} (${PluginSearchClient.formatSize(version.fileSize)} MB)${RESET}")
+        }
+
+        val requiredDeps = version.dependencies.filter { it.required }
+        if (requiredDeps.isNotEmpty()) {
+            println("  ${YELLOW}Dependencies:${RESET}")
+            for (dep in requiredDeps) {
+                println("    ${DIM}●${RESET} ${dep.name} ${DIM}(required)${RESET}")
+            }
+        }
+
+        println()
+        print("  ${YELLOW}Install to $CYAN$target$YELLOW? [Y/n]$RESET ")
+        val confirm = readlnOrNull()?.trim()?.lowercase()
+        if (confirm == "n" || confirm == "no") {
+            println("${DIM}Cancelled.$RESET")
+            return
+        }
+
+        // Download main plugin
+        if (!pluginsDir.exists()) pluginsDir.createDirectories()
+        val file = searchClient.download(version, pluginsDir)
+        if (file == null) {
+            println(ConsoleFormatter.errorLine("Failed to download ${selected.name}"))
+            return
+        }
+        println(ConsoleFormatter.successLine("Installed ${CYAN}${selected.name}${RESET} ${DIM}(${version.fileName})${RESET}"))
+
+        // Auto-install required dependencies
+        for (dep in requiredDeps) {
+            print("  ${DIM}Installing dependency: ${dep.name}...$RESET")
+            val depFile = searchClient.resolveAndDownloadDependency(dep, mcVersion, pluginsDir)
+            if (depFile != null) {
+                println("\r${ConsoleFormatter.successLine("  Dependency ${CYAN}${dep.name}${RESET} installed")}")
+            } else {
+                println("\r${ConsoleFormatter.warnLine("  Could not auto-install ${dep.name} — install manually")}")
+            }
+        }
+    }
+
+    /**
+     * Resolves the Minecraft version for a target.
+     * For groups: reads from group config.
+     * For "global": uses the most common version across backend groups.
+     */
+    private fun resolveMcVersion(target: String): String? {
+        val lower = target.lowercase()
+
+        // Direct group lookup
+        val group = groupManager.getGroup(target)
+        if (group != null) return group.config.group.version
+
+        // For global targets, find the most common version across backend groups
+        if (lower == "global" || lower == "global_proxy") {
+            return groupManager.getAllGroups()
+                .filter { it.config.group.software != ServerSoftware.VELOCITY }
+                .groupBy { it.config.group.version }
+                .maxByOrNull { it.value.size }
+                ?.key
+        }
+
+        return null
+    }
+
+    private fun formatDownloads(count: Long): String = when {
+        count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format("%.1fK", count / 1_000.0)
+        else -> count.toString()
     }
 
     companion object {
