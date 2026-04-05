@@ -56,7 +56,10 @@ export default function Page() {
             </a>
           </div>
 
-          <div className="mt-8 w-full max-md:px-2">
+          <div className="mt-8 mb-8 w-full max-w-lg">
+            <p className="text-xs font-medium text-fd-muted-foreground mb-3">
+              One command to install
+            </p>
             <InstallTabs />
           </div>
         </div>
