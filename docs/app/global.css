@@ -11,3 +11,14 @@
   --color-fd-primary: hsl(199 80% 55%);
   --color-fd-primary-foreground: hsl(0 0% 5%);
 }
+
+/* Callouts: remove left bar, tint entire card with callout color */
+[style*="--callout-color"] {
+  background-color: color-mix(in oklab, var(--callout-color) 8%, var(--color-fd-card)) !important;
+  border-color: color-mix(in oklab, var(--callout-color) 20%, transparent) !important;
+
+  /* Hide the left bar */
+  & > [role="none"] {
+    display: none;
+  }
+}
