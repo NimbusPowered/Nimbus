@@ -15,7 +15,7 @@ export default function Page() {
   return (
     <main className="pt-4 pb-16">
       {/* Hero Card */}
-      <div className="relative flex min-h-[500px] h-[60vh] max-h-[700px] border border-fd-border rounded-2xl overflow-hidden mx-auto w-full max-w-[1400px]">
+      <div className="relative flex min-h-[500px] border border-fd-border rounded-2xl overflow-hidden mx-auto w-full max-w-[1400px]">
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-gradient-to-br from-fd-primary/10 via-transparent to-fd-primary/5" />
           <div className="absolute top-0 left-1/3 h-[400px] w-[600px] rounded-full bg-fd-primary/8 blur-[120px]" />
@@ -56,7 +56,7 @@ export default function Page() {
             </a>
           </div>
 
-          <div className="mt-auto mb-4 w-full max-w-xl max-md:px-2">
+          <div className="mt-8 w-full max-md:px-2">
             <InstallTabs />
           </div>
         </div>
