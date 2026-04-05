@@ -21,7 +21,7 @@ Static groups are never auto-scaled.
 
 The engine scales up when the **fill rate** exceeds the **scale threshold**:
 
-```
+```text title="Scale-Up Formula"
 fill_rate = total_players / (routable_count * players_per_instance)
 
 if fill_rate > scale_threshold
@@ -54,7 +54,7 @@ The scaling engine respects the `controller.max_services` setting (default: 20) 
 
 The engine scales down when a service has been **empty for longer than the idle timeout**:
 
-```
+```text title="Scale-Down Formula"
 if service.playerCount == 0
    AND service has been empty for > idle_timeout seconds
    AND routable_count > min_instances
@@ -77,7 +77,7 @@ Services can have a **custom state** set by game plugins via the SDK (e.g., `"WA
 
 This is critical for game servers. Without custom states, a BedWars server mid-game would count toward capacity, and the scaling engine might not start new instances even though no server is actually accepting players.
 
-```java
+```java title="Game Plugin — Custom State"
 // In your game plugin:
 Nimbus.setState("INGAME");    // Server is no longer routable
 // ... game plays out ...
@@ -110,7 +110,7 @@ Fill rate = 28 / (2 * 16) = 87.5% > 80% threshold. A new instance (BedWars-5) st
 
 Scaling is configured per group in the `[group.scaling]` section:
 
-```toml
+```toml title="config/groups/<group>.toml"
 [group.scaling]
 min_instances = 1          # Minimum instances (always running)
 max_instances = 10         # Maximum instances (hard cap)
@@ -133,7 +133,7 @@ idle_timeout = 300         # Seconds before stopping an empty server
 
 Always-on, spread players evenly. Never scale down below 1.
 
-```toml
+```toml title="config/groups/lobby.toml"
 [group]
 name = "Lobby"
 type = "STATIC"
@@ -150,7 +150,7 @@ idle_timeout = 0             # Never stop lobbies
 
 Ephemeral servers that scale with demand. Stop empty servers after 5 minutes.
 
-```toml
+```toml title="config/groups/bedwars.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -172,7 +172,7 @@ max_restarts = 3
 
 Single persistent instance, no scaling needed.
 
-```toml
+```toml title="config/groups/survival.toml"
 [group]
 name = "Survival"
 type = "STATIC"
@@ -186,7 +186,7 @@ max_instances = 1
 
 Expecting a traffic spike? Temporarily increase capacity:
 
-```toml
+```toml title="config/groups/<group>.toml — Event Mode"
 [group.scaling]
 min_instances = 5
 max_instances = 20
@@ -197,28 +197,28 @@ idle_timeout = 600
 
 Or edit the group config file and reload:
 
-```bash
-nimbus> reload
+```bash title="Nimbus"
+reload
 ```
 
 ## Manual scaling
 
 ### Console commands
 
-```bash
+```bash title="Nimbus"
 # Manually start an instance
-nimbus> start BedWars
+start BedWars
 
 # Manually stop an instance
-nimbus> stop BedWars-3
+stop BedWars-3
 
 # View current scaling state
-nimbus> status
+status
 ```
 
 ### REST API
 
-```bash
+```bash title="Terminal"
 # Start a new instance
 curl -X POST http://127.0.0.1:8080/api/services/BedWars/start \
   -H "Authorization: Bearer <token>"
@@ -232,8 +232,8 @@ curl -X POST http://127.0.0.1:8080/api/services/BedWars-3/stop \
 
 The `status` command shows current scaling state for all groups:
 
-```
-nimbus> status
+```bash title="Nimbus"
+status
 ```
 
 This displays:
@@ -298,7 +298,7 @@ The module only **starts** servers — it never stops them. Scale-down remains t
 
 Each group can have its own schedule in `config/modules/scaling/<GroupName>.toml`:
 
-```toml
+```toml title="config/modules/scaling/<GroupName>.toml"
 [schedule]
 enabled = true
 timezone = "Europe/Berlin"
@@ -334,7 +334,7 @@ Schedule rules override the group's `min_instances` during their active window. 
 
 ### Console commands
 
-```bash
+```bash title="Nimbus — Smart Scaling"
 scaling status                    # Active schedules + recent decisions
 scaling schedule list             # All rules for all groups
 scaling schedule info <group>     # Rules for a specific group
@@ -345,7 +345,7 @@ scaling reload                    # Reload configs
 
 ### REST API
 
-```
+```text title="REST API — Smart Scaling"
 GET  /api/scaling/status              # Overview + recent decisions
 GET  /api/scaling/schedules           # All schedule rules
 GET  /api/scaling/schedules/{group}   # Rules for a group

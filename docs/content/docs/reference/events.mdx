@@ -16,7 +16,7 @@ Every event includes a `timestamp` field (ISO 8601 format) and an `actor` field 
 
 Events are serialized as JSON with this structure:
 
-```json
+```json title="Event Payload"
 {
   "type": "EVENT_TYPE",
   "timestamp": "2025-01-15T10:30:15.123Z",
@@ -41,7 +41,7 @@ Emitted when a service process is launched.
 | `port` | string | Assigned port number |
 | `nodeId` | string | Node identifier (default: `"local"` for controller) |
 
-```json
+```json title="SERVICE_STARTING"
 {
   "type": "SERVICE_STARTING",
   "timestamp": "2025-01-15T10:30:00.000Z",
@@ -65,7 +65,7 @@ Emitted when the service's stdout matches the ready pattern (e.g., Minecraft's `
 | `service` | string | Service name |
 | `group` | string | Group name |
 
-```json
+```json title="SERVICE_READY"
 {
   "type": "SERVICE_READY",
   "timestamp": "2025-01-15T10:30:15.000Z",
@@ -86,7 +86,7 @@ Emitted when a graceful shutdown is initiated for a service.
 |-------|------|-------------|
 | `service` | string | Service name |
 
-```json
+```json title="SERVICE_STOPPING"
 {
   "type": "SERVICE_STOPPING",
   "timestamp": "2025-01-15T12:00:00.000Z",
@@ -106,7 +106,7 @@ Emitted when a service process exits cleanly.
 |-------|------|-------------|
 | `service` | string | Service name |
 
-```json
+```json title="SERVICE_STOPPED"
 {
   "type": "SERVICE_STOPPED",
   "timestamp": "2025-01-15T12:00:05.000Z",
@@ -128,7 +128,7 @@ Emitted when a service process exits unexpectedly.
 | `exitCode` | string | Process exit code |
 | `restartAttempt` | string | Current restart attempt number |
 
-```json
+```json title="SERVICE_CRASHED"
 {
   "type": "SERVICE_CRASHED",
   "timestamp": "2025-01-15T11:45:00.000Z",
@@ -157,7 +157,7 @@ Emitted when a service's custom state is changed via the API (typically by game 
 | `oldState` | string? | Previous custom state (absent if null) |
 | `newState` | string? | New custom state (absent if null) |
 
-```json
+```json title="SERVICE_CUSTOM_STATE_CHANGED"
 {
   "type": "SERVICE_CUSTOM_STATE_CHANGED",
   "timestamp": "2025-01-15T11:00:00.000Z",
@@ -183,7 +183,7 @@ Emitted for service-to-service messaging. The `data` map includes the sender, re
 | `channel` | string | Message channel |
 | *(custom)* | string | Additional data fields from the message payload |
 
-```json
+```json title="SERVICE_MESSAGE"
 {
   "type": "SERVICE_MESSAGE",
   "timestamp": "2025-01-15T11:30:00.000Z",
@@ -212,7 +212,7 @@ Emitted when the scaling engine starts a new instance to handle load.
 | `to` | string | Target instance count |
 | `reason` | string | Human-readable scaling reason |
 
-```json
+```json title="SCALE_UP"
 {
   "type": "SCALE_UP",
   "timestamp": "2025-01-15T14:00:00.000Z",
@@ -237,7 +237,7 @@ Emitted when the scaling engine stops an idle instance.
 | `service` | string | Service being stopped |
 | `reason` | string | Human-readable reason |
 
-```json
+```json title="SCALE_DOWN"
 {
   "type": "SCALE_DOWN",
   "timestamp": "2025-01-15T15:00:00.000Z",
@@ -262,7 +262,7 @@ Emitted when a player connects to a service.
 | `player` | string | Player name |
 | `service` | string | Service name |
 
-```json
+```json title="PLAYER_CONNECTED"
 {
   "type": "PLAYER_CONNECTED",
   "timestamp": "2025-01-15T11:15:00.000Z",
@@ -284,7 +284,7 @@ Emitted when a player disconnects from a service.
 | `player` | string | Player name |
 | `service` | string | Service name |
 
-```json
+```json title="PLAYER_DISCONNECTED"
 {
   "type": "PLAYER_DISCONNECTED",
   "timestamp": "2025-01-15T11:45:00.000Z",
@@ -307,7 +307,7 @@ Emitted when a new server group is created (via console `create` command or API)
 |-------|------|-------------|
 | `group` | string | Group name |
 
-```json
+```json title="GROUP_CREATED"
 {
   "type": "GROUP_CREATED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -327,7 +327,7 @@ Emitted when a group's configuration is modified.
 |-------|------|-------------|
 | `group` | string | Group name |
 
-```json
+```json title="GROUP_UPDATED"
 {
   "type": "GROUP_UPDATED",
   "timestamp": "2025-01-15T09:30:00.000Z",
@@ -347,7 +347,7 @@ Emitted when a group is deleted.
 |-------|------|-------------|
 | `group` | string | Group name |
 
-```json
+```json title="GROUP_DELETED"
 {
   "type": "GROUP_DELETED",
   "timestamp": "2025-01-15T10:00:00.000Z",
@@ -369,7 +369,7 @@ Emitted when a new permission group is created.
 |-------|------|-------------|
 | `group` | string | Permission group name |
 
-```json
+```json title="PERMISSION_GROUP_CREATED"
 {
   "type": "PERMISSION_GROUP_CREATED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -389,7 +389,7 @@ Emitted when a permission group is modified (permissions added/removed, default 
 |-------|------|-------------|
 | `group` | string | Permission group name |
 
-```json
+```json title="PERMISSION_GROUP_UPDATED"
 {
   "type": "PERMISSION_GROUP_UPDATED",
   "timestamp": "2025-01-15T09:15:00.000Z",
@@ -409,7 +409,7 @@ Emitted when a permission group is deleted.
 |-------|------|-------------|
 | `group` | string | Permission group name |
 
-```json
+```json title="PERMISSION_GROUP_DELETED"
 {
   "type": "PERMISSION_GROUP_DELETED",
   "timestamp": "2025-01-15T09:30:00.000Z",
@@ -430,7 +430,7 @@ Emitted when a player's group assignments change.
 | `uuid` | string | Player UUID |
 | `player` | string | Player name |
 
-```json
+```json title="PLAYER_PERMISSIONS_UPDATED"
 {
   "type": "PLAYER_PERMISSIONS_UPDATED",
   "timestamp": "2025-01-15T11:00:00.000Z",
@@ -452,7 +452,7 @@ Emitted when a new permission track is created.
 | `track` | string | Track name |
 | `groups` | string | Ordered list of groups in the track |
 
-```json
+```json title="PERMISSION_TRACK_CREATED"
 {
   "type": "PERMISSION_TRACK_CREATED",
   "timestamp": "2025-01-15T09:45:00.000Z",
@@ -473,7 +473,7 @@ Emitted when a permission track is deleted.
 |-------|------|-------------|
 | `track` | string | Track name |
 
-```json
+```json title="PERMISSION_TRACK_DELETED"
 {
   "type": "PERMISSION_TRACK_DELETED",
   "timestamp": "2025-01-15T10:00:00.000Z",
@@ -497,7 +497,7 @@ Emitted when a player is promoted along a permission track.
 | `oldGroup` | string | Previous group on the track |
 | `newGroup` | string | New group on the track |
 
-```json
+```json title="PLAYER_PROMOTED"
 {
   "type": "PLAYER_PROMOTED",
   "timestamp": "2025-01-15T11:30:00.000Z",
@@ -525,7 +525,7 @@ Emitted when a player is demoted along a permission track.
 | `oldGroup` | string | Previous group on the track |
 | `newGroup` | string | New group on the track |
 
-```json
+```json title="PLAYER_DEMOTED"
 {
   "type": "PLAYER_DEMOTED",
   "timestamp": "2025-01-15T11:45:00.000Z",
@@ -552,7 +552,7 @@ Emitted when a newer version of the Velocity proxy is detected.
 | `currentVersion` | string | Currently installed version |
 | `newVersion` | string | Available version |
 
-```json
+```json title="PROXY_UPDATE_AVAILABLE"
 {
   "type": "PROXY_UPDATE_AVAILABLE",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -574,7 +574,7 @@ Emitted after a proxy update has been applied.
 | `oldVersion` | string | Previous version |
 | `newVersion` | string | New version |
 
-```json
+```json title="PROXY_UPDATE_APPLIED"
 {
   "type": "PROXY_UPDATE_APPLIED",
   "timestamp": "2025-01-15T08:05:00.000Z",
@@ -598,7 +598,7 @@ Emitted when the tab list configuration is changed.
 | `playerFormat` | string | Player display format |
 | `updateInterval` | string | Update interval in seconds |
 
-```json
+```json title="TABLIST_UPDATED"
 {
   "type": "TABLIST_UPDATED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -624,7 +624,7 @@ Emitted when the MOTD configuration is changed.
 | `maxPlayers` | string | Max player count shown |
 | `playerCountOffset` | string | Offset added to player count |
 
-```json
+```json title="MOTD_UPDATED"
 {
   "type": "MOTD_UPDATED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -648,7 +648,7 @@ Emitted when a player's individual tab list format is set or cleared.
 | `uuid` | string | Player UUID |
 | `format` | string? | New format (absent when cleared) |
 
-```json
+```json title="PLAYER_TAB_UPDATED"
 {
   "type": "PLAYER_TAB_UPDATED",
   "timestamp": "2025-01-15T11:00:00.000Z",
@@ -670,7 +670,7 @@ Emitted when the chat format configuration is changed.
 | `format` | string | Chat message format |
 | `enabled` | string | Whether chat formatting is enabled (`true`/`false`) |
 
-```json
+```json title="CHAT_FORMAT_UPDATED"
 {
   "type": "CHAT_FORMAT_UPDATED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -694,7 +694,7 @@ Emitted when maintenance mode is enabled globally or for a specific group.
 | `scope` | string | `"global"` or a group name (e.g. `"BedWars"`) |
 | `reason` | string | Optional reason for enabling maintenance |
 
-```json
+```json title="MAINTENANCE_ENABLED"
 {
   "type": "MAINTENANCE_ENABLED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -715,7 +715,7 @@ Emitted when maintenance mode is disabled globally or for a specific group.
 |-------|------|-------------|
 | `scope` | string | `"global"` or a group name (e.g. `"BedWars"`) |
 
-```json
+```json title="MAINTENANCE_DISABLED"
 {
   "type": "MAINTENANCE_DISABLED",
   "timestamp": "2025-01-15T09:15:00.000Z",
@@ -738,7 +738,7 @@ Emitted when the cluster subsystem is initialized and ready to accept agent conn
 | `bind` | string | Bind address for cluster communication |
 | `port` | string | Port for cluster communication |
 
-```json
+```json title="CLUSTER_STARTED"
 {
   "type": "CLUSTER_STARTED",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -764,7 +764,7 @@ Emitted when an agent node connects to the controller.
 | `nodeId` | string | Node identifier |
 | `host` | string | Node's remote address |
 
-```json
+```json title="NODE_CONNECTED"
 {
   "type": "NODE_CONNECTED",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -789,7 +789,7 @@ Emitted when an agent node disconnects from the controller.
 |-------|------|-------------|
 | `nodeId` | string | Node identifier |
 
-```json
+```json title="NODE_DISCONNECTED"
 {
   "type": "NODE_DISCONNECTED",
   "timestamp": "2025-01-15T09:00:00.000Z",
@@ -811,7 +811,7 @@ Emitted each time a heartbeat response is received from an agent node.
 | `cpuUsage` | string | CPU usage as a decimal (e.g., `"0.32"` for 32%) |
 | `services` | string | Number of services running on the node |
 
-```json
+```json title="NODE_HEARTBEAT"
 {
   "type": "NODE_HEARTBEAT",
   "timestamp": "2025-01-15T08:00:05.000Z",
@@ -837,7 +837,7 @@ Emitted when the TCP load balancer starts listening.
 | `port` | string | Listen port |
 | `strategy` | string | Backend selection strategy |
 
-```json
+```json title="LOAD_BALANCER_STARTED"
 {
   "type": "LOAD_BALANCER_STARTED",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -863,7 +863,7 @@ Emitted when the TCP load balancer stops.
 |-------|------|-------------|
 | `reason` | string | Reason for stopping |
 
-```json
+```json title="LOAD_BALANCER_STOPPED"
 {
   "type": "LOAD_BALANCER_STOPPED",
   "timestamp": "2025-01-15T20:00:00.000Z",
@@ -886,7 +886,7 @@ Emitted when a backend proxy's health status changes (e.g., from `HEALTHY` to `U
 | `oldStatus` | string | Previous health status (`HEALTHY` or `UNHEALTHY`) |
 | `newStatus` | string | New health status (`HEALTHY` or `UNHEALTHY`) |
 
-```json
+```json title="LOAD_BALANCER_BACKEND_HEALTH_CHANGED"
 {
   "type": "LOAD_BALANCER_BACKEND_HEALTH_CHANGED",
   "timestamp": "2025-01-15T12:30:00.000Z",
@@ -915,7 +915,7 @@ Emitted when group configurations are reloaded (via console `reload` or API).
 |-------|------|-------------|
 | `groupsLoaded` | string | Number of group configs loaded |
 
-```json
+```json title="CONFIG_RELOADED"
 {
   "type": "CONFIG_RELOADED",
   "timestamp": "2025-01-15T10:00:00.000Z",
@@ -936,7 +936,7 @@ Emitted when the REST API server starts.
 | `bind` | string | Bind address |
 | `port` | string | Port number |
 
-```json
+```json title="API_STARTED"
 {
   "type": "API_STARTED",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -957,7 +957,7 @@ Emitted when the REST API server stops.
 |-------|------|-------------|
 | `reason` | string | Reason for stopping |
 
-```json
+```json title="API_STOPPED"
 {
   "type": "API_STOPPED",
   "timestamp": "2025-01-15T20:00:00.000Z",
@@ -977,7 +977,7 @@ Emitted for API-related warnings (e.g., no auth token configured).
 |-------|------|-------------|
 | `message` | string | Warning message |
 
-```json
+```json title="API_WARNING"
 {
   "type": "API_WARNING",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -997,7 +997,7 @@ Emitted when the API encounters a startup or runtime error.
 |-------|------|-------------|
 | `error` | string | Error message |
 
-```json
+```json title="API_ERROR"
 {
   "type": "API_ERROR",
   "timestamp": "2025-01-15T08:00:00.000Z",
@@ -1023,7 +1023,7 @@ Emitted when a stress test starts, stops, or ramps to a new player target.
 | `group` | string? | Target group (absent for all-group tests) |
 | `rampSeconds` | string? | Ramp duration in seconds (absent when not ramping) |
 
-```json
+```json title="STRESS_TEST_UPDATED"
 {
   "type": "STRESS_TEST_UPDATED",
   "timestamp": "2025-01-15T14:00:00.000Z",

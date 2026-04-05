@@ -15,7 +15,7 @@ The module API lives in `nimbus-module-api` and has no dependency on `nimbus-cor
 
 Create a new Gradle project with the following `build.gradle.kts`:
 
-```kotlin
+```kotlin title="build.gradle.kts"
 plugins {
     kotlin("jvm") version "2.1.10"
 }
@@ -48,19 +48,19 @@ tasks.jar {
 
 If you are developing inside the Nimbus monorepo, replace the file dependency with a project reference:
 
-```kotlin
+```kotlin title="build.gradle.kts (monorepo)"
 compileOnly(project(":nimbus-module-api"))
 ```
 
 To access core types directly (e.g. `EventBus`, `ServiceRegistry`), add a compile-only dependency on `nimbus-core`:
 
-```kotlin
+```kotlin title="build.gradle.kts (core access)"
 compileOnly(project(":nimbus-core"))
 ```
 
 ### Minimal Module
 
-```kotlin
+```kotlin title="MyModule.kt"
 package dev.example.mymodule
 
 import dev.kryonix.nimbus.module.ModuleContext
@@ -92,13 +92,13 @@ Your JAR must include two resource files:
 
 **`META-INF/services/dev.kryonix.nimbus.module.NimbusModule`** — ServiceLoader descriptor pointing to your implementation class:
 
-```
+```text title="META-INF/services/dev.kryonix.nimbus.module.NimbusModule"
 dev.example.mymodule.MyModule
 ```
 
 **`module.properties`** — metadata used by the setup wizard and `modules` command:
 
-```properties
+```properties title="module.properties"
 id=my-module
 name=My Module
 description=A minimal example module
@@ -111,7 +111,7 @@ The `default` property controls whether the module is enabled by default in the 
 
 Modules follow a three-phase lifecycle:
 
-```
+```text title="Module Lifecycle"
 loadAll()     →  init(context)  →  enable()  →  disable()
               ↑                  ↑              ↑
               Per module,        After ALL       Reverse order
@@ -150,7 +150,7 @@ The `ModuleContext` is passed to `init()` and provides access to the Nimbus runt
 
 The `service<T>()` reified extension avoids passing `Class` objects:
 
-```kotlin
+```kotlin title="ModuleContext Extensions"
 import dev.kryonix.nimbus.module.service
 
 val eventBus = context.service<EventBus>()!!
@@ -161,7 +161,7 @@ val registry = context.service<ServiceRegistry>()!!
 
 Implement `ModuleCommand` to add commands to the Nimbus console:
 
-```kotlin
+```kotlin title="HelloCommand.kt"
 import dev.kryonix.nimbus.module.ModuleCommand
 
 class HelloCommand : ModuleCommand {
@@ -178,7 +178,7 @@ class HelloCommand : ModuleCommand {
 
 Register it during `init()`:
 
-```kotlin
+```kotlin title="Register Command"
 override suspend fun init(context: ModuleContext) {
     context.registerCommand(HelloCommand())
 }
@@ -186,7 +186,7 @@ override suspend fun init(context: ModuleContext) {
 
 The command is immediately available in the Nimbus console. To remove it later:
 
-```kotlin
+```kotlin title="Unregister Command"
 context.unregisterCommand("hello")
 ```
 
@@ -200,7 +200,7 @@ Register HTTP endpoints using the Ktor routing DSL. Routes are mounted on the Ni
 
 ### Route Registration
 
-```kotlin
+```kotlin title="Route Registration"
 import dev.kryonix.nimbus.module.AuthLevel
 
 override suspend fun init(context: ModuleContext) {
@@ -214,7 +214,7 @@ override suspend fun init(context: ModuleContext) {
 
 Define routes as an extension function on `Route`:
 
-```kotlin
+```kotlin title="Route Definition"
 import io.ktor.server.response.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
@@ -251,7 +251,7 @@ Modules can use the Exposed ORM to create tables and run queries. The `Database`
 
 ### Define Tables
 
-```kotlin
+```kotlin title="MyRecords.kt"
 import org.jetbrains.exposed.sql.Table
 
 object MyRecords : Table("my_module_records") {
@@ -267,7 +267,7 @@ object MyRecords : Table("my_module_records") {
 
 Use `DatabaseManager.createTables()` during init:
 
-```kotlin
+```kotlin title="Create Tables"
 override suspend fun init(context: ModuleContext) {
     val db = context.service<DatabaseManager>()!!
     db.createTables(MyRecords)
@@ -278,7 +278,7 @@ override suspend fun init(context: ModuleContext) {
 
 Use `transaction` with the database instance:
 
-```kotlin
+```kotlin title="Run Queries"
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 
@@ -312,7 +312,7 @@ Accessing core types requires `compileOnly(project(":nimbus-core"))` in your bui
 
 Example using `EventBus`:
 
-```kotlin
+```kotlin title="EventBus Subscription"
 import dev.kryonix.nimbus.event.EventBus
 import dev.kryonix.nimbus.event.Events
 import dev.kryonix.nimbus.module.service
@@ -329,19 +329,19 @@ override suspend fun init(context: ModuleContext) {
 ## Building and Deploying
 
 1. Build your module JAR:
-   ```bash
+   ```bash title="Terminal"
    ./gradlew jar
    ```
 
 2. Copy the JAR to the Nimbus `modules/` directory:
-   ```bash
+   ```bash title="Terminal"
    cp build/libs/my-module.jar /path/to/nimbus/modules/
    ```
 
 3. Restart Nimbus. The module is loaded automatically at startup.
 
 Module load/enable status is logged to the console:
-```
+```text title="Output"
 [INFO] Found 1 module JAR(s) in modules/
 [INFO] Loaded module: My Module v1.0.0 (my-module)
 [INFO] Initialized module: My Module
@@ -353,7 +353,7 @@ A module that tracks service uptime with a console command, REST endpoint, and d
 
 ### UptimeModule.kt
 
-```kotlin
+```kotlin title="UptimeModule.kt"
 package dev.example.uptime
 
 import dev.kryonix.nimbus.database.DatabaseManager
@@ -402,7 +402,7 @@ class UptimeModule : NimbusModule {
 
 ### UptimeRecords.kt
 
-```kotlin
+```kotlin title="UptimeRecords.kt"
 package dev.example.uptime
 
 import org.jetbrains.exposed.sql.Table
@@ -418,7 +418,7 @@ object UptimeRecords : Table("uptime_records") {
 
 ### UptimeStore.kt
 
-```kotlin
+```kotlin title="UptimeStore.kt"
 package dev.example.uptime
 
 import org.jetbrains.exposed.sql.*
@@ -460,7 +460,7 @@ data class UptimeEntry(val serviceName: String, val startedAt: Long, val stopped
 
 ### UptimeCommand.kt
 
-```kotlin
+```kotlin title="UptimeCommand.kt"
 package dev.example.uptime
 
 import dev.kryonix.nimbus.module.ModuleCommand
@@ -496,7 +496,7 @@ class UptimeCommand(private val db: Database) : ModuleCommand {
 
 ### UptimeRoutes.kt
 
-```kotlin
+```kotlin title="UptimeRoutes.kt"
 package dev.example.uptime
 
 import io.ktor.server.response.*
@@ -520,12 +520,12 @@ fun Route.uptimeRoutes(db: Database) {
 ### Resource Files
 
 **`src/main/resources/META-INF/services/dev.kryonix.nimbus.module.NimbusModule`**
-```
+```text title="META-INF/services/dev.kryonix.nimbus.module.NimbusModule"
 dev.example.uptime.UptimeModule
 ```
 
 **`src/main/resources/module.properties`**
-```properties
+```properties title="module.properties"
 id=uptime
 name=Uptime Tracker
 description=Tracks service start/stop times
@@ -534,7 +534,7 @@ default=false
 
 ### Project Structure
 
-```
+```text title="Directory Structure"
 my-uptime-module/
 ├── build.gradle.kts
 └── src/main/

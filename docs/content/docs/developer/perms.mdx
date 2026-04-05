@@ -17,7 +17,7 @@ The plugin entry point is `NimbusPermsPlugin` (`dev.kryonix.nimbus.perms.NimbusP
 
 On enable, it selects a `PermissionProvider` implementation, then starts the `ChatRenderer` and `NameTagHandler` display components. Player join/quit events are forwarded to all three systems.
 
-```
+```text title="Directory Structure"
 NimbusPermsPlugin
 ├── PermissionProvider (interface)
 │   ├── BuiltinProvider   → fetches from Nimbus REST API
@@ -32,7 +32,7 @@ NimbusPermsPlugin
 
 All providers implement `dev.kryonix.nimbus.perms.provider.PermissionProvider`:
 
-```java
+```java title="PermissionProvider.java"
 public interface PermissionProvider {
     void enable(NimbusPermsPlugin plugin);
     void disable();
@@ -108,7 +108,7 @@ Key behaviors:
 
 NimbusPerms uses a standard Bukkit `config.yml` with one key setting:
 
-```yaml
+```yaml title="YAML"
 # Permission provider: "builtin" or "luckperms"
 provider: builtin
 ```
@@ -117,7 +117,7 @@ The plugin is auto-deployed to backend servers by the Permissions module (instal
 
 ## How permissions sync
 
-```
+```text title="Directory Structure"
 Controller (nimbus-core)
   │
   ├── REST API: /api/permissions/players/{uuid}

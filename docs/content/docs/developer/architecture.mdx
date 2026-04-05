@@ -11,7 +11,7 @@ This page covers Nimbus's internal architecture for developers who want to under
 
 Nimbus is organized into twelve modules:
 
-```
+```text title="Module Structure"
 nimbus-core (Controller)
 ├── api/           → Ktor REST + WebSocket server
 ├── cluster/       → NodeManager, NodeConnection, PlacementStrategy, ClusterWebSocketHandler
@@ -103,7 +103,7 @@ nimbus-module-scaling (Smart Scaling Module)
 
 When Nimbus starts (`Nimbus.kt` → `nimbusMain()`), components are initialized in this order:
 
-```
+```text title="Bootstrap Order"
 1. Log rotation           → Rotate latest.log to dated archives
 2. Setup wizard           → First-run interactive setup (if needed)
 3. Config loading         → Parse config/nimbus.toml + config/groups/*.toml
@@ -145,7 +145,7 @@ The shutdown hook and console REPL provide two paths to shutdown: external signa
 
 Nimbus uses `kotlinx-coroutines` for all async work. No raw threads are created in the core module.
 
-```kotlin
+```kotlin title="Coroutine Setup"
 // Root scope with SupervisorJob (child failures don't cancel siblings)
 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -167,7 +167,7 @@ Key patterns:
 
 The event bus is the central communication backbone. All state changes are published as sealed class events.
 
-```kotlin
+```kotlin title="EventBus Usage"
 // Emitting an event (suspend function)
 eventBus.emit(NimbusEvent.ServiceReady(serviceName = "BedWars-1", groupName = "BedWars"))
 
@@ -219,7 +219,7 @@ Both implementations provide:
 
 ### Service states
 
-```
+```text title="Service State Machine"
 PREPARING → STARTING → READY → STOPPING → STOPPED
                  ↓                              ↑
                CRASHED ─── (restart?) ──────────┘
@@ -264,7 +264,7 @@ Plugin tracking (`.nimbus-plugins` file) ensures:
 
 When Nimbus shuts down:
 
-```
+```text title="Shutdown Order"
 1. Cancel scaling engine job
 2. Send graceful shutdown to all agents (if cluster enabled, wait up to 30s)
 3. Stop TCP load balancer (if enabled)

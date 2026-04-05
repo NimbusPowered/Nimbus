@@ -22,7 +22,7 @@ Each display config has three sections: sign layout, NPC appearance, and state l
 
 ### Complete Example
 
-```toml
+```toml title="config/modules/display/BedWars.toml"
 [display]
 name = "BedWars"
 
@@ -147,7 +147,7 @@ Plugins on your backend servers can set custom states via the Nimbus SDK (e.g., 
 
 You can add your own custom states:
 
-```toml
+```toml title="config/modules/display/BedWars.toml"
 [display.states]
 READY = "ONLINE"
 WAITING = "Waiting for players..."
@@ -189,11 +189,11 @@ Display configs are accessible via the REST API. All endpoints require bearer to
 
 ### Example Response
 
-```json
+```bash title="Terminal"
 GET /api/displays/BedWars
 ```
 
-```json
+```json title="Response"
 {
   "name": "BedWars",
   "sign": {

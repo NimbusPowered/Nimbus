@@ -18,7 +18,7 @@ The agent handles:
 
 ## Architecture
 
-```
+```text title="Directory Structure"
 nimbus-agent/src/main/kotlin/dev/nimbus/agent/
 ├── Agent.kt              → Entry point (main function), CLI arg parsing
 ├── AgentConfig.kt        → TOML config model + loader
@@ -43,7 +43,7 @@ All message handling uses `kotlinx-coroutines` with a `SupervisorJob` scope -- i
 
 `TemplateDownloader` fetches templates from the controller's REST API (`GET /api/templates/{name}/download`). Templates are identified by name and content hash.
 
-```
+```text title="Directory Structure"
 Agent requests template "Lobby" with hash "abc123"
   ├── Local cache has matching hash? → Skip download
   └── Hash mismatch or missing?
@@ -76,7 +76,7 @@ The `software` parameter is included in the download request so the controller c
 
 ## Building and running
 
-```bash
+```bash title="Terminal"
 # Build the agent fat JAR
 ./gradlew :nimbus-agent:shadowJar
 
@@ -96,7 +96,7 @@ java -jar nimbus-agent-<version>-all.jar \
 
 The agent is configured via `agent.toml` in the working directory:
 
-```toml
+```toml title="agent.toml"
 [agent]
 controller = "ws://127.0.0.1:8443/cluster"
 token = "your-cluster-token"

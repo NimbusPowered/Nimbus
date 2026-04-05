@@ -17,8 +17,7 @@ The SDK is **automatically deployed** to all backend servers (Paper, Purpur, Fol
 
 For development, add it as a compile-only dependency in your plugin project:
 
-```kotlin
-// build.gradle.kts
+```kotlin title="build.gradle.kts"
 compileOnly(files("libs/nimbus-sdk.jar"))
 ```
 
@@ -26,7 +25,7 @@ compileOnly(files("libs/nimbus-sdk.jar"))
 
 Call `Nimbus.init()` once in your plugin's `onEnable()`:
 
-```java
+```java title="Java"
 @Override
 public void onEnable() {
     Nimbus.init();
@@ -51,13 +50,13 @@ The SDK auto-discovers its identity from JVM system properties and environment v
 
 For external tools not running on a Nimbus server, use explicit initialization:
 
-```java
+```java title="Java"
 Nimbus.init("http://127.0.0.1:8080", "your-api-token");
 ```
 
 ## Quick reference
 
-```java
+```java title="Java"
 // Identity
 String name = Nimbus.name();           // "BedWars-1"
 String group = Nimbus.group();         // "BedWars"
@@ -97,7 +96,7 @@ ServiceCache cache = Nimbus.cache();
 
 Custom states control how the scaling engine and router treat a service. A service with a custom state is **not routable** -- it won't receive new players and doesn't count toward scaling capacity.
 
-```java
+```java title="BedWarsGame.java"
 // Game lifecycle example:
 public class BedWarsGame {
 
@@ -137,7 +136,7 @@ State names are arbitrary strings -- use whatever makes sense for your game mode
 
 The SDK provides smart player routing with three strategies:
 
-```java
+```java title="Java"
 // Send player to the server with the fewest players (spread evenly)
 Nimbus.route("Steve", "BedWars", RoutingStrategy.LEAST_PLAYERS);
 
@@ -150,7 +149,7 @@ Nimbus.route("Steve", "BedWars", RoutingStrategy.RANDOM);
 
 `route()` returns a `CompletableFuture<NimbusService>` with the service the player was sent to:
 
-```java
+```java title="Java"
 Nimbus.route("Steve", "BedWars", RoutingStrategy.LEAST_PLAYERS)
     .thenAccept(service -> {
         if (service != null) {
@@ -163,7 +162,7 @@ Nimbus.route("Steve", "BedWars", RoutingStrategy.LEAST_PLAYERS)
 
 For cache-based routing (no API call, instant):
 
-```java
+```java title="Java"
 NimbusService best = Nimbus.bestServer("BedWars", RoutingStrategy.LEAST_PLAYERS);
 if (best != null) {
     Nimbus.client().sendPlayer("Steve", best.getName());
@@ -174,7 +173,7 @@ if (best != null) {
 
 Use the router directly for custom filtering:
 
-```java
+```java title="Java"
 ServiceRouter router = Nimbus.router();
 
 // Only route to servers with fewer than 15 players
@@ -190,7 +189,7 @@ router.findBestGlobal(RoutingStrategy.LEAST_PLAYERS,
 
 The `ServiceCache` maintains a real-time view of all services, updated via WebSocket events. All `Nimbus.services()` and `Nimbus.routable()` calls read from this cache -- no HTTP call required.
 
-```java
+```java title="Java"
 ServiceCache cache = Nimbus.cache();
 
 // Query (instant, from cache)
@@ -216,7 +215,7 @@ cache.onAnyChange(services -> {
 
 The `PlayerTracker` polls player counts and fires callbacks when they change:
 
-```java
+```java title="Java"
 // React to player count changes
 Nimbus.onPlayers("BedWars", (group, count) -> {
     updateHologram("BedWars: " + count + " playing");
@@ -225,7 +224,7 @@ Nimbus.onPlayers("BedWars", (group, count) -> {
 
 Or use the tracker directly for more control:
 
-```java
+```java title="Java"
 PlayerTracker tracker = new PlayerTracker(Nimbus.client(), 2); // poll every 2 seconds
 tracker.start();
 
@@ -246,7 +245,7 @@ int total = tracker.getTotalPlayers();
 
 The SDK automatically reports player counts to the controller on join/leave events. If you need to manually trigger a report (e.g., after a custom player tracking change):
 
-```java
+```java title="Java"
 Nimbus.reportPlayerCount();
 ```
 
@@ -256,7 +255,7 @@ Nimbus.reportPlayerCount();
 
 Type-safe event handling with auto-deserialization:
 
-```java
+```java title="Java"
 import dev.kryonix.nimbus.sdk.event.*;
 
 Nimbus.on(ServiceReadyEvent.class, event -> {
@@ -301,7 +300,7 @@ Available typed events:
 
 For events without a typed wrapper:
 
-```java
+```java title="Java"
 Nimbus.on("GROUP_CREATED", event -> {
     String groupName = event.get("group");
     System.out.println("New group: " + groupName);
@@ -312,7 +311,7 @@ Nimbus.on("GROUP_CREATED", event -> {
 
 React to group-level changes:
 
-```java
+```java title="Java"
 // Called when BedWars services change (start, stop, state change)
 Nimbus.onChange("BedWars", services -> {
     int available = (int) services.stream()
@@ -326,7 +325,7 @@ Nimbus.onChange("BedWars", services -> {
 
 Send messages between services on named channels:
 
-```java
+```java title="Java"
 // Send a message to a specific service
 Nimbus.message("Lobby-1", "game_ended", Map.of(
     "winner", "Steve",
@@ -340,7 +339,7 @@ Nimbus.message("Lobby-1", "restart_warning");
 
 Listen for messages on the receiving service:
 
-```java
+```java title="Java"
 Nimbus.on(ServiceMessageEvent.class, event -> {
     if ("game_ended".equals(event.getChannel())) {
         String winner = event.getData().get("winner");
@@ -363,7 +362,7 @@ This is handled automatically by the SDK plugin -- no code needed in your game p
 
 Access group display configs (used by signs and NPCs) from the API:
 
-```java
+```java title="Java"
 NimbusDisplay display = Nimbus.client().getDisplay("BedWars").join();
 
 String line1 = display.getSignLine1();         // "&1&l★ BedWars ★"
@@ -374,7 +373,7 @@ String state = display.resolveState("INGAME"); // "In Game" (from display config
 
 All service queries return `NimbusService` instances:
 
-```java
+```java title="Java"
 NimbusService service = Nimbus.cache().get("BedWars-1");
 
 service.getName();         // "BedWars-1"

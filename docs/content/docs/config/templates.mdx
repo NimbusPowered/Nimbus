@@ -9,7 +9,7 @@ Templates are the blueprints for server instances. Each template is a directory 
 
 ## Directory Structure
 
-```
+```text title="Directory Structure"
 templates/
   Proxy/              # Template for the Proxy group
     velocity.jar
@@ -34,7 +34,7 @@ templates/
 
 Each group config references a template by name via the `template` field in its [group configuration](/docs/config/groups):
 
-```toml
+```toml title="config/groups/BedWars.toml"
 [group]
 name = "BedWars"
 template = "BedWars"
@@ -73,7 +73,7 @@ Large directories that are read-only at runtime (such as `libraries/`) are symli
 The following directories are automatically symlinked:
 - `libraries/`
 
-```
+```text title="Directory Structure"
 services/ModdedSMP-1/
   libraries/ -> /absolute/path/to/templates/ModdedSMP/libraries/
   server.jar
@@ -243,7 +243,7 @@ Global overlays are applied **after** the group-specific template, so they overw
 - Common configuration files
 - Network-wide resource packs
 
-```
+```text title="Directory Structure"
 templates/
   global/
     plugins/

@@ -15,7 +15,7 @@ All cluster communication uses JSON-serialized messages with a `type` discrimina
 - `dev.kryonix.nimbus.protocol.ServiceHeartbeat` -- Data class for per-service status in heartbeats
 - `dev.kryonix.nimbus.protocol.clusterJson` -- Pre-configured `kotlinx.serialization.json.Json` instance
 
-```kotlin
+```kotlin title="Kotlin"
 val clusterJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
@@ -76,7 +76,7 @@ The `ServiceHandle` interface (`dev.kryonix.nimbus.service.ServiceHandle` in `ni
 
 ### Starting a service on a remote node
 
-```
+```text title="Directory Structure"
 Controller                          Agent
     │                                 │
     ├── StartService ───────────────→ │
@@ -92,7 +92,7 @@ Controller                          Agent
 
 ### Heartbeat cycle
 
-```
+```text title="Directory Structure"
 Controller                          Agent
     │                                 │
     ├── HeartbeatRequest ───────────→ │
@@ -102,7 +102,7 @@ Controller                          Agent
 
 ### Graceful shutdown
 
-```
+```text title="Directory Structure"
 Controller                          Agent
     │                                 │
     ├── ShutdownAgent ──────────────→ │

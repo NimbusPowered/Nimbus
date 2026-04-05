@@ -16,7 +16,7 @@ The Smart Scaling module (`nimbus-module-scaling`) adds proactive, time-based sc
 
 ## Architecture
 
-```
+```text title="Directory Structure"
 nimbus-module-scaling/
 ├── SmartScalingModule.kt          # NimbusModule: lifecycle, background loops
 ├── SmartScalingManager.kt         # Core logic: schedules, predictions, warmup
@@ -62,7 +62,7 @@ Both tables are auto-pruned after 90 days.
 
 Each group gets a TOML file at `config/modules/scaling/<GroupName>.toml`:
 
-```toml
+```toml title="config/groups/*.toml"
 [schedule]
 enabled = true
 timezone = "Europe/Berlin"
@@ -147,7 +147,7 @@ All endpoints require service-level authentication (default).
 
 ## Console commands
 
-```
+```text title="Output"
 scaling status                    # Active schedules + recent decisions
 scaling schedule list             # All rules
 scaling schedule info <group>     # Rules for a group

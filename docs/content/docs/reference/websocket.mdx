@@ -12,12 +12,12 @@ Nimbus provides two WebSocket endpoints for real-time communication: a global ev
 WebSocket connections support two authentication methods:
 
 **1. Authorization header (recommended):**
-```
+```text title="Header"
 Authorization: Bearer your-secret-token
 ```
 
 **2. Query parameter (legacy, for clients that cannot set headers):**
-```
+```text title="Query Parameter"
 ws://host:port/api/events?token=your-secret-token
 ws://host:port/api/services/Lobby-1/console?token=your-secret-token
 ```
@@ -36,7 +36,7 @@ If authentication fails, the connection is immediately closed with code `1008` (
 
 Subscribes to all Nimbus events in real-time. Messages are JSON-encoded `EventMessage` objects:
 
-```json
+```json title="Event Payload"
 {
   "type": "SERVICE_READY",
   "timestamp": "2025-01-15T10:30:15.123Z",
@@ -51,7 +51,7 @@ The connection receives every event emitted by the system. See the [Event Refere
 
 ### Connection Example (JavaScript)
 
-```javascript
+```javascript title="Event Stream Client"
 const token = 'your-secret-token';
 const ws = new WebSocket(`ws://localhost:8080/api/events?token=${token}`);
 
@@ -83,7 +83,7 @@ ws.onclose = (event) => {
 
 ### Connection Example (Python)
 
-```python
+```python title="Event Stream Client"
 import asyncio
 import json
 import websockets
@@ -126,7 +126,7 @@ Bidirectional WebSocket for interacting with a service's process. Receive stdout
 
 ### Example (JavaScript)
 
-```javascript
+```javascript title="Console Client"
 const token = 'your-secret-token';
 const service = 'Lobby-1';
 const ws = new WebSocket(
@@ -158,7 +158,7 @@ sendCommand('say Server restarting in 5 minutes!');
 
 ### Example (Python)
 
-```python
+```python title="Console Client"
 import asyncio
 import websockets
 
@@ -195,7 +195,7 @@ WebSocket endpoint for agent node connections. Used by `nimbus-agent` to communi
 
 The first message from the agent must be an `AUTH_REQUEST`:
 
-```json
+```json title="AUTH_REQUEST"
 {
   "type": "AUTH_REQUEST",
   "nodeName": "node-1",
@@ -210,7 +210,7 @@ The first message from the agent must be an `AUTH_REQUEST`:
 
 The controller responds with:
 
-```json
+```json title="AUTH_RESPONSE"
 {
   "type": "AUTH_RESPONSE",
   "success": true,
@@ -263,7 +263,7 @@ WebSocket settings are configured in Nimbus's Ktor server:
 
 Nimbus does not provide built-in reconnection. Clients should implement their own reconnection logic with exponential backoff:
 
-```javascript
+```javascript title="Reconnection Helper"
 function connectWithRetry(url, maxRetries = 10) {
   let retries = 0;
 

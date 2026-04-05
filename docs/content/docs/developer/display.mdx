@@ -15,7 +15,7 @@ The Display plugin requires **Spigot 1.13+** (signs) through the **latest Paper/
 
 The display plugin is auto-deployed to all backend servers along with its dependency **FancyNpcs**. Both JARs are embedded in nimbus-core and deployed on startup:
 
-```
+```text title="Output"
 templates/global/plugins/
   nimbus-display.jar     # Auto-deployed
   FancyNpcs.jar          # Auto-deployed (required for NPCs)
@@ -55,7 +55,7 @@ The unified command is `/ndisplay` (alias: `/nimbusdisplay`).
 
 ## Creating NPCs
 
-```
+```text title="Output"
 /ndisplay npc set BedWars                         # Villager NPC
 /ndisplay npc set BedWars least PLAYER Notch       # Player NPC with skin
 /ndisplay npc set BedWars fill ZOMBIE              # Zombie NPC
@@ -113,7 +113,7 @@ All properties can be changed live with `/ndisplay npc edit`. The NPC respawns i
 
 Signs and NPC holograms pull their templates from `config/modules/display/<group>.toml`. The floating item material is also defined per group:
 
-```toml
+```toml title="config/groups/*.toml"
 [display.npc]
 display_name = "&b&lBedWars"
 subtitle = "&7{players}/{max_players} online &8| &7{state}"
@@ -132,7 +132,7 @@ When a player triggers the `INVENTORY` action, a chest GUI opens showing all ser
 
 Inventory appearance is configurable in the display config:
 
-```toml
+```toml title="config/groups/*.toml"
 [display.npc.inventory]
 title = "&8» &b&lBedWars Servers"
 size = 27
@@ -144,7 +144,7 @@ item_lore = ["&7Players: &f{players}/{max_players}", "&7State: &f{state}", "", "
 
 NPC and sign configurations are stored in the plugin's `config.yml`:
 
-```yaml
+```yaml title="YAML"
 npcs:
   bedwars-npc-10-65-5:
     target: BedWars

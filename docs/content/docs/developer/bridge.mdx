@@ -15,7 +15,7 @@ If you remove the JAR, Nimbus tracks this and won't re-deploy it.
 
 The bridge reads its API connection from `plugins/nimbus-bridge/bridge.json`:
 
-```json
+```json title="JSON"
 {
   "api_url": "http://127.0.0.1:8080",
   "token": "your-api-token"
@@ -175,7 +175,7 @@ All proxy sync settings are updated in real-time via WebSocket events:
 
 ## Architecture
 
-```
+```text title="Directory Structure"
 NimbusBridgePlugin (entry point)
 ├── CloudCommand          Uses NimbusApiClient + NimbusClient (SDK)
 ├── HubCommand            Uses ProxyServer to find lobby

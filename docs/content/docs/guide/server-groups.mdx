@@ -17,7 +17,7 @@ Static groups create **persistent** services that keep their data between restar
 - Server files (worlds, configs, plugins) persist in `services/static/<ServiceName>/`
 - Ideal for: proxies, lobbies, survival servers, build servers
 
-```toml
+```toml title="Configuration"
 [group]
 name = "Lobby"
 type = "STATIC"
@@ -34,7 +34,7 @@ Dynamic groups create **ephemeral** services that start fresh every time.
 - Instance count is managed by the [scaling engine](/docs/guide/scaling)
 - Ideal for: minigames, game servers, event servers
 
-```toml
+```toml title="config/modules/scaling/*.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -52,7 +52,7 @@ You can convert between static and dynamic at runtime using the `static` and `dy
 
 The `create` console command walks you through group creation:
 
-```
+```text title="Output"
 nimbus> create
 ```
 
@@ -62,13 +62,13 @@ It prompts for name, software, version, type, memory, and scaling parameters, th
 
 Create a file in the `config/groups/` directory named after your group (lowercase):
 
-```
+```text title="Output"
 config/groups/bedwars.toml
 ```
 
 Full example:
 
-```toml
+```toml title="config/groups/bedwars.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -97,7 +97,7 @@ optimize = true
 
 ### Via REST API
 
-```bash
+```bash title="Terminal"
 # Create a group via the API
 curl -X POST http://127.0.0.1:8080/api/groups \
   -H "Authorization: Bearer <token>" \
@@ -138,7 +138,7 @@ Service names are auto-generated. The number is the next available integer for t
 
 For `CUSTOM` software, set the `jar_name` field:
 
-```toml
+```toml title="Configuration"
 [group]
 name = "CustomServer"
 software = "CUSTOM"
@@ -147,7 +147,7 @@ jar_name = "server.jar"
 
 ### Resources
 
-```toml
+```toml title="Configuration"
 [group.resources]
 memory = "2G"          # JVM heap size (-Xmx)
 max_players = 50       # Server max player slots
@@ -155,7 +155,7 @@ max_players = 50       # Server max player slots
 
 ### Scaling
 
-```toml
+```toml title="config/modules/scaling/*.toml"
 [group.scaling]
 min_instances = 1          # Always keep at least this many running
 max_instances = 4          # Never exceed this many instances
@@ -168,7 +168,7 @@ See [Auto-Scaling Guide](/docs/guide/scaling) for a detailed explanation.
 
 ### Lifecycle
 
-```toml
+```toml title="config/modules/scaling/*.toml"
 [group.lifecycle]
 stop_on_empty = false      # Stop the service when all players leave
 restart_on_crash = true    # Auto-restart if the process crashes
@@ -181,7 +181,7 @@ max_restarts = 5           # Max consecutive restart attempts before giving up
 
 ### JVM & Performance
 
-```toml
+```toml title="Configuration"
 [group.jvm]
 optimize = true    # Aikar's flags + config tuning (default)
 ```
@@ -213,7 +213,7 @@ You never need to configure ports manually. The `PortAllocator` tracks used port
 
 Each group has a template directory under `templates/`:
 
-```
+```text title="Output"
 templates/
   Lobby/           # Template for the Lobby group
     plugins/
@@ -241,7 +241,7 @@ The `nimbus-sdk.jar` and `nimbus-bridge.jar` plugins are automatically deployed 
 
 The `reload` command re-reads all group configs without restarting Nimbus:
 
-```
+```text title="Nimbus"
 nimbus> reload
 ```
 
@@ -258,7 +258,7 @@ Removing a group file while services are still running does not stop those servi
 
 The `import` command lets you import a Modrinth modpack as a new server group:
 
-```
+```text title="Output"
 nimbus> import adrenaserver
 nimbus> import https://modrinth.com/modpack/cobblemon
 nimbus> import /path/to/modpack.mrpack
@@ -272,7 +272,7 @@ The `update` command lets you change a group's Minecraft version or server softw
 
 ### Update the Minecraft version
 
-```
+```text title="Nimbus"
 nimbus> update Lobby version 1.21.5
 ```
 
@@ -280,13 +280,13 @@ For modded servers (Forge, NeoForge, Fabric), Nimbus also resolves the latest ma
 
 ### Switch server software
 
-```
+```text title="Output"
 nimbus> update Lobby software purpur
 ```
 
 You can also switch software and version at the same time:
 
-```
+```text title="Output"
 nimbus> update Lobby software purpur 1.21.5
 ```
 
@@ -294,7 +294,7 @@ nimbus> update Lobby software purpur 1.21.5
 
 Run `update <group>` without arguments for an interactive wizard that shows available versions and compatible software options:
 
-```
+```text title="Output"
 nimbus> update Lobby
 ```
 
@@ -320,19 +320,19 @@ After updating, restart running services to apply the changes: `restart Lobby-1`
 
 Convert a dynamic group to static (preserves instance data):
 
-```
+```text title="Output"
 nimbus> static group BedWars
 ```
 
 Convert a static group to dynamic (future instances will be ephemeral):
 
-```
+```text title="Output"
 nimbus> dynamic BedWars
 ```
 
 You can also convert an individual running service to static:
 
-```
+```text title="Nimbus"
 nimbus> static service BedWars-1
 ```
 

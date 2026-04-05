@@ -26,7 +26,7 @@ Nimbus supports two permission providers, configured per-server in the NimbusPer
 
 The built-in system stores everything on the Nimbus controller's database. Backend servers fetch permissions via the Nimbus API — no additional setup needed on individual servers.
 
-```yaml
+```yaml title="plugins/NimbusPerms/config.yml"
 # nimbus-perms config.yml
 provider: builtin
 ```
@@ -41,7 +41,7 @@ provider: builtin
 
 Use [LuckPerms](https://luckperms.net/) as the permission engine. Nimbus reads display data (prefix, suffix) from LuckPerms and syncs it to the controller for proxy features (tab list, chat formatting, nametags).
 
-```yaml
+```yaml title="plugins/NimbusPerms/config.yml"
 # nimbus-perms config.yml
 provider: luckperms
 ```
@@ -74,7 +74,7 @@ During the initial setup, Nimbus asks which modules to install. If the **Permiss
 
 Permissions are stored in the controller database, configurable via the `[database]` section in `config/nimbus.toml`:
 
-```toml
+```toml title="config/nimbus.toml"
 [database]
 type = "sqlite"  # or mysql, postgresql
 ```
@@ -137,7 +137,7 @@ When checking a player's permissions:
 
 Prefix a permission with `-` to deny it:
 
-```
+```bash title="Terminal"
 perms group addperm Moderator nimbus.*
 perms group addperm Moderator -nimbus.cloud.shutdown
 ```
@@ -148,7 +148,7 @@ perms group addperm Moderator -nimbus.cloud.shutdown
 
 Tracks define ordered promotion/demotion paths through groups.
 
-```
+```bash title="Terminal"
 perms track create staff Member,Moderator,Admin
 perms user promote Steve staff     # Member → Moderator
 perms user promote Steve staff     # Moderator → Admin
@@ -163,7 +163,7 @@ A player can only be on one group per track at a time. Promoting removes the cur
 
 Arbitrary key-value pairs on groups and players. Useful for custom data that plugins can read via the API.
 
-```
+```bash title="Terminal"
 perms group meta set VIP color gold
 perms group meta set VIP icon star
 perms user meta set Steve coins 500
@@ -177,7 +177,7 @@ perms user meta list Steve
 
 The `check` command explains **why** a permission is granted or denied:
 
-```
+```bash title="Terminal"
 perms user check Steve nimbus.cloud.list
 ```
 
@@ -189,7 +189,7 @@ Output shows the resolution chain — which group granted it, via exact match or
 
 All permission changes are logged with timestamp, actor, action, and details:
 
-```
+```bash title="Terminal"
 perms audit          # last 20 entries
 perms audit 50       # last 50 entries
 ```
@@ -306,7 +306,7 @@ All endpoints require bearer token authentication.
 
 ## Architecture
 
-```
+```text title="Architecture"
                     Nimbus Controller
                  ┌─────────────────────┐
                  │  PermissionManager   │
@@ -333,7 +333,7 @@ All endpoints require bearer token authentication.
 
 ### Quick Start
 
-```
+```bash title="Terminal"
 perms group create VIP
 perms group addperm VIP essentials.fly
 perms group addperm VIP essentials.hat

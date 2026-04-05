@@ -23,7 +23,7 @@ Only **backend groups** receive simulated players. Proxy groups are excluded fro
 
 ### Start a test
 
-```bash
+```bash title="Terminal"
 # Simulate 100 players across all backend groups
 nimbus> stress start 100
 
@@ -36,7 +36,7 @@ nimbus> stress start 500 --ramp 60
 
 ### Check status
 
-```bash
+```bash title="Terminal"
 nimbus> stress status
 ```
 
@@ -44,7 +44,7 @@ Shows active test details: total simulated players, capacity, and per-service br
 
 ### Adjust mid-test
 
-```bash
+```bash title="Terminal"
 # Ramp to a new target without stopping
 nimbus> stress ramp 300
 
@@ -54,7 +54,7 @@ nimbus> stress ramp 300 --duration 30
 
 ### Stop
 
-```bash
+```bash title="Terminal"
 nimbus> stress stop
 ```
 
@@ -64,7 +64,7 @@ All simulated players are removed and services return to normal.
 
 The bridge plugin exposes stress testing via `/cloud stress`:
 
-```
+```text title="Output"
 /cloud stress start 100 Lobby 30
 /cloud stress stop
 /cloud stress ramp 200 60
@@ -90,7 +90,7 @@ All endpoints require bearer token authentication.
 
 ### Start via API
 
-```bash
+```bash title="Terminal"
 curl -X POST http://127.0.0.1:8080/api/stress/start \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -99,12 +99,12 @@ curl -X POST http://127.0.0.1:8080/api/stress/start \
 
 ### Check status via API
 
-```bash
+```bash title="Terminal"
 curl http://127.0.0.1:8080/api/stress \
   -H "Authorization: Bearer <token>"
 ```
 
-```json
+```json title="JSON"
 {
   "active": true,
   "totalPlayers": 100,
@@ -120,7 +120,7 @@ curl http://127.0.0.1:8080/api/stress \
 
 ### Ramp via API
 
-```bash
+```bash title="Terminal"
 curl -X POST http://127.0.0.1:8080/api/stress/ramp \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -143,7 +143,7 @@ This means you can validate your entire scaling pipeline -- from scale-up thresh
 
 Run progressively larger tests and watch server performance:
 
-```bash
+```bash title="Terminal"
 nimbus> stress start 50 BedWars --ramp 30
 # Monitor TPS via screen command
 nimbus> screen BedWars-1
@@ -155,7 +155,7 @@ nimbus> stress ramp 100 --duration 30
 
 ### Testing scale-up and scale-down
 
-```bash
+```bash title="Terminal"
 # 1. Start with your normal config and ramp to trigger scaling
 nimbus> stress start 200 Lobby --ramp 60
 
@@ -173,7 +173,7 @@ nimbus> status
 
 Use `screen` to attach to a service console and watch TPS, memory, and tick times:
 
-```bash
+```bash title="Terminal"
 nimbus> screen Lobby-1
 # Press Ctrl+C to detach
 ```

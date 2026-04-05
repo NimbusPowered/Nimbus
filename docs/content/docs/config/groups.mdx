@@ -11,7 +11,7 @@ Group configs can be hot-reloaded at runtime using the `reload` console command.
 
 ## Complete Example
 
-```toml
+```toml title="config/groups/BedWars.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -87,13 +87,13 @@ Auto-scaling behavior for dynamic groups. Ignored for static groups.
 The scaling engine runs every `heartbeat_interval` milliseconds (configured in [nimbus.toml](/docs/config/nimbus-toml#controller)) and evaluates each dynamic group:
 
 **Scale Up** - A new instance starts when:
-```
+```text title="Scale Up"
 fill_rate = total_players / (routable_instances * players_per_instance)
 fill_rate > scale_threshold AND current_instances < max_instances
 ```
 
 **Scale Down** - An empty instance stops when:
-```
+```text title="Scale Down"
 instance_players == 0
 AND seconds_idle > idle_timeout
 AND idle_timeout > 0
@@ -106,7 +106,7 @@ Services with a custom state (e.g., `INGAME`, `ENDING`) are excluded from capaci
 
 ### Example: High-Volume Game Server
 
-```toml
+```toml title="config/groups/BedWars.toml"
 [group.scaling]
 min_instances = 2       # Always have 2 ready
 max_instances = 20      # Scale up to 20
@@ -147,7 +147,7 @@ When `optimize = true` (the default), Nimbus automatically:
 
 Three modes:
 
-```toml
+```toml title="config/groups/*.toml"
 # Mode 1: Full auto (default) — Aikar's flags + config tuning
 [group.jvm]
 optimize = true
@@ -180,7 +180,7 @@ optimize = false
 
 ### Proxy (Velocity)
 
-```toml
+```toml title="config/groups/Proxy.toml"
 [group]
 name = "Proxy"
 type = "STATIC"
@@ -210,7 +210,7 @@ Proxy ports start at 25565. Backend ports start at 30000. Port allocation is aut
 
 ### Lobby
 
-```toml
+```toml title="config/groups/Lobby.toml"
 [group]
 name = "Lobby"
 type = "STATIC"
@@ -239,7 +239,7 @@ optimize = true
 
 ### Game Server (BedWars)
 
-```toml
+```toml title="config/groups/BedWars.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -269,7 +269,7 @@ optimize = true
 
 ### Modded Server (Forge)
 
-```toml
+```toml title="config/groups/ModdedSMP.toml"
 [group]
 name = "ModdedSMP"
 type = "STATIC"
@@ -296,7 +296,7 @@ optimize = true
 
 ### Fabric Server
 
-```toml
+```toml title="config/groups/FabricSMP.toml"
 [group]
 name = "FabricSMP"
 type = "STATIC"
@@ -322,7 +322,7 @@ optimize = true
 
 ### Folia Server (Regionized Multithreading)
 
-```toml
+```toml title="config/groups/FoliaLobby.toml"
 [group]
 name = "FoliaLobby"
 type = "STATIC"
@@ -352,7 +352,7 @@ Folia uses regionized multithreading, which breaks most Bukkit/Paper plugins. On
 
 ### Custom Server Software
 
-```toml
+```toml title="config/groups/CustomServer.toml"
 [group]
 name = "CustomServer"
 type = "STATIC"

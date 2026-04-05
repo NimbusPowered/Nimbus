@@ -11,13 +11,13 @@ Nimbus exposes a REST API (v0.2) built on Ktor. The API is optional and can be e
 
 All endpoints except `/api/health` require a Bearer token:
 
-```http
+```http title="Request"
 Authorization: Bearer <your-token>
 ```
 
 Configure the token in `config/nimbus.toml`:
 
-```toml
+```toml title="config/nimbus.toml"
 [api]
 enabled = true
 bind = "0.0.0.0"
@@ -50,7 +50,7 @@ The API enforces **per-IP** rate limits: **120 requests/minute** globally and **
 
 All responses use JSON. Error responses follow a consistent format:
 
-```json
+```json title="Error Response"
 {
   "success": false,
   "message": "Description of what went wrong",
@@ -95,7 +95,7 @@ Public endpoint (no authentication required). Use for monitoring and health chec
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "status": "ok",
   "version": "0.2.0",
@@ -127,14 +127,14 @@ List all services. Supports filtering by group, state, and custom state.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/services?group=Lobby&state=READY"
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "services": [
     {
@@ -171,7 +171,7 @@ Aggregated health summary across all services. Useful for monitoring dashboards.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "totalServices": 5,
   "readyServices": 4,
@@ -209,7 +209,7 @@ Get details for a specific service.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/services/Lobby-1
 ```
@@ -229,14 +229,14 @@ Start a new instance of a group. The `{name}` parameter is the **group name**, n
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/services/BedWars/start
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Service 'BedWars-3' starting on port 30005"
@@ -257,14 +257,14 @@ Gracefully stop a running service.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/services/BedWars-3/stop
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Service 'BedWars-3' stopped"
@@ -285,14 +285,14 @@ Stop and restart a service. Returns a new service instance.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/services/Lobby-1/restart
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Service restarted as 'Lobby-1' on port 30001"
@@ -313,7 +313,7 @@ Execute a command on a service's stdin.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "command": "say Hello from the API!"
 }
@@ -321,7 +321,7 @@ Execute a command on a service's stdin.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"command": "say Hello!"}' \
@@ -330,7 +330,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "service": "Lobby-1",
@@ -351,7 +351,7 @@ Set a custom state on a service. Used by game plugins via the SDK to signal stat
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "customState": "INGAME"
 }
@@ -359,7 +359,7 @@ Set a custom state on a service. Used by game plugins via the SDK to signal stat
 
 Set to `null` to clear the custom state:
 
-```json
+```json title="Request Body"
 {
   "customState": null
 }
@@ -367,7 +367,7 @@ Set to `null` to clear the custom state:
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "service": "BedWars-1",
   "customState": "INGAME"
@@ -388,7 +388,7 @@ Get the current custom state of a service.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "service": "BedWars-1",
   "customState": "INGAME"
@@ -414,14 +414,14 @@ Get recent log lines from the service's `logs/latest.log`.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/services/Lobby-1/logs?lines=50"
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "service": "Lobby-1",
   "lines": [
@@ -445,7 +445,7 @@ Send a message to a service (service-to-service messaging via the event bus).
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "from": "BedWars-1",
   "channel": "game_end",
@@ -458,7 +458,7 @@ Send a message to a service (service-to-service messaging via the event bus).
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Message sent to 'Lobby-1' on channel 'game_end'"
@@ -478,7 +478,7 @@ Report the current player count for a service. Used internally by the SDK on bac
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "playerCount": 12
 }
@@ -486,7 +486,7 @@ Report the current player count for a service. Used internally by the SDK on bac
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "service": "Lobby-1",
   "playerCount": 12
@@ -508,14 +508,14 @@ List all configured server groups.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/groups
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "groups": [
     {
@@ -567,7 +567,7 @@ Create a new server group. Writes a TOML config file and reloads.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "name": "SkyWars",
   "type": "DYNAMIC",
@@ -641,7 +641,7 @@ Update a group's configuration. Same request body as POST.
 
 Delete a group. Fails if the group has running instances.
 
-```bash
+```bash title="Terminal"
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/groups/SkyWars
 ```
@@ -662,7 +662,7 @@ Full cluster overview.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "networkName": "MyNetwork",
   "online": true,
@@ -691,7 +691,7 @@ List all connected players. Pings each READY service in parallel via Server List
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "players": [
     {
@@ -715,7 +715,7 @@ Transfer a player to another service via the Velocity proxy.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "targetService": "Lobby-1"
 }
@@ -723,7 +723,7 @@ Transfer a player to another service via the Velocity proxy.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"targetService": "Lobby-1"}' \
@@ -744,7 +744,7 @@ Kick a player from the network via the Velocity proxy.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "reason": "You have been kicked from the network."
 }
@@ -754,7 +754,7 @@ The `reason` field is optional and defaults to `"You have been kicked from the n
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "Breaking the rules."}' \
@@ -775,7 +775,7 @@ Broadcast a message to all running services, or to a specific group.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "message": "Server restarting in 5 minutes!",
   "group": "Lobby"
@@ -788,7 +788,7 @@ Backend servers receive the message via `/say`, proxy servers via `velocity broa
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Broadcast sent to 4/4 services in network",
@@ -798,7 +798,7 @@ Backend servers receive the message via `/say`, proxy servers via `velocity broa
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": "Maintenance in 10 minutes!"}' \
@@ -829,7 +829,7 @@ Returns paginated audit log entries. Admin-only.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "entries": [
     {
@@ -855,7 +855,7 @@ List all permission groups.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "groups": [
     {
@@ -891,7 +891,7 @@ Create a new permission group.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "name": "vip",
   "default": false
@@ -912,7 +912,7 @@ Update a permission group. All fields are optional -- only provided fields are c
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "default": false,
   "prefix": "&a[VIP] ",
@@ -951,7 +951,7 @@ Add a single permission to a group.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "permission": "nimbus.join.full"
 }
@@ -970,7 +970,7 @@ Remove a single permission from a group.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "permission": "nimbus.join.full"
 }
@@ -989,7 +989,7 @@ Get all metadata key-value pairs for a permission group.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "meta": {
     "chat-color": "gold",
@@ -1011,7 +1011,7 @@ Set a metadata key-value pair on a permission group.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "key": "chat-color",
   "value": "gold"
@@ -1031,7 +1031,7 @@ Remove a metadata key from a permission group.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/permissions/groups/vip/meta/chat-color
 ```
@@ -1049,7 +1049,7 @@ Get a player's permission data, including effective permissions resolved from al
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
   "name": "Steve",
@@ -1074,7 +1074,7 @@ Register or update a player. Typically called on player join.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "name": "Steve"
 }
@@ -1090,7 +1090,7 @@ Add a permission group to a player.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "group": "vip",
   "name": "Steve"
@@ -1112,7 +1112,7 @@ Remove a permission group from a player.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "group": "vip"
 }
@@ -1131,7 +1131,7 @@ Get all metadata key-value pairs for a player.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "meta": {
     "nickname": "Steve the Builder",
@@ -1148,7 +1148,7 @@ Set a metadata key-value pair on a player.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "key": "nickname",
   "value": "Steve the Builder"
@@ -1168,7 +1168,7 @@ Remove a metadata key from a player.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/permissions/players/550e8400-e29b-41d4-a716-446655440000/meta/nickname
 ```
@@ -1186,14 +1186,14 @@ Check if a player has a specific permission.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/permissions/check/550e8400-e29b-41d4-a716-446655440000/nimbus.admin
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
   "permission": "nimbus.admin",
@@ -1216,14 +1216,14 @@ Get the permission audit log. Records all permission changes made via the API or
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/permissions/audit?limit=20&offset=0"
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "entries": [
     {
@@ -1248,7 +1248,7 @@ List all display configurations (signs, NPCs).
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "displays": [
     {
@@ -1296,14 +1296,14 @@ Resolve a raw custom state to its display label.
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/displays/BedWars/state/INGAME
 ```
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "raw": "INGAME",
   "label": "&cIn Game"
@@ -1322,7 +1322,7 @@ Get the full proxy sync configuration.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "tablist": {
     "header": "&b&lMyNetwork\n&7Online: %online%",
@@ -1364,7 +1364,7 @@ Update tab list settings. All fields are optional.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "header": "&b&lMyNetwork\n&7%online% players online",
   "footer": "&7play.mynetwork.com",
@@ -1385,7 +1385,7 @@ Update MOTD settings. All fields are optional.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "line1": "&b&lMyNetwork",
   "line2": "&aSeason 3 is live!",
@@ -1406,7 +1406,7 @@ Update chat settings. All fields are optional.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "format": "%prefix%%player%%suffix% &8>> &f%message%",
   "enabled": true
@@ -1421,7 +1421,7 @@ Set a per-player tab list format override.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "format": "&c[Owner] &f%player%"
 }
@@ -1441,7 +1441,7 @@ Get all player tab list overrides.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "overrides": {
     "550e8400-e29b-41d4-a716-446655440000": "&c[Owner] &f%player%"
@@ -1462,7 +1462,7 @@ Get full maintenance status (global state + all groups).
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "global": {
     "enabled": true,
@@ -1489,7 +1489,7 @@ Toggle global maintenance mode. When enabled, the proxy shows a maintenance MOTD
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "enabled": true,
   "reason": "Server update"
@@ -1504,7 +1504,7 @@ Update global maintenance configuration (MOTD, protocol text, kick message). All
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "motdLine1": "<red><bold>DOWN FOR MAINTENANCE</bold></red>",
   "motdLine2": "<gray>Back soon!</gray>",
@@ -1521,7 +1521,7 @@ Toggle maintenance mode for a specific server group. Players cannot join servers
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "enabled": true,
   "reason": "Template update"
@@ -1536,7 +1536,7 @@ Update group maintenance configuration. All fields are optional.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "kickMessage": "<red>This game mode is being updated.</red>"
 }
@@ -1550,7 +1550,7 @@ Add a player to the maintenance whitelist. Whitelisted players can join during g
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "entry": "jonas"
 }
@@ -1564,7 +1564,7 @@ Remove a player from the maintenance whitelist.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "entry": "jonas"
 }
@@ -1594,7 +1594,7 @@ List the root directory of a scope.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "scope": "templates",
   "path": "/",
@@ -1624,7 +1624,7 @@ List a directory or read a file. Directories return a file listing. Text files r
 
 **Text file response:**
 
-```json
+```json title="Response"
 {
   "scope": "templates",
   "path": "lobby/server.properties",
@@ -1639,7 +1639,7 @@ Write text content to a file. Creates parent directories if needed.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "content": "server-port=25565\nmax-players=50"
 }
@@ -1656,14 +1656,14 @@ Create a directory (with `?mkdir` query parameter) or upload a file via multipar
 
 **Create directory:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/files/templates/skywars/plugins?mkdir"
 ```
 
 **Upload file:**
 
-```bash
+```bash title="Terminal"
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -F "file=@my-plugin.jar" \
   http://localhost:8080/api/files/templates/lobby/plugins/my-plugin.jar
@@ -1671,7 +1671,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 **Upload response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "path": "lobby/plugins/my-plugin.jar",
@@ -1705,7 +1705,7 @@ Read the current Nimbus configuration. The API token is never exposed.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "network": {
     "name": "MyNetwork",
@@ -1743,7 +1743,7 @@ Update non-critical configuration fields. Only `networkName`, `consoleColored`, 
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "networkName": "MyNewNetwork",
   "consoleColored": true,
@@ -1755,7 +1755,7 @@ All fields are optional. At least one must be provided.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "message": "Config updated: network.name = 'MyNewNetwork', console.log_events = false. Restart Nimbus for full effect."
@@ -1777,7 +1777,7 @@ Hot-reload all group configuration files.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "success": true,
   "groupsLoaded": 3,
@@ -1795,13 +1795,13 @@ Includes: service counts, player counts (total, by group, by service), group sca
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl http://localhost:8080/api/metrics
 ```
 
 **Response:** `text/plain; version=0.0.4`
 
-```
+```text title="Prometheus Metrics"
 # HELP nimbus_info Nimbus instance information
 # TYPE nimbus_info gauge
 nimbus_info{version="0.2.0"} 1
@@ -1832,7 +1832,7 @@ Get the current stress test status.
 
 **Response (inactive):**
 
-```json
+```json title="Response (inactive)"
 {
   "active": false
 }
@@ -1840,7 +1840,7 @@ Get the current stress test status.
 
 **Response (active):**
 
-```json
+```json title="Response (active)"
 {
   "active": true,
   "group": "Lobby",
@@ -1867,7 +1867,7 @@ Start a new stress test. Fails if a test is already running or the target group 
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "players": 100,
   "group": "Lobby",
@@ -1905,7 +1905,7 @@ Adjust the target player count of a running stress test.
 
 **Request Body:**
 
-```json
+```json title="Request Body"
 {
   "players": 200,
   "durationSeconds": 60
@@ -1934,7 +1934,7 @@ List all connected cluster nodes. Returns `404` if cluster mode is not enabled.
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "nodes": [
     {
@@ -1970,7 +1970,7 @@ Get load balancer status including backend proxy list with health information. R
 
 **Response:**
 
-```json
+```json title="Response"
 {
   "enabled": true,
   "bind": "0.0.0.0",
@@ -2026,7 +2026,7 @@ Download a template as a ZIP archive. Used internally by agent nodes for templat
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl -o template.zip \
   "http://controller:8080/api/templates/lobby/download?token=my-cluster-secret"
 ```
@@ -2051,13 +2051,13 @@ Get the SHA-256 hash of a template's contents. Used by agents to check if their 
 
 **Example:**
 
-```bash
+```bash title="Terminal"
 curl "http://controller:8080/api/templates/lobby/hash?token=my-cluster-secret"
 ```
 
 **Response:** Plain text SHA-256 hash string.
 
-```
+```text title="Response"
 a1b2c3d4e5f6...
 ```
 

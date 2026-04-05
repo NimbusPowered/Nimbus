@@ -11,7 +11,7 @@ Nimbus supports **Bedrock Edition crossplay** out of the box. Players on mobile 
 
 Add the `[bedrock]` section to `config/nimbus.toml`:
 
-```toml
+```toml title="config/nimbus.toml"
 [bedrock]
 enabled = true
 base_port = 19132
@@ -79,11 +79,11 @@ Bedrock players authenticate via Xbox Live. Their names are prefixed with `.` by
 
 The `status` command shows Bedrock state, and `list` shows both TCP and UDP ports:
 
-```bash
-nimbus> status
+```bash title="Nimbus"
+status
 # ... Bedrock: enabled (Geyser + Floodgate, base port 19132)
 
-nimbus> list
+list
 # Proxy-1    Proxy    READY    25565/19132    0    12345    1h 30m
 ```
 
@@ -101,7 +101,7 @@ This works well because Bedrock player counts are typically much smaller than Ja
 
 ## Architecture
 
-```
+```text title="Architecture"
 Bedrock (UDP:19132) ---> Velocity + Geyser + Floodgate ---> Backends + Floodgate
 Java    (TCP:25565) --->                               --->
 ```
