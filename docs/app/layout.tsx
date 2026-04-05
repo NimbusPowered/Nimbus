@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   description:
     'Dynamic server management from a single JAR. Auto-scaling, proxy integration, and a powerful API.',
   icons: { icon: '/Nimbus/favicon.svg' },
-  metadataBase: new URL('https://jonax1337.github.io/Nimbus'),
+  metadataBase: new URL('https://KryonixMC.github.io/Nimbus'),
   openGraph: {
     type: 'website',
     title: 'Nimbus — Minecraft Cloud System',

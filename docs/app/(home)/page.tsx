@@ -47,7 +47,7 @@ export default function Page() {
               <ArrowRight className="size-4 transition-transform duration-300 ease-out group-hover:translate-x-0.5" />
             </Link>
             <a
-              href="https://github.com/jonax1337/Nimbus"
+              href="https://github.com/KryonixMC/Nimbus"
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full font-medium tracking-tight transition-all duration-300 ease-out text-sm border border-fd-border bg-fd-secondary text-fd-secondary-foreground hover:bg-fd-accent hover:border-fd-accent active:scale-[0.98]"
