@@ -22,7 +22,7 @@ You never need to manually edit `velocity.toml` -- Nimbus manages it entirely.
 
 Create a proxy group in `config/groups/proxy.toml`:
 
-```toml
+```toml title="config/groups/proxy.toml"
 [group]
 name = "Proxy"
 type = "STATIC"
@@ -129,7 +129,7 @@ Via plugins are deployed **only on backend servers**, never on the proxy itself.
 
 To enable Via plugins, place them in the global template directory:
 
-```
+```title="Directory Structure"
 templates/
   global/
     plugins/
@@ -165,7 +165,7 @@ Updates are downloaded and staged automatically, but only take effect on the nex
 
 You can listen for these events via the [WebSocket API](/docs/reference/websocket) to trigger alerts, Discord notifications, or automated restart scripts.
 
-```
+```title="Nimbus — Auto-Patching"
 [18:00:01] ℹ New Velocity version available: 3.4.0 → 3.5.0
 [18:00:04] ℹ Downloaded Velocity 3.5.0 (12.4 MB)
 [18:00:04] ℹ Updated Velocity JAR for static service 'Proxy-1' (restart to apply)
@@ -192,7 +192,7 @@ Configuration is split into three files in `config/modules/syncproxy/`:
 
 `config/modules/syncproxy/tablist.toml`:
 
-```toml
+```toml title="config/modules/syncproxy/tablist.toml"
 [tablist]
 header = "\n<gradient:#58a6ff:#56d4dd><bold>MY NETWORK</bold></gradient>\n"
 footer = "\n<gray>Online</gray> <white>»</white> <gradient:#56d4dd:#b392f0>{online}</gradient><dark_gray>/</dark_gray><gray>{max}</gray>\n"
@@ -214,7 +214,7 @@ update_interval = 5
 
 Per-player tab name overrides are also supported via the SDK:
 
-```java
+```java title="SDK — Tab Name Override"
 Nimbus.setTabName(player.getUniqueId(), "<red>[RED] {player}");
 Nimbus.clearTabName(player.getUniqueId());
 ```
@@ -223,7 +223,7 @@ Nimbus.clearTabName(player.getUniqueId());
 
 `config/modules/syncproxy/motd.toml`:
 
-```toml
+```toml title="config/modules/syncproxy/motd.toml"
 [motd]
 line1 = "  <gradient:#58a6ff:#56d4dd:#b392f0><bold>MY NETWORK</bold></gradient>"
 line2 = "  <gray>» </gray><gradient:#56d364:#56d4dd>{online} players online</gradient>"
@@ -241,7 +241,7 @@ player_count_offset = 0
 
 `config/modules/syncproxy/chat.toml`:
 
-```toml
+```toml title="config/modules/syncproxy/chat.toml"
 [chat]
 format = "{prefix}{player}{suffix} <dark_gray>» <gray>{message}"
 enabled = true
@@ -257,7 +257,7 @@ All proxy sync settings can be changed at runtime via the REST API (`PUT /api/pr
 
 Maintenance mode lets you block new player connections without shutting down the network. It is configured in `motd.toml` alongside the regular MOTD:
 
-```toml
+```toml title="config/modules/syncproxy/motd.toml"
 [maintenance]
 enabled = false
 motd_line1 = "  <gradient:#ff6b6b:#ee5a24><bold>MAINTENANCE</bold></gradient>"
@@ -275,7 +275,7 @@ When global maintenance is enabled:
 
 **Group maintenance** prevents players from joining servers of a specific group — useful when updating templates or running tests:
 
-```toml
+```toml title="config/modules/syncproxy/motd.toml"
 [maintenance.groups.BedWars]
 enabled = true
 kick_message = "<red>BedWars is currently under maintenance.</red>"
@@ -285,7 +285,7 @@ Players trying to connect to a BedWars server will be sent back to the lobby wit
 
 Toggle maintenance via the console or in-game:
 
-```
+```title="Nimbus"
 nimbus » maintenance on
 ✓ Global maintenance enabled.
   Players without bypass will be disconnected by the proxy.
@@ -355,7 +355,7 @@ Nimbus supports **Bedrock Edition crossplay** via [Geyser](https://geysermc.org/
 
 Add the `[bedrock]` section to `config/nimbus.toml`:
 
-```toml
+```toml title="config/nimbus.toml"
 [bedrock]
 enabled = true
 base_port = 19132
@@ -375,7 +375,7 @@ When Bedrock support is enabled, Nimbus:
 
 ### Architecture
 
-```
+```title="Architecture"
 Bedrock (UDP:19132) ──► Velocity + Geyser + Floodgate ──► Backends + Floodgate
 Java    (TCP:25565) ──►                                ──►
 ```
@@ -395,7 +395,7 @@ Both ports must be open on your server. Bedrock uses **UDP**, not TCP — make s
 
 The `status` command shows Bedrock support status:
 
-```
+```title="Nimbus"
 nimbus » status
 ...
 Bedrock:  enabled (Geyser + Floodgate, base port 19132)
@@ -403,7 +403,7 @@ Bedrock:  enabled (Geyser + Floodgate, base port 19132)
 
 The `list` command shows both TCP and UDP ports for proxy services:
 
-```
+```title="Nimbus"
 nimbus » list
 Proxy-1    Proxy    ● READY    25565/19132    0    12345    1h 30m
 ```
@@ -437,7 +437,7 @@ Bedrock players authenticate via Xbox Live. Their names are prefixed with `.` by
 
 For large networks, you can run multiple Velocity proxies behind a TCP load balancer (e.g., HAProxy, nginx). Change the proxy group scaling:
 
-```toml
+```toml title="config/groups/proxy.toml"
 [group.scaling]
 min_instances = 2
 max_instances = 4

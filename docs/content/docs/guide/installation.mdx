@@ -11,14 +11,14 @@ The fastest way to get Nimbus running. The installer handles everything — Java
 
 **Linux / macOS:**
 
-```bash
-$ curl -fsSL https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install.sh | bash
+```bash title="Terminal"
+curl -fsSL https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
-```bash
-> irm https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install.ps1 | iex
+```powershell title="PowerShell"
+irm https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install.ps1 | iex
 ```
 
 The installer will:
@@ -43,7 +43,7 @@ Nimbus checks for updates automatically on every startup by querying GitHub Rele
 | **Patch / Minor** (e.g. `0.1.0` → `0.1.3` or `0.2.0`) | Downloads and applies automatically. A backup of the previous JAR is kept. |
 | **Major** (e.g. `0.x` → `1.0.0`) | Shows changelog and prompts `Upgrade now? [y/N]` — you decide. |
 
-```
+``` title="Nimbus"
 ℹ Update available: v0.1.0 -> v0.2.0 (minor)
   Downloading v0.2.0... done
 ✓ Updated to v0.2.0 (backup: nimbus-backup.jar)
@@ -69,8 +69,8 @@ If you prefer to install manually, make sure you have:
 <Callout title="Checking your Java version" type="info">
 Run `java -version` in your terminal. You should see version 21 or higher:
 
-```bash
-$ java -version
+```bash title="Terminal"
+java -version
 openjdk version "21.0.2" 2024-01-16
 ```
 
@@ -85,10 +85,10 @@ Nimbus requires Java 21. It will not run on older versions. The Minecraft server
 
 Clone the repository and build the fat JAR:
 
-```bash
-$ git clone https://github.com/kryonixmc/Nimbus.git
-$ cd Nimbus
-$ ./gradlew shadowJar
+```bash title="Terminal"
+git clone https://github.com/kryonixmc/Nimbus.git
+cd Nimbus
+./gradlew shadowJar
 > Task :nimbus-bridge:shadowJar
 > Task :nimbus-core:processResources
 > Task :nimbus-core:shadowJar
@@ -97,15 +97,15 @@ BUILD SUCCESSFUL in 12s
 
 The output JAR will be at:
 
-```
+``` title="Output Path"
 nimbus-core/build/libs/nimbus-core-<version>-all.jar
 ```
 
 <Callout title="Quick compile check" type="info">
 To verify the code compiles without building the full JAR:
 
-```bash
-$ ./gradlew :nimbus-core:compileKotlin
+```bash title="Terminal"
+./gradlew :nimbus-core:compileKotlin
 BUILD SUCCESSFUL in 4s
 ```
 </Callout>
@@ -114,11 +114,11 @@ BUILD SUCCESSFUL in 4s
 
 Copy the JAR to your desired directory and run it:
 
-```bash
-$ mkdir my-network
-$ cp nimbus-core/build/libs/nimbus-core-<version>-all.jar my-network/
-$ cd my-network
-$ java -jar nimbus-core-<version>-all.jar
+```bash title="Terminal"
+mkdir my-network
+cp nimbus-core/build/libs/nimbus-core-<version>-all.jar my-network/
+cd my-network
+java -jar nimbus-core-<version>-all.jar
 ```
 
 On first launch, the **Setup Wizard** starts automatically and walks you through initial configuration.
@@ -131,7 +131,7 @@ On Java 21+, Nimbus automatically relaunches itself with the `--enable-native-ac
 
 After the setup wizard completes, your directory will look like this:
 
-```
+``` title="Directory Structure"
 my-network/
 ├── nimbus-core-<version>-all.jar    # The Nimbus application
 ├── config/                       # All configuration files

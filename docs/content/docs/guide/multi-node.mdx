@@ -13,7 +13,7 @@ If your network runs on **one machine**, you don't — single-node mode handles 
 
 ## Architecture
 
-```
+```title="Architecture"
                         Players
                            │
                  ┌─────────▼──────────┐
@@ -60,15 +60,15 @@ Static services **always** run on the controller. There is no mechanism to sync 
 
 ### 1. Enable cluster mode on the controller
 
-```bash
-nimbus> cluster enable
+```title="Nimbus"
+cluster enable
 ```
 
 This generates an auth token and saves the config. Restart Nimbus to activate.
 
 Or edit `config/nimbus.toml` manually:
 
-```toml
+```toml title="config/nimbus.toml"
 [cluster]
 enabled = true
 token = "your-secret-token"        # shared with all agents
@@ -89,14 +89,14 @@ Install the agent on each worker machine with a single command:
 
 **Linux / macOS:**
 
-```bash
-$ curl -fsSL https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install-agent.sh | bash
+```bash title="Terminal"
+curl -fsSL https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install-agent.sh | bash
 ```
 
 **Windows (PowerShell):**
 
-```
-> irm https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install-agent.ps1 | iex
+```powershell title="PowerShell"
+irm https://raw.githubusercontent.com/kryonixmc/Nimbus/main/install-agent.ps1 | iex
 ```
 
 The installer handles Java 21, downloads the latest agent release, prompts for controller connection details, and optionally creates a system service (systemd / Windows Service) so the agent runs in the background automatically.
@@ -104,7 +104,7 @@ The installer handles Java 21, downloads the latest agent release, prompts for c
 <Callout title="Manual setup" type="info">
 You can also copy `nimbus-agent-<version>-all.jar` manually and run it directly:
 
-```bash
+```bash title="Terminal"
 java -jar nimbus-agent-<version>-all.jar \
   --controller ws://10.0.0.1:8443/cluster \
   --token your-secret-token \
@@ -116,7 +116,7 @@ java -jar nimbus-agent-<version>-all.jar \
 
 The agent creates an `agent.toml` on first run:
 
-```toml
+```toml title="agent.toml"
 [agent]
 controller = "wss://10.0.0.1:8443/cluster"   # wss:// for TLS (default)
 token = "your-secret-token"
@@ -141,7 +141,7 @@ Agent nodes automatically detect installed JDKs and download missing versions fr
 
 On the controller:
 
-```
+```title="Nimbus — Cluster Nodes"
 nimbus » nodes
 ── Cluster Nodes ──────────────────────────────────
 NODE        HOST          STATUS    CPU    MEMORY         SERVICES
@@ -161,7 +161,7 @@ When starting a new service, the controller picks a node using one of these stra
 | `least-memory` | Node with the most free memory | Memory-heavy servers (modded, large worlds) |
 | `round-robin` | Rotate through nodes sequentially | Predictable, simple |
 
-```toml
+```toml title="config/nimbus.toml"
 [cluster]
 placement_strategy = "least-services"
 ```
@@ -172,13 +172,13 @@ Nodes that are **offline**, **at max services**, or **out of memory** are automa
 
 When running multiple Velocity proxy instances across nodes, enable the load balancer so all players connect to one address (`play.yourserver.com:25565`):
 
-```bash
-nimbus> lb enable
+```title="Nimbus"
+lb enable
 ```
 
 Or in `config/nimbus.toml`:
 
-```toml
+```toml title="config/nimbus.toml"
 [loadbalancer]
 enabled = true
 bind = "0.0.0.0"
@@ -202,7 +202,7 @@ The load balancer is a **Layer-4 TCP proxy** — it forwards raw Minecraft proto
 
 By default, Velocity sees all connections coming from the load balancer's IP. Enable PROXY protocol v2 to preserve real client IPs:
 
-```toml
+```toml title="config/nimbus.toml"
 [loadbalancer]
 proxy_protocol = true
 ```
@@ -211,7 +211,7 @@ Nimbus automatically patches `haproxy-protocol = true` in Velocity's config when
 
 ### Monitoring
 
-```
+```title="Nimbus — Load Balancer"
 nimbus » lb
 ── Load Balancer ───────────────────────────────
   Total Connections:   1,247
@@ -227,7 +227,7 @@ Proxy-2       10.0.0.3      30000   44        ● READY
 
 Manage cluster mode and load balancer from the console without editing config files:
 
-```bash
+```title="Nimbus"
 # Cluster (multi-node)
 cluster status                  # Show cluster status
 cluster enable                  # Enable cluster mode (generates token)
