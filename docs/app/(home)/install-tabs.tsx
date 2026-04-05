@@ -47,7 +47,7 @@ export function InstallTabs() {
       <DynamicCodeBlock
         lang={tabs[active].lang}
         code={tabs[active].command}
-        codeblock={{ title: undefined, allowCopy: true }}
+        codeblock={{ title: tabs[active].label === 'Windows' ? 'PowerShell' : 'Terminal', allowCopy: true }}
       />
     </div>
   );
