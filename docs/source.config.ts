@@ -7,7 +7,6 @@ export const docs = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
-    // rehypePlugins listed here run AFTER Fumadocs' built-in rehypeCode
-    rehypePlugins: [rehypeNimbus],
+    rehypePlugins: (v) => [...v, rehypeNimbus],
   },
 });

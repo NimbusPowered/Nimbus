@@ -1,10 +1,8 @@
 /**
- * Rehype plugin that colorizes Nimbus CLI output.
- * Runs AFTER Shiki/rehypeCode so it operates on the final HAST.
- * Targets <figure> code blocks where data-title starts with "Nimbus".
+ * Rehype plugin that colorizes Nimbus CLI output in code blocks.
+ * Targets <pre> elements where the title property starts with "Nimbus".
+ * Runs after rehypeCode/Shiki in the MDX pipeline.
  */
-import type { Root } from 'hast';
-import type { Plugin } from 'unified';
 
 const C = {
   green: '#4ade80',
@@ -24,11 +22,9 @@ function colorizeLine(line: string): Seg[] {
   let rest = line;
   const p = (t: string, c?: string) => { if (t) out.push({ text: t, color: c }); };
 
-  // Timestamp
   const ts = rest.match(/^(\[[\d:]+\])/);
   if (ts) { p(ts[1], C.dim); rest = rest.slice(ts[1].length); }
 
-  // Whitespace
   const ws = rest.match(/^(\s+)/);
   if (ws) { p(ws[1]); rest = rest.slice(ws[1].length); }
 
@@ -67,7 +63,6 @@ function colorizeLine(line: string): Seg[] {
     if (m) { fn(m); break; }
   }
 
-  // Remaining: dim (parenthesized)
   if (rest) {
     let pos = 0;
     const re = /\([^)]+\)/g;
@@ -89,36 +84,53 @@ function getText(node: any): string {
   return '';
 }
 
-function walk(node: any, fn: (n: any) => void) {
-  fn(node);
-  if (node.children) for (const c of node.children) walk(c, fn);
+function walk(node: any, fn: (n: any, parent?: any) => void, parent?: any) {
+  fn(node, parent);
+  if (node.children) for (const c of node.children) walk(c, fn, node);
 }
 
-function isNimbusFigure(node: any): boolean {
-  if (node.type !== 'element' || node.tagName !== 'figure') return false;
-  // Fumadocs CodeBlock renders <figure> with class containing "shiki"
-  const cls = String(node.properties?.className ?? node.properties?.class ?? '');
-  if (!cls.includes('shiki')) return false;
-  // Check if the title (in <figcaption>) starts with "Nimbus"
-  let title = '';
+function hasNimbusTitle(node: any): boolean {
+  // Check every possible way the title could be stored
+  const props = node.properties ?? {};
+
+  // Direct property: pre.properties.title
+  if (typeof props.title === 'string' && props.title.startsWith('Nimbus')) return true;
+
+  // data-title attribute
+  if (typeof props['data-title'] === 'string' && props['data-title'].startsWith('Nimbus')) return true;
+  if (typeof props.dataTitle === 'string' && props.dataTitle.startsWith('Nimbus')) return true;
+
+  // Check if there's a figcaption child with "Nimbus"
+  let found = false;
   walk(node, (n: any) => {
     if (n.type === 'element' && n.tagName === 'figcaption') {
-      title = getText(n);
+      const text = getText(n);
+      if (text.startsWith('Nimbus')) found = true;
     }
   });
-  return title.startsWith('Nimbus');
+
+  return found;
 }
 
-export const rehypeNimbus: Plugin<[], Root> = () => {
-  return (tree) => {
+export function rehypeNimbus() {
+  return (tree: any) => {
     walk(tree, (node: any) => {
-      if (!isNimbusFigure(node)) return;
+      // Match <pre> elements (what Shiki outputs)
+      if (node.type !== 'element') return;
 
-      // Find all span.line inside this figure and colorize
+      const isTarget =
+        (node.tagName === 'pre' && hasNimbusTitle(node)) ||
+        (node.tagName === 'figure' && hasNimbusTitle(node));
+
+      if (!isTarget) return;
+
+      // Find span.line elements inside and colorize
       walk(node, (el: any) => {
         if (el.type !== 'element' || el.tagName !== 'span') return;
-        const cls = String(el.properties?.className ?? el.properties?.class ?? '');
-        if (!cls.includes('line')) return;
+        const cls = Array.isArray(el.properties?.className)
+          ? el.properties.className
+          : [String(el.properties?.className ?? el.properties?.class ?? '')];
+        if (!cls.some((c: string) => c === 'line' || c.includes('line'))) return;
 
         const text = getText(el);
         if (!text) return;
@@ -139,4 +151,4 @@ export const rehypeNimbus: Plugin<[], Root> = () => {
       });
     });
   };
-};
+}
