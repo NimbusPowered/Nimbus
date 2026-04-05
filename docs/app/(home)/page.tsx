@@ -57,13 +57,14 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Install — inside hero, centered */}
-        <div className="relative z-[2] mx-auto max-w-3xl px-6 md:px-12 pt-8 pb-12">
-          <p className="text-center text-sm font-medium text-fd-muted-foreground mb-3">
-            One command to install
-          </p>
-          <InstallTabs />
-        </div>
+      </div>
+
+      {/* Install */}
+      <div className="mx-auto mt-10 max-w-3xl px-6">
+        <p className="text-center text-sm font-medium text-fd-muted-foreground mb-3">
+          One command to install
+        </p>
+        <InstallTabs />
       </div>
 
       {/* Section heading */}
