@@ -77,11 +77,9 @@ object LiveSearchPicker {
             w.print("\u001B[?25l") // hide cursor
             w.flush()
 
-            val termWidth = terminal.width.coerceIn(40, 300)
-
             fun redraw() {
                 if (renderedLines > 0) clearLines(w, renderedLines)
-                renderedLines = drawMulti(w, title, query.toString(), results, cursor, selectedKeys, loading, spinnerIdx, identify, render, termWidth)
+                renderedLines = drawMulti(w, title, query.toString(), results, cursor, selectedKeys, loading, spinnerIdx, identify, render)
             }
 
             fun triggerDebouncedSearch() {
@@ -217,17 +215,11 @@ object LiveSearchPicker {
         loading: Boolean,
         spinnerIdx: Int,
         identify: (T) -> String,
-        render: (T) -> SearchLine,
-        termWidth: Int = 120
+        render: (T) -> SearchLine
     ): Int {
         var lines = 0
 
-        // Separator + Title + selection count
-        val sep = "${DIM}${"─".repeat(termWidth)}${RESET}"
-
-        w.write("$sep\n")
-        lines++
-
+        // Title + selection count
         val selCount = if (selectedKeys.isNotEmpty()) "  ${GREEN}${selectedKeys.size} selected${RESET}" else ""
         w.write("  ${BOLD}$title${RESET}$selCount\n")
         lines++
@@ -237,7 +229,7 @@ object LiveSearchPicker {
         w.write("  ${DIM}>${RESET} ${query}${DIM}_${RESET}$spinner\n")
         lines++
 
-        w.write("$sep\n")
+        w.write("\n")
         lines++
 
         if (results.isEmpty()) {

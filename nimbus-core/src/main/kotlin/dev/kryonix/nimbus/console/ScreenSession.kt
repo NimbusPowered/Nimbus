@@ -3,6 +3,8 @@ package dev.kryonix.nimbus.console
 import dev.kryonix.nimbus.service.ServiceHandle
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.jline.terminal.Terminal
 
 class ScreenSession {
@@ -31,17 +33,33 @@ class ScreenSession {
 
         try {
             coroutineScope {
+                val prompt = "${ConsoleFormatter.CYAN}$serviceName${ConsoleFormatter.RESET}${ConsoleFormatter.DIM} >${ConsoleFormatter.RESET} "
+                val buffer = StringBuilder()
+                val mutex = Mutex()
+
+                // Clear current prompt line, print content, then redraw prompt + buffer
+                fun printWithPrompt(text: String) {
+                    // Move to start of line and clear it
+                    writer.print("\r\u001B[2K")
+                    writer.println(text)
+                    // Redraw prompt + current input buffer
+                    writer.print("$prompt$buffer")
+                    writer.flush()
+                }
+
+                // Show initial prompt
+                writer.print(prompt)
+                writer.flush()
+
                 // Collect stdout and print to terminal
                 val outputJob = launch {
                     processHandle.stdoutLines.collect { line ->
-                        writer.println(line)
-                        writer.flush()
+                        mutex.withLock { printWithPrompt(line) }
                     }
                 }
 
                 // Read terminal input and send to process
                 val inputJob = launch(Dispatchers.IO) {
-                    val buffer = StringBuilder()
                     while (isActive) {
                         val ch = reader.read()
                         if (ch == -1) break
@@ -49,23 +67,26 @@ class ScreenSession {
                             cancel()
                             break
                         }
-                        if (ch == '\r'.code || ch == '\n'.code) {
-                            val command = buffer.toString()
-                            buffer.clear()
-                            processHandle.sendCommand(command)
-                            writer.println()
-                            writer.flush()
-                        } else if (ch == 127 || ch == 8) {
-                            // Backspace
-                            if (buffer.isNotEmpty()) {
-                                buffer.deleteCharAt(buffer.length - 1)
-                                writer.print("\b \b")
+                        mutex.withLock {
+                            if (ch == '\r'.code || ch == '\n'.code) {
+                                val command = buffer.toString()
+                                buffer.clear()
+                                processHandle.sendCommand(command)
+                                writer.println()
+                                writer.print(prompt)
+                                writer.flush()
+                            } else if (ch == 127 || ch == 8) {
+                                // Backspace
+                                if (buffer.isNotEmpty()) {
+                                    buffer.deleteCharAt(buffer.length - 1)
+                                    writer.print("\b \b")
+                                    writer.flush()
+                                }
+                            } else {
+                                buffer.append(ch.toChar())
+                                writer.print(ch.toChar())
                                 writer.flush()
                             }
-                        } else {
-                            buffer.append(ch.toChar())
-                            writer.print(ch.toChar())
-                            writer.flush()
                         }
                     }
                 }
