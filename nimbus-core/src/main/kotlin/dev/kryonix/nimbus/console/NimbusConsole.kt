@@ -62,7 +62,12 @@ class NimbusConsole(
         terminal = TerminalBuilder.builder()
             .system(true)
             .dumb(true)
+            .encoding(Charsets.UTF_8)
             .build()
+
+        // Route System.out through JLine's terminal output so that println() in commands
+        // uses the same encoding as the terminal (fixes Unicode symbols on Windows)
+        System.setOut(java.io.PrintStream(terminal.output(), true, terminal.encoding()))
 
         val completer = Completer { reader, line, candidates ->
             val buffer = line.line().substring(0, line.cursor())
@@ -98,6 +103,7 @@ class NimbusConsole(
         dispatcher.register(ScreenCommand(serviceManager, registry, terminal))
         dispatcher.register(ExecCommand(serviceManager, registry))
         dispatcher.register(PlayersCommand(registry))
+        dispatcher.register(HealthCommand(registry))
         dispatcher.register(SendCommand(serviceManager, registry, groupManager))
         dispatcher.register(LogsCommand(serviceManager, registry))
         if (groupsDir != null) {

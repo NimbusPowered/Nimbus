@@ -48,9 +48,37 @@ All responses use JSON. Error responses follow a consistent format:
 ```json
 {
   "success": false,
-  "message": "Description of what went wrong"
+  "message": "Description of what went wrong",
+  "error": "ERROR_CODE"
 }
 ```
+
+The `error` field contains a machine-readable error code that clients can switch on instead of parsing messages. For successful responses, the `error` field is `null`.
+
+**Common error codes:**
+
+| Error Code | Description |
+|------------|-------------|
+| `SERVICE_NOT_FOUND` | The requested service does not exist |
+| `SERVICE_NOT_READY` | Service exists but is not in READY state |
+| `SERVICE_START_FAILED` | Failed to start service (max instances or JAR unavailable) |
+| `GROUP_NOT_FOUND` | The requested group does not exist |
+| `GROUP_ALREADY_EXISTS` | A group with that name already exists |
+| `GROUP_HAS_RUNNING_INSTANCES` | Cannot delete group with running services |
+| `VALIDATION_FAILED` | Request failed input validation |
+| `INVALID_INPUT` | Invalid parameter value |
+| `NOT_FOUND` | Generic resource not found |
+| `FORBIDDEN` | Action not allowed |
+| `READ_ONLY` | Scope is read-only |
+| `PATH_TRAVERSAL` | Path traversal attempt blocked |
+| `INTERNAL_ERROR` | Unexpected server error |
+| `STRESS_ALREADY_RUNNING` | A stress test is already active |
+| `STRESS_NOT_RUNNING` | No stress test is currently active |
+| `CLUSTER_NOT_ENABLED` | Cluster mode is not enabled |
+| `LOAD_BALANCER_NOT_ENABLED` | Load balancer is not enabled |
+| `PROXY_NOT_AVAILABLE` | No Velocity proxy available |
+| `COMMAND_NOT_FOUND` | Command does not exist |
+| `COMMAND_NOT_REMOTE` | Command does not support remote execution |
 
 ---
 
@@ -129,6 +157,44 @@ curl -H "Authorization: Bearer $TOKEN" \
 |-------------|-------------|
 | 200 | Success |
 | 400 | Invalid state filter value |
+
+---
+
+### GET /api/services/health
+
+Aggregated health summary across all services. Useful for monitoring dashboards.
+
+**Response:**
+
+```json
+{
+  "totalServices": 5,
+  "readyServices": 4,
+  "healthyServices": 4,
+  "unhealthyServices": 0,
+  "averageTps": 19.85,
+  "totalMemoryUsedMb": 2048,
+  "totalMemoryMaxMb": 4096,
+  "memoryUsagePercent": 50.0,
+  "services": [
+    {
+      "name": "Lobby-1",
+      "groupName": "Lobby",
+      "state": "READY",
+      "tps": 19.9,
+      "memoryUsedMb": 512,
+      "memoryMaxMb": 1024,
+      "healthy": true,
+      "restartCount": 0,
+      "uptimeSeconds": 7200
+    }
+  ]
+}
+```
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Success |
 
 ---
 

@@ -3,6 +3,7 @@ package dev.kryonix.nimbus.console.commands
 import dev.kryonix.nimbus.console.Command
 import dev.kryonix.nimbus.console.ConsoleFormatter
 import dev.kryonix.nimbus.service.ServiceRegistry
+import dev.kryonix.nimbus.service.ServiceState
 
 class ListCommand(
     private val registry: ServiceRegistry,
@@ -26,17 +27,19 @@ class ListCommand(
         }
 
         val headers = if (clusterEnabled) {
-            listOf("NAME", "GROUP", "STATE", "HOST", "PORT", "PLAYERS", "NODE", "PID", "UPTIME")
+            listOf("NAME", "GROUP", "STATE", "HP", "HOST", "PORT", "PLAYERS", "NODE", "PID", "UPTIME")
         } else {
-            listOf("NAME", "GROUP", "STATE", "PORT", "PLAYERS", "PID", "UPTIME")
+            listOf("NAME", "GROUP", "STATE", "HP", "PORT", "PLAYERS", "PID", "UPTIME")
         }
 
         val rows = services.sortedBy { it.name }.map { svc ->
+            val healthIcon = formatHealthIcon(svc.healthy, svc.state)
             if (clusterEnabled) {
                 listOf(
                     ConsoleFormatter.colorize(svc.name, ConsoleFormatter.BOLD),
                     svc.groupName,
                     ConsoleFormatter.coloredState(svc.state),
+                    healthIcon,
                     svc.host,
                     if (svc.bedrockPort != null) "${svc.port}/${svc.bedrockPort}" else svc.port.toString(),
                     svc.playerCount.toString(),
@@ -49,6 +52,7 @@ class ListCommand(
                     ConsoleFormatter.colorize(svc.name, ConsoleFormatter.BOLD),
                     svc.groupName,
                     ConsoleFormatter.coloredState(svc.state),
+                    healthIcon,
                     if (svc.bedrockPort != null) "${svc.port}/${svc.bedrockPort}" else svc.port.toString(),
                     svc.playerCount.toString(),
                     (svc.pid?.toString() ?: "-"),
@@ -60,5 +64,14 @@ class ListCommand(
         println(ConsoleFormatter.header("Services"))
         println(ConsoleFormatter.formatTable(headers, rows))
         println(ConsoleFormatter.count(services.size, "service"))
+    }
+
+    private fun formatHealthIcon(healthy: Boolean, state: ServiceState): String {
+        if (state != ServiceState.READY) return ConsoleFormatter.colorize("-", ConsoleFormatter.DIM)
+        return if (healthy) {
+            ConsoleFormatter.colorize("✓", ConsoleFormatter.GREEN)
+        } else {
+            ConsoleFormatter.colorize("✗", ConsoleFormatter.RED)
+        }
     }
 }

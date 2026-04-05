@@ -82,7 +82,7 @@ nimbus-core/src/main/kotlin/dev/kryonix/nimbus/
 ├── Nimbus.kt              # Entry point, bootstrap
 ├── api/                   # Ktor REST API + WebSocket (v0.2)
 ├── config/                # TOML config loading (NimbusConfig, GroupConfig)
-├── console/               # JLine3 REPL, CommandDispatcher, 29 commands
+├── console/               # JLine3 REPL, CommandDispatcher, 30 commands
 ├── database/              # Exposed ORM: DatabaseManager, Tables, MetricsCollector
 ├── event/                 # Coroutine-based EventBus + sealed Events
 ├── group/                 # ServerGroup runtime state, GroupManager
@@ -168,10 +168,11 @@ nimbus-core/src/main/kotlin/dev/kryonix/nimbus/
 ## API (v0.2)
 
 - Bearer token auth (`Authorization: Bearer <token>`), auto-generated if not configured
-- REST: `/api/services`, `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module)
+- REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module)
 - WebSocket: `/api/events` (live events), `/api/services/{name}/console` (bidirectional) — auth via `Authorization` header or `?token=` query param
 - `/api/health` is always public (no auth), all other endpoints (including `/api/metrics`) require auth
 - Rate limiting: 120 requests/minute global, 5 requests/minute for stress endpoints
+- Error responses include machine-readable `error` codes (e.g. `SERVICE_NOT_FOUND`, `VALIDATION_FAILED`) — see `ApiErrors.kt`
 - API token passed to child processes via `NIMBUS_API_TOKEN` environment variable (not visible in `ps`)
 
 ## Stress Testing
