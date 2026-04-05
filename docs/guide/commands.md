@@ -6,7 +6,7 @@ Nimbus provides an interactive console with tab completion, command history, and
 
 ### `list`
 
-Show all running services with status, port, player count, and uptime.
+Show all running services with status, health, port, player count, and uptime.
 
 **Syntax:** `list [group]`
 
@@ -17,16 +17,18 @@ Show all running services with status, port, player count, and uptime.
   <pre class="terminal-body">
 <span class="t-prompt">nimbus</span> <span class="t-cyan">»</span> list
 <span class="t-cyan">── <span class="t-bold" style="color:#c0caf5">Services</span> ──────────────────────────────────────</span>
-<span class="t-bold t-bright-cyan">NAME            GROUP       STATE           PORT    PLAYERS  PID     UPTIME</span>
-<span class="t-dim">──────────────────────────────────────────────────────────────────────────────</span>
-<span class="t-bold">Proxy-1</span>         Proxy       <span class="t-green">● READY</span>          25565/19132   36       48190   2h 15m
-<span class="t-bold">Lobby-1</span>         Lobby       <span class="t-green">● READY</span>          30001   12       48201   2h 15m
-<span class="t-bold">Lobby-2</span>         Lobby       <span class="t-green">● READY</span>          30002   8        48215   1h 42m
-<span class="t-bold">BedWars-1</span>       BedWars     <span class="t-green">● READY</span>          30003   16       48230   0h 55m
-<span class="t-bold">BedWars-2</span>       BedWars     <span class="t-yellow">● STARTING</span>       30004   0        48245   0m 01s
+<span class="t-bold t-bright-cyan">NAME            GROUP       STATE           HP  PORT    PLAYERS  PID     UPTIME</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="t-bold">Proxy-1</span>         Proxy       <span class="t-green">● READY</span>          <span class="t-green">✓</span>   25565/19132   36       48190   2h 15m
+<span class="t-bold">Lobby-1</span>         Lobby       <span class="t-green">● READY</span>          <span class="t-green">✓</span>   30001   12       48201   2h 15m
+<span class="t-bold">Lobby-2</span>         Lobby       <span class="t-green">● READY</span>          <span class="t-red">✗</span>   30002   8        48215   1h 42m
+<span class="t-bold">BedWars-1</span>       BedWars     <span class="t-green">● READY</span>          <span class="t-green">✓</span>   30003   16       48230   0h 55m
+<span class="t-bold">BedWars-2</span>       BedWars     <span class="t-yellow">● STARTING</span>       <span class="t-dim">-</span>   30004   0        48245   0m 01s
 <span class="t-dim">5 service(s)</span>
 </pre>
 </div>
+
+The **HP** column shows a quick health indicator: <span class="t-green">✓</span> healthy, <span class="t-red">✗</span> unhealthy, or <span class="t-dim">-</span> for services not yet READY.
 
 ::: tip
 Filter by group name: `list Lobby` shows only Lobby instances. When Bedrock support is enabled, proxy services show both TCP and UDP ports (e.g., `25565/19132`).
@@ -243,6 +245,41 @@ Steve       BedWars-1     BedWars
 Pass a service name to filter: `players Lobby-1`.
 
 **Tab completion:** Running service names.
+
+---
+
+### `health`
+
+Show health metrics for running services: TPS, memory usage, health status, restart count, and uptime.
+
+**Syntax:** `health [service|group]`
+
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="terminal-title">nimbus</span>
+  </div>
+  <pre class="terminal-body">
+<span class="t-prompt">nimbus</span> <span class="t-cyan">»</span> health
+<span class="t-cyan">── <span class="t-bold" style="color:#c0caf5">Service Health</span> ─────────────────────────────────</span>
+<span class="t-bold t-bright-cyan">NAME            STATE           TPS    MEMORY          HEALTH     RESTARTS  UPTIME</span>
+<span class="t-dim">──────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="t-bold">Lobby-1</span>         <span class="t-green">● READY</span>          <span class="t-green">19.9</span>   <span class="t-green">412/1024MB</span>      <span class="t-green">healthy</span>    <span class="t-dim">0</span>         2h 15m
+<span class="t-bold">Lobby-2</span>         <span class="t-green">● READY</span>          <span class="t-yellow">16.2</span>   <span class="t-yellow">890/1024MB</span>      <span class="t-red">unhealthy</span>  <span class="t-yellow">2</span>         1h 42m
+<span class="t-bold">BedWars-1</span>       <span class="t-green">● READY</span>          <span class="t-green">20.0</span>   <span class="t-green">256/1024MB</span>      <span class="t-green">healthy</span>    <span class="t-dim">0</span>         0h 55m
+<span class="t-dim">3 service(s)</span>
+<span class="t-yellow">!</span> 1 service unhealthy
+</pre>
+</div>
+
+Pass a service name for a detailed view with memory progress bar and last SDK health report timestamp:
+
+```
+nimbus » health Lobby-1
+```
+
+Also available in-game via `/cloud health` (permission: `nimbus.cloud.health`).
+
+**Tab completion:** Service names and group names.
 
 ---
 

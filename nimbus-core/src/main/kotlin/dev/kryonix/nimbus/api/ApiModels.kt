@@ -177,6 +177,32 @@ data class ReloadResponse(
     val message: String
 )
 
+@Serializable
+data class ServiceHealthSummaryResponse(
+    val totalServices: Int,
+    val readyServices: Int,
+    val healthyServices: Int,
+    val unhealthyServices: Int,
+    val averageTps: Double,
+    val totalMemoryUsedMb: Long,
+    val totalMemoryMaxMb: Long,
+    val memoryUsagePercent: Double,
+    val services: List<ServiceHealthEntry>
+)
+
+@Serializable
+data class ServiceHealthEntry(
+    val name: String,
+    val groupName: String,
+    val state: String,
+    val tps: Double,
+    val memoryUsedMb: Long,
+    val memoryMaxMb: Long,
+    val healthy: Boolean,
+    val restartCount: Int,
+    val uptimeSeconds: Long?
+)
+
 // ── Log DTOs ────────────────────────────────────────────────────────
 
 @Serializable
@@ -253,7 +279,8 @@ data class SendMessageRequest(
 @Serializable
 data class ApiMessage(
     val success: Boolean,
-    val message: String
+    val message: String,
+    val error: String? = null
 )
 
 // ── File API DTOs ──────────────────────────────────────────────────
