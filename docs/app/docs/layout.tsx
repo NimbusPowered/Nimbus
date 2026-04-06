@@ -7,6 +7,7 @@ import {
   Settings,
   Code,
   Puzzle,
+  Map,
 } from 'lucide-react';
 
 function TabIcon({ children, color }: { children: ReactNode; color: string }) {
@@ -79,6 +80,17 @@ export default function Layout({ children }: { children: ReactNode }) {
             icon: (
               <TabIcon color="hsl(25 95% 53%)">
                 <Puzzle className="size-5" />
+              </TabIcon>
+            ),
+          },
+          {
+            title: 'Project',
+            description: 'Roadmap & changelog',
+            url: '/docs/project/roadmap',
+            urls: urlsUnder('/docs/project'),
+            icon: (
+              <TabIcon color="hsl(340 75% 55%)">
+                <Map className="size-5" />
               </TabIcon>
             ),
           },
