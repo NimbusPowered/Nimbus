@@ -78,9 +78,9 @@ const footerDev = [
 ];
 
 const footerCommunity = [
-  { label: 'GitHub', href: 'https://github.com/KryonixMC/Nimbus' },
-  { label: 'Issues', href: 'https://github.com/KryonixMC/Nimbus/issues' },
-  { label: 'Releases', href: 'https://github.com/KryonixMC/Nimbus/releases' },
+  { label: 'GitHub', href: 'https://github.com/NimbusPowered/Nimbus' },
+  { label: 'Issues', href: 'https://github.com/NimbusPowered/Nimbus/issues' },
+  { label: 'Releases', href: 'https://github.com/NimbusPowered/Nimbus/releases' },
 ];
 
 export default function Page() {
@@ -119,7 +119,7 @@ export default function Page() {
               <ArrowRight className="size-4 transition-transform duration-300 ease-out group-hover:translate-x-0.5" />
             </Link>
             <a
-              href="https://github.com/KryonixMC/Nimbus"
+              href="https://github.com/NimbusPowered/Nimbus"
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-medium tracking-tight transition-all duration-300 ease-out text-sm border border-fd-border bg-fd-secondary text-fd-secondary-foreground hover:bg-fd-accent hover:border-fd-accent active:scale-[0.98]"
@@ -305,7 +305,7 @@ export default function Page() {
           {/* Bottom bar */}
           <div className="mt-10 flex flex-col items-center gap-3 border-t border-fd-border pt-6 sm:flex-row sm:justify-between">
             <p className="text-xs text-fd-muted-foreground">
-              &copy; {new Date().getFullYear()} KryonixMC. Open source under MIT.
+              &copy; {new Date().getFullYear()} NimbusPowered. Open source under MIT.
             </p>
             <p className="flex items-center gap-1.5 text-xs text-fd-muted-foreground">
               Built with <HeartIcon className="size-3 text-fd-primary" /> and Kotlin

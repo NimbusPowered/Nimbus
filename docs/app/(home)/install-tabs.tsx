@@ -9,13 +9,13 @@ const tabs = [
     label: 'Linux / macOS',
     lang: 'bash',
     command:
-      'curl -fsSL https://raw.githubusercontent.com/KryonixMC/Nimbus/main/install.sh | bash',
+      'curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.sh | bash',
   },
   {
     label: 'Windows',
     lang: 'powershell',
     command:
-      'irm https://raw.githubusercontent.com/KryonixMC/Nimbus/main/install.ps1 | iex',
+      'irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.ps1 | iex',
   },
 ];
 

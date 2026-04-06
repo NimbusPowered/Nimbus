@@ -12,7 +12,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         { text: 'Documentation', url: '/docs/guide/introduction' },
         {
           text: 'GitHub',
-          url: 'https://github.com/KryonixMC/Nimbus',
+          url: 'https://github.com/NimbusPowered/Nimbus',
         },
       ]}
     >

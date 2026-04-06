@@ -87,7 +87,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       links={[
         {
           text: 'GitHub',
-          url: 'https://github.com/KryonixMC/Nimbus',
+          url: 'https://github.com/NimbusPowered/Nimbus',
         },
       ]}
     >

@@ -63,8 +63,8 @@ compileOnly(project(":nimbus-core"))
 ```kotlin title="MyModule.kt"
 package dev.example.mymodule
 
-import dev.kryonix.nimbus.module.ModuleContext
-import dev.kryonix.nimbus.module.NimbusModule
+import dev.nimbuspowered.nimbus.module.ModuleContext
+import dev.nimbuspowered.nimbus.module.NimbusModule
 
 class MyModule : NimbusModule {
     override val id = "my-module"
@@ -90,9 +90,9 @@ class MyModule : NimbusModule {
 
 Your JAR must include two resource files:
 
-**`META-INF/services/dev.kryonix.nimbus.module.NimbusModule`** — ServiceLoader descriptor pointing to your implementation class:
+**`META-INF/services/dev.nimbuspowered.nimbus.module.NimbusModule`** — ServiceLoader descriptor pointing to your implementation class:
 
-```text title="META-INF/services/dev.kryonix.nimbus.module.NimbusModule"
+```text title="META-INF/services/dev.nimbuspowered.nimbus.module.NimbusModule"
 dev.example.mymodule.MyModule
 ```
 
@@ -151,7 +151,7 @@ The `ModuleContext` is passed to `init()` and provides access to the Nimbus runt
 The `service<T>()` reified extension avoids passing `Class` objects:
 
 ```kotlin title="ModuleContext Extensions"
-import dev.kryonix.nimbus.module.service
+import dev.nimbuspowered.nimbus.module.service
 
 val eventBus = context.service<EventBus>()!!
 val registry = context.service<ServiceRegistry>()!!
@@ -162,7 +162,7 @@ val registry = context.service<ServiceRegistry>()!!
 Implement `ModuleCommand` to add commands to the Nimbus console:
 
 ```kotlin title="HelloCommand.kt"
-import dev.kryonix.nimbus.module.ModuleCommand
+import dev.nimbuspowered.nimbus.module.ModuleCommand
 
 class HelloCommand : ModuleCommand {
     override val name = "hello"
@@ -201,7 +201,7 @@ Register HTTP endpoints using the Ktor routing DSL. Routes are mounted on the Ni
 ### Route Registration
 
 ```kotlin title="Route Registration"
-import dev.kryonix.nimbus.module.AuthLevel
+import dev.nimbuspowered.nimbus.module.AuthLevel
 
 override suspend fun init(context: ModuleContext) {
     context.registerRoutes({
@@ -299,12 +299,12 @@ Use `getService()` or `service<T>()` to access core Nimbus components. Available
 
 | Class | Description |
 |---|---|
-| `dev.kryonix.nimbus.event.EventBus` | Publish and subscribe to events. |
-| `dev.kryonix.nimbus.database.DatabaseManager` | Database operations, table creation. |
-| `dev.kryonix.nimbus.service.ServiceRegistry` | Query running services, get by name or group. |
-| `dev.kryonix.nimbus.service.ServiceManager` | Start/stop services programmatically. Available after initial boot (lazy access in background loops). |
-| `dev.kryonix.nimbus.group.GroupManager` | Access server group configurations. |
-| `dev.kryonix.nimbus.config.NimbusConfig` | Read the main Nimbus configuration. |
+| `dev.nimbuspowered.nimbus.event.EventBus` | Publish and subscribe to events. |
+| `dev.nimbuspowered.nimbus.database.DatabaseManager` | Database operations, table creation. |
+| `dev.nimbuspowered.nimbus.service.ServiceRegistry` | Query running services, get by name or group. |
+| `dev.nimbuspowered.nimbus.service.ServiceManager` | Start/stop services programmatically. Available after initial boot (lazy access in background loops). |
+| `dev.nimbuspowered.nimbus.group.GroupManager` | Access server group configurations. |
+| `dev.nimbuspowered.nimbus.config.NimbusConfig` | Read the main Nimbus configuration. |
 
 <Callout type="warn">
 Accessing core types requires `compileOnly(project(":nimbus-core"))` in your build. Without it, use `getService()` with the fully qualified class name via reflection.
@@ -313,9 +313,9 @@ Accessing core types requires `compileOnly(project(":nimbus-core"))` in your bui
 Example using `EventBus`:
 
 ```kotlin title="EventBus Subscription"
-import dev.kryonix.nimbus.event.EventBus
-import dev.kryonix.nimbus.event.Events
-import dev.kryonix.nimbus.module.service
+import dev.nimbuspowered.nimbus.event.EventBus
+import dev.nimbuspowered.nimbus.event.Events
+import dev.nimbuspowered.nimbus.module.service
 
 override suspend fun init(context: ModuleContext) {
     val eventBus = context.service<EventBus>()!!
@@ -356,10 +356,10 @@ A module that tracks service uptime with a console command, REST endpoint, and d
 ```kotlin title="UptimeModule.kt"
 package dev.example.uptime
 
-import dev.kryonix.nimbus.database.DatabaseManager
-import dev.kryonix.nimbus.event.EventBus
-import dev.kryonix.nimbus.event.Events
-import dev.kryonix.nimbus.module.*
+import dev.nimbuspowered.nimbus.database.DatabaseManager
+import dev.nimbuspowered.nimbus.event.EventBus
+import dev.nimbuspowered.nimbus.event.Events
+import dev.nimbuspowered.nimbus.module.*
 
 class UptimeModule : NimbusModule {
     override val id = "uptime"
@@ -463,7 +463,7 @@ data class UptimeEntry(val serviceName: String, val startedAt: Long, val stopped
 ```kotlin title="UptimeCommand.kt"
 package dev.example.uptime
 
-import dev.kryonix.nimbus.module.ModuleCommand
+import dev.nimbuspowered.nimbus.module.ModuleCommand
 import org.jetbrains.exposed.sql.Database
 
 class UptimeCommand(private val db: Database) : ModuleCommand {
@@ -519,8 +519,8 @@ fun Route.uptimeRoutes(db: Database) {
 
 ### Resource Files
 
-**`src/main/resources/META-INF/services/dev.kryonix.nimbus.module.NimbusModule`**
-```text title="META-INF/services/dev.kryonix.nimbus.module.NimbusModule"
+**`src/main/resources/META-INF/services/dev.nimbuspowered.nimbus.module.NimbusModule`**
+```text title="META-INF/services/dev.nimbuspowered.nimbus.module.NimbusModule"
 dev.example.uptime.UptimeModule
 ```
 
@@ -547,5 +547,5 @@ my-uptime-module/
     └── resources/
         ├── module.properties
         └── META-INF/services/
-            └── dev.kryonix.nimbus.module.NimbusModule
+            └── dev.nimbuspowered.nimbus.module.NimbusModule
 ```

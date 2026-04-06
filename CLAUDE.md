@@ -8,16 +8,16 @@ One-command installers for end users (Java 21 auto-installed, latest release fro
 
 ```bash
 # Controller (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.sh | bash
 
 # Controller (Windows PowerShell)
-irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.ps1 | iex
 
 # Agent node (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.sh | bash
 
 # Agent node (Windows PowerShell)
-irm https://raw.githubusercontent.com/jonax1337/Nimbus/main/install-agent.ps1 | iex
+irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.ps1 | iex
 ```
 
 Install scripts: `install.sh`, `install.ps1`, `install-agent.sh`, `install-agent.ps1` in repo root.
@@ -36,8 +36,8 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 
 ## Auto-Updates
 
-`UpdateChecker` (`dev/kryonix/nimbus/update/UpdateChecker.kt`) runs on startup:
-- Queries `GET /repos/jonax1337/Nimbus/releases/latest` via GitHub API
+`UpdateChecker` (`dev/nimbuspowered/nimbus/update/UpdateChecker.kt`) runs on startup:
+- Queries `GET /repos/NimbusPowered/Nimbus/releases/latest` via GitHub API
 - Compares semver (major.minor.patch) against `NimbusVersion.version` from JAR manifest
 - Patch/minor: auto-downloads new JAR, swaps in place, keeps backup (`nimbus-backup.jar`)
 - Major: shows changelog + `[y/N]` prompt via JLine before downloading
@@ -53,7 +53,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 
 ## Modules
 
-- `nimbus-core` — Main application (entry point: `dev.kryonix.nimbus.NimbusKt`)
+- `nimbus-core` — Main application (entry point: `dev.nimbuspowered.nimbus.NimbusKt`)
 - `nimbus-agent` — Remote agent node for multi-node clusters
 - `nimbus-protocol` — Shared cluster message types
 - `nimbus-bridge` — Velocity plugin: hub commands + cloud bridge (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
@@ -78,7 +78,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 ## Architecture
 
 ```
-nimbus-core/src/main/kotlin/dev/kryonix/nimbus/
+nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ├── Nimbus.kt              # Entry point, bootstrap
 ├── api/                   # Ktor REST API + WebSocket (v0.2)
 ├── config/                # TOML config loading (NimbusConfig, GroupConfig)
@@ -154,7 +154,7 @@ nimbus-core/src/main/kotlin/dev/kryonix/nimbus/
 ## Cross-Version Compatibility
 
 - Plugins (SDK, Perms, Display) support Spigot 1.8.8+ through latest Paper/Folia
-- `dev.kryonix.nimbus.sdk.compat` package provides cross-version abstractions:
+- `dev.nimbuspowered.nimbus.sdk.compat` package provides cross-version abstractions:
   - `VersionHelper`: runtime detection of Folia, Adventure API, AsyncChatEvent
   - `SchedulerCompat`: Bukkit/Folia scheduler abstraction (delegates to `FoliaScheduler` on Folia)
   - `TextCompat`: Adventure/legacy text abstraction (delegates to `AdventureHelper` on Paper 1.16.5+)

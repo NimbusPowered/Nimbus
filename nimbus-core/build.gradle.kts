@@ -8,7 +8,7 @@ plugins {
 }
 
 application {
-    mainClass.set("dev.kryonix.nimbus.NimbusKt")
+    mainClass.set("dev.nimbuspowered.nimbus.NimbusKt")
 }
 
 dependencies {
