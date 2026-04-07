@@ -254,6 +254,7 @@ fun nimbusMain() = runBlocking {
         modulesConfigDir = modulesDir
     )
     val moduleManager = ModuleManager(controllerModulesDir, moduleContext, eventBus)
+    moduleManager.syncEmbeddedModules()
     moduleManager.loadAll()
     moduleManager.enableAll()
 
