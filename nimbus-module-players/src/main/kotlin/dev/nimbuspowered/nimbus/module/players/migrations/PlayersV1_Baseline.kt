@@ -13,6 +13,8 @@ object PlayersV1_Baseline : Migration {
     override val baseline = false
 
     override fun Transaction.migrate() {
-        SchemaUtils.createMissingTablesAndColumns(PlayerSessions, PlayerMeta)
+        // Drop legacy player_sessions table from pre-v0.3.0 core (different schema, no UUIDs)
+        exec("DROP TABLE IF EXISTS player_sessions")
+        SchemaUtils.create(PlayerSessions, PlayerMeta)
     }
 }
