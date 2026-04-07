@@ -2,6 +2,7 @@ package dev.nimbuspowered.nimbus.console
 
 import dev.nimbuspowered.nimbus.console.commands.ShutdownCommand
 import dev.nimbuspowered.nimbus.group.GroupManager
+import dev.nimbuspowered.nimbus.module.CommandOutput
 import dev.nimbuspowered.nimbus.module.ModuleCommand
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import org.slf4j.LoggerFactory
@@ -79,6 +80,46 @@ class CommandDispatcher {
         return true
     }
 
+    /**
+     * Dispatches the given input line to the matching command, routing output through [output].
+     * Used by the Remote CLI and WebSocket console.
+     *
+     * @return true if the command was executed successfully, false if the command is not found
+     *         or does not support remote execution.
+     */
+    suspend fun dispatch(input: String, output: CommandOutput): Boolean {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return true
+
+        val parts = trimmed.split("\\s+".toRegex())
+        val commandName = when (parts[0].lowercase()) {
+            "?" -> "help"
+            "ver" -> "version"
+            else -> parts[0].lowercase()
+        }
+        val args = parts.drop(1)
+
+        val command = commands[commandName]
+        if (command == null) {
+            output.error("Unknown command: $commandName — type help for available commands.")
+            return false
+        }
+
+        try {
+            val handled = command.execute(args, output)
+            if (!handled) {
+                output.error("Command '$commandName' does not support remote execution.")
+                return false
+            }
+        } catch (e: Exception) {
+            logger.error("Error executing command '{}' (remote)", commandName, e)
+            output.error("Error executing '$commandName': ${e.message}")
+            return false
+        }
+
+        return true
+    }
+
     fun getCommands(): List<ModuleCommand> = commands.values.toList()
 
     fun getCommand(name: String): ModuleCommand? = commands[name.lowercase()]
@@ -113,6 +154,9 @@ class CommandDispatcher {
                 in groupArgCommands -> {
                     val groups = groupManager?.getAllGroups()?.map { it.name } ?: emptyList()
                     groups.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                }
+                "sessions" -> {
+                    listOf("active", "history").filter { it.startsWith(argPrefix, ignoreCase = true) }
                 }
                 "health" -> {
                     val services = registry?.getAll()?.map { it.name } ?: emptyList()

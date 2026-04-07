@@ -9,6 +9,29 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.3.1 (April 7, 2026)
+
+Remote management tooling: manage your cloud from anywhere.
+
+### Added
+- **Remote CLI** (`nimbus-cli`): Standalone 11MB JLine3 console that connects to the controller's REST API + WebSocket. Same commands, same tab completion, same ANSI formatting as the local console. Interactive setup wizard on first run, saved connection profiles in `~/.nimbus/cli.json`. Supports `--host`, `--port`, `--token`, `--profile` flags
+- **Console API endpoints**: `POST /api/console/complete` for server-side tab completion, `WS /api/console/stream` for multiplexed command execution, live event streaming, and remote screen sessions
+- **CLI session tracking**: Every Remote CLI connection logged in `cli_sessions` DB table (V3 migration). Tracks client username, hostname, OS, IP address, GeoIP location (via ip-api.com), connection duration, and command count
+- **`sessions` command**: `sessions active` shows currently connected CLI sessions, `sessions history [--limit N]` shows historical sessions with user@host, IP, location, duration, commands, and status
+- **CLI connected/disconnected events**: Live events in local console and WebSocket showing Remote CLI connections with client identity, IP, location, and OS (e.g., `◆ CLI jonas@DESKTOP-ABC connected from 85.123.45.67 (Berlin, Germany) [Windows 11 amd64]`)
+- **GeoIP location lookup**: Async location resolution via ip-api.com for public IPs, skipped for local/private addresses
+- **Install scripts**: `install-cli.sh` (Linux/macOS) and `install-cli.ps1` (Windows) for one-command CLI installation
+
+### Changed
+- **All 26+ console commands** refactored to use `CommandOutput` interface as canonical execution path. `execute(args)` now delegates to `execute(args, output)` via `ConsoleOutput()` — zero logic duplication between local and remote execution
+- **`CommandDispatcher`** now has `dispatch(input, output: CommandOutput)` overload for remote command execution with typed output streaming
+- **Release workflow** updated to build and upload `nimbus-cli-<version>.jar` alongside controller and agent JARs
+
+### Fixed
+- JLine native access warning on Java 21+ suppressed via auto-relaunch with `--enable-native-access=ALL-UNNAMED` (same pattern as controller)
+
+---
+
 ## v0.3.0 (April 7, 2026)
 
 Competitive features: closing the gaps with SimpleCloud and CloudNET.

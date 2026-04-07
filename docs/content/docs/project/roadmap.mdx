@@ -20,7 +20,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 | [v0.1.0 – v0.1.4](#v01x--foundation) | Released | Foundation & core cloud features |
 | [v0.2.0 – v0.2.1](#v02x--security--production-readiness) | Released | Security, stability & production readiness |
 | [v0.3.0](#v030--competitive-features) | Released | Template stacking, warm pool, player module, deployments |
-| [v0.3.1](#v031--remote-cli) | Planned | Remote CLI |
+| [v0.3.1](#v031--remote-cli) | Released | Remote CLI, session tracking |
 | [v0.4.0+](#v040--cloud-native) | Vision | Docker, S3 storage, dashboard |
 
 ---
@@ -135,14 +135,17 @@ Five major features closing the gap with SimpleCloud and CloudNET:
 
 **Theme:** Remote management tooling.
 
-### Remote CLI
+### v0.3.1 — Remote CLI (April 7, 2026)
 
-A standalone binary that connects to the controller's API and provides the full JLine console experience remotely:
+A standalone binary (`nimbus-cli`, 11MB JAR) that connects to the controller's API and provides the full JLine console experience remotely:
 
-- Same commands, same tab completion, same formatting
-- Authenticates via API token
-- Useful for ops managing from a different machine
-- Lightweight: no Minecraft dependencies, just the console + HTTP client
+- **Remote CLI** (`nimbus-cli`) — Standalone JLine3 REPL with same commands, tab completion, and ANSI formatting as the local console. Connects via REST (tab completion) + WebSocket (command streaming, live events, screen sessions). Interactive setup wizard on first run, connection profiles saved in `~/.nimbus/cli.json`
+- **CommandOutput migration** — All 26+ console commands refactored to use `CommandOutput` interface as canonical execution path. `execute(args)` delegates to `execute(args, output)` via `ConsoleOutput()` — zero logic duplication
+- **Console API endpoints** — `POST /api/console/complete` for tab completion, `WS /api/console/stream` for multiplexed command execution, event streaming, and screen sessions
+- **CLI session tracking** — Every Remote CLI connection logged in `cli_sessions` DB table with client username, hostname, OS, IP, GeoIP location, duration, and command count. New `sessions` command (`sessions active`, `sessions history`)
+- **CLI connected/disconnected events** — Live events in local console showing who connected from where: `◆ CLI jonas@DESKTOP-ABC connected from 85.123.45.67 (Berlin, Germany) [Windows 11 amd64]`
+- **GeoIP lookup** — Async location resolution via ip-api.com for public IPs
+- **Install scripts** — `install-cli.sh` (Linux/macOS) and `install-cli.ps1` (Windows)
 
 ---
 
@@ -235,6 +238,7 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Warm Pool | 4/5 | Pre-staged services, background replenishment |
 | Player Module | 3/5 | Tracking, sessions, history — needs real-world testing |
 | Service Deployments | 3/5 | Hash-based copy-back, local only (agent support planned) |
+| Remote CLI | 4/5 | Full JLine3 experience, tab completion, events, screen sessions, session tracking with GeoIP |
 
 ---
 
@@ -254,6 +258,7 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 - Live plugin search (Hangar + Modrinth)
 - Bedrock/Geyser support
 - Folia compatibility across all plugins
+- Remote CLI with session tracking and GeoIP (SimpleCloud has CLI but no session auditing)
 
 ### What competitors have that we don't (yet)
 

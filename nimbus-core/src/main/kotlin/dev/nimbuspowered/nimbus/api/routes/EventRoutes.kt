@@ -377,5 +377,23 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
             timestamp = timestamp.toString(),
             data = mapOf("moduleId" to moduleId, "moduleName" to moduleName)
         )
+        is NimbusEvent.CliSessionConnected -> EventMessage(
+            type = "CLI_SESSION_CONNECTED",
+            timestamp = timestamp.toString(),
+            data = mapOf(
+                "sessionId" to sessionId.toString(), "remoteIp" to remoteIp,
+                "clientUsername" to clientUsername, "clientHostname" to clientHostname,
+                "clientOs" to clientOs, "location" to location
+            )
+        )
+        is NimbusEvent.CliSessionDisconnected -> EventMessage(
+            type = "CLI_SESSION_DISCONNECTED",
+            timestamp = timestamp.toString(),
+            data = mapOf(
+                "sessionId" to sessionId.toString(), "remoteIp" to remoteIp,
+                "clientUsername" to clientUsername, "durationSeconds" to durationSeconds.toString(),
+                "commandCount" to commandCount.toString()
+            )
+        )
     }
 }

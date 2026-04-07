@@ -102,4 +102,14 @@ sealed class NimbusEvent {
     data class ApiStopped(val reason: String = "shutdown") : NimbusEvent()
     data class ApiWarning(val message: String) : NimbusEvent()
     data class ApiError(val error: String) : NimbusEvent()
+
+    // Remote CLI sessions
+    data class CliSessionConnected(
+        val sessionId: Int, val remoteIp: String, val clientUsername: String,
+        val clientHostname: String, val clientOs: String, val location: String
+    ) : NimbusEvent()
+    data class CliSessionDisconnected(
+        val sessionId: Int, val remoteIp: String, val clientUsername: String,
+        val durationSeconds: Long, val commandCount: Int
+    ) : NimbusEvent()
 }
