@@ -47,11 +47,8 @@ class PlayersModuleCommand(private val tracker: PlayerTracker) : ModuleCommand {
                     return
                 }
                 val online = tracker.getPlayerByName(name)
-                val meta = if (online != null) {
-                    tracker.getPlayerMeta(online.uuid)
-                } else {
-                    null
-                }
+                val uuid = online?.uuid ?: tracker.resolveUuid(name)
+                val meta = if (uuid != null) tracker.getPlayerMeta(uuid) else null
 
                 if (online != null) {
                     println(ConsoleFormatter.header("Player: ${online.name}"))
@@ -64,8 +61,15 @@ class PlayersModuleCommand(private val tracker: PlayerTracker) : ModuleCommand {
                         println("  First seen: ${meta["firstSeen"]}")
                         println("  Total playtime: ${formatDuration(Duration.ofSeconds(meta["totalPlaytimeSeconds"]!!.toLong()))}")
                     }
+                } else if (meta != null) {
+                    println(ConsoleFormatter.header("Player: ${meta["name"]}"))
+                    println("  UUID: $BOLD${meta["uuid"]}$RESET")
+                    println("  Status: ${DIM}Offline$RESET")
+                    println("  First seen: ${meta["firstSeen"]}")
+                    println("  Last seen: ${meta["lastSeen"]}")
+                    println("  Total playtime: ${formatDuration(Duration.ofSeconds(meta["totalPlaytimeSeconds"]!!.toLong()))}")
                 } else {
-                    println(ConsoleFormatter.warn("Player '$name' is not online"))
+                    println(ConsoleFormatter.warn("Player '$name' not found"))
                 }
             }
 
@@ -74,9 +78,8 @@ class PlayersModuleCommand(private val tracker: PlayerTracker) : ModuleCommand {
                     println(ConsoleFormatter.error("Usage: players history <name>"))
                     return
                 }
-                val online = tracker.getPlayerByName(name)
-                val uuid = online?.uuid ?: run {
-                    println(ConsoleFormatter.warn("Player '$name' is not online (history requires UUID lookup)"))
+                val uuid = tracker.resolveUuid(name) ?: run {
+                    println(ConsoleFormatter.warn("Player '$name' not found"))
                     return
                 }
                 val history = tracker.getSessionHistory(uuid, 10)

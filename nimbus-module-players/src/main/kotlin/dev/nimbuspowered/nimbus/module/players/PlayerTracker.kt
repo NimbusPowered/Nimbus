@@ -122,6 +122,23 @@ class PlayerTracker(private val db: DatabaseManager) {
         logger.debug("Player switched: {} ({}) {} -> {}", name, uuid, fromService, toService)
     }
 
+    /**
+     * Resolves a player name to UUID. Checks online players first, then DB.
+     */
+    suspend fun resolveUuid(name: String): String? {
+        // Check online players first
+        val online = getPlayerByName(name)
+        if (online != null) return online.uuid
+
+        // Fall back to DB lookup
+        return db.query {
+            PlayerMeta.selectAll()
+                .where { PlayerMeta.name eq name }
+                .firstOrNull()
+                ?.get(PlayerMeta.uuid)
+        }
+    }
+
     suspend fun getSessionHistory(uuid: String, limit: Int = 20): List<Map<String, String?>> {
         return db.query {
             PlayerSessions.selectAll()
