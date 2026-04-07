@@ -34,6 +34,41 @@ class ModuleManager(
     private val modules = linkedMapOf<String, NimbusModule>()
     private val classLoaders = mutableListOf<URLClassLoader>()
 
+    /**
+     * Syncs embedded module JARs to the modules/ directory.
+     * Updates installed modules whose version differs from the embedded version.
+     * Call this before [loadAll] to ensure modules are up-to-date.
+     */
+    fun syncEmbeddedModules() {
+        if (!modulesDir.exists()) Files.createDirectories(modulesDir)
+
+        for (embeddedName in EMBEDDED_MODULES) {
+            val installedJar = modulesDir.resolve(embeddedName)
+            if (!installedJar.exists()) continue // Not installed — don't auto-install, that's SetupWizard's job
+
+            // Read installed module version
+            val installedInfo = readModuleProperties(installedJar) ?: continue
+
+            // Read embedded module version
+            val embeddedInfo = try {
+                val resource = javaClass.classLoader.getResourceAsStream("controller-modules/$embeddedName") ?: continue
+                val tempFile = Files.createTempFile("nimbus-module-sync-", ".jar")
+                resource.use { Files.copy(it, tempFile, StandardCopyOption.REPLACE_EXISTING) }
+                val info = readModuleProperties(tempFile)
+                if (info != null && info.id == installedInfo.id) {
+                    // Version mismatch or hash changed — replace
+                    Files.copy(tempFile, installedJar, StandardCopyOption.REPLACE_EXISTING)
+                    logger.info("Updated module '{}' to embedded version", info.name)
+                }
+                Files.deleteIfExists(tempFile)
+                info
+            } catch (e: Exception) {
+                logger.debug("Failed to sync embedded module {}: {}", embeddedName, e.message)
+                null
+            }
+        }
+    }
+
     /** Load all module JARs from [modulesDir]. */
     fun loadAll() {
         if (!modulesDir.exists() || !modulesDir.isDirectory()) {

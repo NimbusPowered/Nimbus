@@ -102,7 +102,6 @@ class NimbusConsole(
         dispatcher.register(PurgeCommand(serviceManager, registry))
         dispatcher.register(ScreenCommand(serviceManager, registry, terminal))
         dispatcher.register(ExecCommand(serviceManager, registry))
-        dispatcher.register(PlayersCommand(registry))
         dispatcher.register(HealthCommand(registry))
         dispatcher.register(SendCommand(serviceManager, registry, groupManager))
         dispatcher.register(LogsCommand(serviceManager, registry))
@@ -153,8 +152,9 @@ class NimbusConsole(
         eventListenerJob = scope.launch {
             eventBus.subscribe().collect { event ->
                 // Suppress high-frequency / noisy events to avoid console spam
-                if (event is NimbusEvent.PlayerConnected && event.playerName.startsWith("StressBot-")) return@collect
-                if (event is NimbusEvent.PlayerDisconnected && event.playerName.startsWith("StressBot-")) return@collect
+                if (event is NimbusEvent.PlayerConnected) return@collect
+                if (event is NimbusEvent.PlayerDisconnected) return@collect
+                if (event is NimbusEvent.PlayerServerSwitch) return@collect
                 if (event is NimbusEvent.StressTestUpdated) return@collect
                 if (event is NimbusEvent.MotdUpdated && stressTestManager?.isActive() == true) return@collect
 
