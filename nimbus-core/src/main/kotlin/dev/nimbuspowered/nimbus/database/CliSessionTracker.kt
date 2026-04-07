@@ -32,7 +32,11 @@ class CliSessionTracker(
                     CliSessions.insert {
                         it[sessionId] = event.sessionId
                         it[remoteIp] = event.remoteIp
-                        it[authenticatedAs] = event.user
+                        it[authenticatedAs] = "api-token"
+                        it[clientUsername] = event.clientUsername
+                        it[clientHostname] = event.clientHostname
+                        it[clientOs] = event.clientOs
+                        it[location] = event.location
                         it[connectedAt] = event.timestamp.toString()
                     }
                 }
@@ -62,11 +66,27 @@ class CliSessionTracker(
     data class SessionEntry(
         val sessionId: Int,
         val remoteIp: String,
-        val authenticatedAs: String,
+        val clientUsername: String,
+        val clientHostname: String,
+        val clientOs: String,
+        val location: String,
         val connectedAt: String,
         val disconnectedAt: String?,
         val durationSeconds: Long?,
         val commandCount: Int
+    )
+
+    private fun org.jetbrains.exposed.sql.ResultRow.toSessionEntry() = SessionEntry(
+        sessionId = this[CliSessions.sessionId],
+        remoteIp = this[CliSessions.remoteIp],
+        clientUsername = this[CliSessions.clientUsername],
+        clientHostname = this[CliSessions.clientHostname],
+        clientOs = this[CliSessions.clientOs],
+        location = this[CliSessions.location],
+        connectedAt = this[CliSessions.connectedAt],
+        disconnectedAt = this[CliSessions.disconnectedAt],
+        durationSeconds = this[CliSessions.durationSeconds],
+        commandCount = this[CliSessions.commandCount]
     )
 
     suspend fun getRecentSessions(limit: Int = 20): List<SessionEntry> {
@@ -74,17 +94,7 @@ class CliSessionTracker(
             CliSessions.selectAll()
                 .orderBy(CliSessions.connectedAt, SortOrder.DESC)
                 .limit(limit)
-                .map { row ->
-                    SessionEntry(
-                        sessionId = row[CliSessions.sessionId],
-                        remoteIp = row[CliSessions.remoteIp],
-                        authenticatedAs = row[CliSessions.authenticatedAs],
-                        connectedAt = row[CliSessions.connectedAt],
-                        disconnectedAt = row[CliSessions.disconnectedAt],
-                        durationSeconds = row[CliSessions.durationSeconds],
-                        commandCount = row[CliSessions.commandCount]
-                    )
-                }
+                .map { it.toSessionEntry() }
         }
     }
 
@@ -93,17 +103,7 @@ class CliSessionTracker(
             CliSessions.selectAll()
                 .where { CliSessions.disconnectedAt.isNull() }
                 .orderBy(CliSessions.connectedAt, SortOrder.DESC)
-                .map { row ->
-                    SessionEntry(
-                        sessionId = row[CliSessions.sessionId],
-                        remoteIp = row[CliSessions.remoteIp],
-                        authenticatedAs = row[CliSessions.authenticatedAs],
-                        connectedAt = row[CliSessions.connectedAt],
-                        disconnectedAt = null,
-                        durationSeconds = null,
-                        commandCount = row[CliSessions.commandCount]
-                    )
-                }
+                .map { it.toSessionEntry() }
         }
     }
 }

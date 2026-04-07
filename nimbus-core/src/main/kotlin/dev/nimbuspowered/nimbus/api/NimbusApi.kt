@@ -314,7 +314,7 @@ class NimbusApi(
 
             // Remote CLI console routes (WebSocket + REST, master token only)
             if (dispatcher != null) {
-                consoleRoutes(dispatcher, eventBus, registry, serviceManager, token, serviceToken)
+                consoleRoutes(dispatcher, eventBus, registry, serviceManager, token, serviceToken, scope)
             }
 
             if (token.isNotBlank()) {

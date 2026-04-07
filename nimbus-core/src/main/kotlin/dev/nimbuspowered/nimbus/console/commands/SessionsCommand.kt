@@ -46,7 +46,7 @@ class SessionsCommand(
             return
         }
 
-        val headers = listOf("ID", "IP", "USER", "CONNECTED", "DURATION")
+        val headers = listOf("ID", "USER@HOST", "OS", "IP", "LOCATION", "CONNECTED", "DURATION")
         val rows = active.map { session ->
             val connectedAt = try {
                 Instant.parse(session.connectedAt)
@@ -56,13 +56,16 @@ class SessionsCommand(
                 formatDuration(Duration.between(connectedAt, Instant.now()).seconds)
             } else "?"
 
-            val timeStr = formatTimestamp(session.connectedAt)
+            val userHost = formatUserHost(session.clientUsername, session.clientHostname)
+            val location = session.location.ifEmpty { "${ConsoleFormatter.DIM}-${ConsoleFormatter.RESET}" }
 
             listOf(
                 ConsoleFormatter.colorize("#${session.sessionId}", ConsoleFormatter.BOLD),
+                ConsoleFormatter.colorize(userHost, ConsoleFormatter.CYAN),
+                "${ConsoleFormatter.DIM}${session.clientOs.ifEmpty { "-" }}${ConsoleFormatter.RESET}",
                 session.remoteIp,
-                ConsoleFormatter.colorize(session.authenticatedAs, ConsoleFormatter.CYAN),
-                timeStr,
+                location,
+                formatTimestamp(session.connectedAt),
                 ConsoleFormatter.colorize(duration, ConsoleFormatter.GREEN)
             )
         }
@@ -81,19 +84,13 @@ class SessionsCommand(
             return
         }
 
-        val headers = listOf("ID", "IP", "USER", "CONNECTED", "DURATION", "CMDS", "STATUS")
+        val headers = listOf("ID", "USER@HOST", "IP", "LOCATION", "CONNECTED", "DURATION", "CMDS", "STATUS")
         val rows = sessions.map { session ->
-            val timeStr = formatTimestamp(session.connectedAt)
             val duration = if (session.durationSeconds != null) {
                 formatDuration(session.durationSeconds)
             } else {
-                // Still active
-                val connectedAt = try {
-                    Instant.parse(session.connectedAt)
-                } catch (_: Exception) { null }
-                if (connectedAt != null) {
-                    formatDuration(Duration.between(connectedAt, Instant.now()).seconds)
-                } else "?"
+                val connectedAt = try { Instant.parse(session.connectedAt) } catch (_: Exception) { null }
+                if (connectedAt != null) formatDuration(Duration.between(connectedAt, Instant.now()).seconds) else "?"
             }
 
             val status = if (session.disconnectedAt == null) {
@@ -102,11 +99,15 @@ class SessionsCommand(
                 "${ConsoleFormatter.DIM}○ closed${ConsoleFormatter.RESET}"
             }
 
+            val userHost = formatUserHost(session.clientUsername, session.clientHostname)
+            val location = session.location.ifEmpty { "${ConsoleFormatter.DIM}-${ConsoleFormatter.RESET}" }
+
             listOf(
                 ConsoleFormatter.colorize("#${session.sessionId}", ConsoleFormatter.BOLD),
+                ConsoleFormatter.colorize(userHost, ConsoleFormatter.CYAN),
                 session.remoteIp,
-                ConsoleFormatter.colorize(session.authenticatedAs, ConsoleFormatter.CYAN),
-                timeStr,
+                location,
+                formatTimestamp(session.connectedAt),
                 duration,
                 session.commandCount.toString(),
                 status
@@ -115,6 +116,12 @@ class SessionsCommand(
 
         output.text(ConsoleFormatter.formatTable(headers, rows))
         output.text(ConsoleFormatter.count(sessions.size, "session"))
+    }
+
+    private fun formatUserHost(username: String, hostname: String): String {
+        if (username.isEmpty() && hostname.isEmpty()) return "unknown"
+        if (hostname.isEmpty()) return username
+        return "$username@$hostname"
     }
 
     private fun formatTimestamp(iso: String): String {

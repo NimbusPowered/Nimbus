@@ -45,6 +45,13 @@ class StreamClient(
     data class OutputLine(val type: String, val text: String)
 
     @Serializable
+    data class ClientInfo(
+        val username: String,
+        val hostname: String,
+        val os: String
+    )
+
+    @Serializable
     private data class MessageOut(
         val type: String,
         val id: String = "",
@@ -91,6 +98,17 @@ class StreamClient(
                     ) {
                         session = this
                         isConnected = true
+
+                        // Send hello with client info
+                        val hello = MessageOut(
+                            type = "hello",
+                            text = json.encodeToString(ClientInfo(
+                                username = System.getProperty("user.name") ?: "unknown",
+                                hostname = try { java.net.InetAddress.getLocalHost().hostName } catch (_: Exception) { "unknown" },
+                                os = "${System.getProperty("os.name")} ${System.getProperty("os.arch")}"
+                            ))
+                        )
+                        send(Frame.Text(json.encodeToString(hello)))
 
                         try {
                             for (frame in incoming) {

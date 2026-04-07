@@ -380,12 +380,20 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
         is NimbusEvent.CliSessionConnected -> EventMessage(
             type = "CLI_SESSION_CONNECTED",
             timestamp = timestamp.toString(),
-            data = mapOf("sessionId" to sessionId.toString(), "remoteIp" to remoteIp, "user" to user)
+            data = mapOf(
+                "sessionId" to sessionId.toString(), "remoteIp" to remoteIp,
+                "clientUsername" to clientUsername, "clientHostname" to clientHostname,
+                "clientOs" to clientOs, "location" to location
+            )
         )
         is NimbusEvent.CliSessionDisconnected -> EventMessage(
             type = "CLI_SESSION_DISCONNECTED",
             timestamp = timestamp.toString(),
-            data = mapOf("sessionId" to sessionId.toString(), "remoteIp" to remoteIp, "user" to user, "durationSeconds" to durationSeconds.toString(), "commandCount" to commandCount.toString())
+            data = mapOf(
+                "sessionId" to sessionId.toString(), "remoteIp" to remoteIp,
+                "clientUsername" to clientUsername, "durationSeconds" to durationSeconds.toString(),
+                "commandCount" to commandCount.toString()
+            )
         )
     }
 }

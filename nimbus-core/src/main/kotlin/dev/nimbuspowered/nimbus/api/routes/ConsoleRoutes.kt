@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -56,15 +57,13 @@ fun Route.consoleRoutes(
         val sessionId = sessionCounter.incrementAndGet()
         val connectedAt = Instant.now()
         val remoteIp = call.request.local.remoteAddress
-        val user = "api-token"
+        var clientUsername = ""
+        var clientHostname = ""
+        var clientOs = ""
+        var clientLocation = ""
         var commandCount = 0
 
         logger.info("Remote CLI session #{} connected from {}", sessionId, remoteIp)
-
-        // Emit CLI connected event
-        scope?.launch {
-            eventBus.emit(NimbusEvent.CliSessionConnected(sessionId, remoteIp, user))
-        }
 
         // Subscribe to event bus for live events
         val eventSubscription = eventBus.subscribe()
@@ -105,6 +104,24 @@ fun Route.consoleRoutes(
                 }
 
                 when (msg.type) {
+                    "hello" -> {
+                        // Parse client info from hello message
+                        try {
+                            val info = json.decodeFromString<ClientHello>(msg.text)
+                            clientUsername = info.username
+                            clientHostname = info.hostname
+                            clientOs = info.os
+                        } catch (_: Exception) {}
+
+                        // GeoIP lookup (async, non-blocking)
+                        scope?.launch {
+                            clientLocation = lookupGeoIp(remoteIp)
+                            eventBus.emit(NimbusEvent.CliSessionConnected(
+                                sessionId, remoteIp, clientUsername, clientHostname, clientOs, clientLocation
+                            ))
+                        }
+                    }
+
                     "execute" -> {
                         commandCount++
                         val output = WebSocketCommandOutput(this, msg.id, json)
@@ -187,7 +204,7 @@ fun Route.consoleRoutes(
 
             // Emit CLI disconnected event
             scope?.launch {
-                eventBus.emit(NimbusEvent.CliSessionDisconnected(sessionId, remoteIp, user, durationSeconds, commandCount))
+                eventBus.emit(NimbusEvent.CliSessionDisconnected(sessionId, remoteIp, clientUsername, durationSeconds, commandCount))
             }
         }
     }
@@ -337,10 +354,13 @@ private fun NimbusEvent.toConsoleEventMessage(): EventMessage {
                 put("moduleId", event.moduleId); put("moduleName", event.moduleName)
             }
             is NimbusEvent.CliSessionConnected -> {
-                put("sessionId", event.sessionId.toString()); put("remoteIp", event.remoteIp); put("user", event.user)
+                put("sessionId", event.sessionId.toString()); put("remoteIp", event.remoteIp)
+                put("clientUsername", event.clientUsername); put("clientHostname", event.clientHostname)
+                put("clientOs", event.clientOs); put("location", event.location)
             }
             is NimbusEvent.CliSessionDisconnected -> {
-                put("sessionId", event.sessionId.toString()); put("remoteIp", event.remoteIp); put("user", event.user)
+                put("sessionId", event.sessionId.toString()); put("remoteIp", event.remoteIp)
+                put("clientUsername", event.clientUsername)
                 put("durationSeconds", event.durationSeconds.toString()); put("commandCount", event.commandCount.toString())
             }
             else -> {} // Other events handled by type name only
@@ -352,4 +372,47 @@ private fun NimbusEvent.toConsoleEventMessage(): EventMessage {
         timestamp = this.timestamp.toString(),
         data = data
     )
+}
+
+@Serializable
+private data class ClientHello(
+    val username: String = "",
+    val hostname: String = "",
+    val os: String = ""
+)
+
+/**
+ * Looks up approximate location for an IP address using ip-api.com.
+ * Returns a human-readable location string or empty string on failure.
+ * Skips lookup for private/local IPs.
+ */
+private fun lookupGeoIp(ip: String): String {
+    // Skip private/local IPs
+    if (ip == "127.0.0.1" || ip == "0:0:0:0:0:0:0:1" || ip == "::1"
+        || ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("172.")) {
+        return "local"
+    }
+
+    return try {
+        val url = java.net.URI("http://ip-api.com/json/$ip?fields=status,city,regionName,country").toURL()
+        val connection = url.openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 3000
+        connection.readTimeout = 3000
+        connection.requestMethod = "GET"
+
+        if (connection.responseCode == 200) {
+            val body = connection.inputStream.bufferedReader().readText()
+            // Simple JSON parsing without full deserialization
+            val status = Regex(""""status"\s*:\s*"(\w+)"""").find(body)?.groupValues?.get(1)
+            if (status == "success") {
+                val city = Regex(""""city"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                val region = Regex(""""regionName"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                val country = Regex(""""country"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                listOf(city, region, country).filter { it.isNotEmpty() }.joinToString(", ")
+            } else ""
+        } else ""
+    } catch (e: Exception) {
+        logger.debug("GeoIP lookup failed for {}: {}", ip, e.message)
+        ""
+    }
 }

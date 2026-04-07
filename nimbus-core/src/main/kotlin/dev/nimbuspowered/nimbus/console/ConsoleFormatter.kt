@@ -268,11 +268,16 @@ object ConsoleFormatter {
                 else
                     "${colorize("⚡ STRESS", MAGENTA)} test stopped"
             }
-            is NimbusEvent.CliSessionConnected ->
-                "${colorize("◆ CLI", BRIGHT_CYAN)} ${BOLD}${event.user}${RESET} connected from ${CYAN}${event.remoteIp}${RESET} ${DIM}(session #${event.sessionId})${RESET}"
+            is NimbusEvent.CliSessionConnected -> {
+                val who = if (event.clientUsername.isNotEmpty()) "${BOLD}${event.clientUsername}@${event.clientHostname}${RESET}" else "${BOLD}unknown${RESET}"
+                val loc = if (event.location.isNotEmpty() && event.location != "local") " ${DIM}(${event.location})${RESET}" else ""
+                val os = if (event.clientOs.isNotEmpty()) " ${DIM}[${event.clientOs}]${RESET}" else ""
+                "${colorize("◆ CLI", BRIGHT_CYAN)} $who connected from ${CYAN}${event.remoteIp}${RESET}$loc$os"
+            }
             is NimbusEvent.CliSessionDisconnected -> {
                 val dur = formatSessionDuration(event.durationSeconds)
-                "${colorize("◇ CLI", CYAN)} ${BOLD}${event.user}${RESET} disconnected ${DIM}(${event.remoteIp}, $dur, ${event.commandCount} cmds)${RESET}"
+                val who = if (event.clientUsername.isNotEmpty()) "${BOLD}${event.clientUsername}${RESET}" else "${BOLD}unknown${RESET}"
+                "${colorize("◇ CLI", CYAN)} $who disconnected ${DIM}(${event.remoteIp}, $dur, ${event.commandCount} cmds)${RESET}"
             }
             is NimbusEvent.MaintenanceEnabled -> {
                 val scope = if (event.scope == "global") "GLOBAL" else "group ${BOLD}${event.scope}${RESET}"
