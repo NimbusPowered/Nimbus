@@ -1,5 +1,6 @@
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { NavTitle } from '@/components/nav-title';
+import { SiGithub } from '@icons-pack/react-simple-icons';
 import type { ReactNode } from 'react';
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -11,8 +12,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       links={[
         { text: 'Documentation', url: '/docs/guide/introduction' },
         {
+          type: 'icon',
+          label: 'GitHub',
+          icon: <SiGithub className="size-5" />,
           text: 'GitHub',
           url: 'https://github.com/NimbusPowered/Nimbus',
+          external: true,
         },
       ]}
     >

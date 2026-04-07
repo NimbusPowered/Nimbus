@@ -12,6 +12,11 @@
   --color-fd-primary-foreground: hsl(0 0% 5%);
 }
 
+/* Sidebar footer: remove the divider line above it */
+#nd-sidebar > .border-t {
+  border-top-color: transparent;
+}
+
 /* Callouts: remove left bar, tint entire card with callout color */
 [style*="--callout-color"] {
   background-color: color-mix(in oklab, var(--callout-color) 8%, var(--color-fd-card)) !important;

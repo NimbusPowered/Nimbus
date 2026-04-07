@@ -9,6 +9,7 @@ import {
   Puzzle,
   Map,
 } from 'lucide-react';
+import { SiGithub } from '@icons-pack/react-simple-icons';
 
 function TabIcon({ children, color }: { children: ReactNode; color: string }) {
   return (
@@ -98,8 +99,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       }}
       links={[
         {
+          type: 'icon',
+          label: 'GitHub',
+          icon: <SiGithub className="size-5" />,
           text: 'GitHub',
           url: 'https://github.com/NimbusPowered/Nimbus',
+          external: true,
         },
       ]}
     >
