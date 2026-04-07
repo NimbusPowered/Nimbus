@@ -102,7 +102,6 @@ class NimbusConsole(
         dispatcher.register(PurgeCommand(serviceManager, registry))
         dispatcher.register(ScreenCommand(serviceManager, registry, terminal))
         dispatcher.register(ExecCommand(serviceManager, registry))
-        dispatcher.register(PlayersCommand(registry))
         dispatcher.register(HealthCommand(registry))
         dispatcher.register(SendCommand(serviceManager, registry, groupManager))
         dispatcher.register(LogsCommand(serviceManager, registry))
