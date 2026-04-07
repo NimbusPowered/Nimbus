@@ -19,7 +19,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 |---------|--------|-------|
 | [v0.1.0 – v0.1.4](#v01x--foundation) | Released | Foundation & core cloud features |
 | [v0.2.0 – v0.2.1](#v02x--security--production-readiness) | Released | Security, stability & production readiness |
-| [v0.3.0](#v030--competitive-features) | In Development | Warm pool, player tracking, smarter scaling |
+| [v0.3.0](#v030--competitive-features) | Released | Template stacking, warm pool, player module, deployments |
 | [v0.3.1](#v031--remote-cli) | Planned | Remote CLI |
 | [v0.4.0+](#v040--cloud-native) | Vision | Docker, S3 storage, dashboard |
 
@@ -118,68 +118,16 @@ Three pillars: **resilience** (services survive controller crashes), **security*
 
 **Theme:** Close the gaps with SimpleCloud and CloudNET. Add the features that make operators choose Nimbus over alternatives.
 
-### Warm Pool / Prepared Services ✓
+### v0.3.0 — Competitive Features (April 7, 2026)
 
-Pre-configure services without starting them. When scaling triggers, a prepared service starts in seconds instead of minutes.
+Five major features closing the gap with SimpleCloud and CloudNET:
 
-- Templates copied and configs patched in advance
-- Services held in `PREPARED` state until needed
-- Configurable pool size per group (e.g., always keep 2 BedWars servers prepared)
-- Background replenishment keeps the pool filled
-- Especially valuable for modded servers with long startup times (Forge, modpacks)
-
-**Inspiration:** CloudNET v4's `preparedServices` concept.
-
-### Player Module (`nimbus-module-players`) ✓
-
-Centralized player data management as a controller module:
-
-- **Player Database** — UUID, name, first/last login, total online time, client version, last server
-- **Cross-Server API** — Transfer, kick, message players from any service or the API
-- **Adventure Integration** — Send titles, action bars, boss bars, sounds cross-server
-- **History** — Login/disconnect events, server transfer log
-- **REST Endpoints** — `/api/players/{uuid}`, `/api/players/online`, player search
-
-**Inspiration:** SimpleCloud v3's Player Droplet.
-
-### Template Stacking ✓
-
-Allow multiple templates to be composed per group, applied in order:
-
-```toml title="config/groups/BedWars.toml"
-templates = ["global", "paper-shared", "BedWars"]
-```
-
-- Templates applied in order (later overrides earlier)
-- Reduces duplication across groups sharing common plugins
-- Special templates: `every` (all servers), `every_paper` (all Paper-based)
-
-**Inspiration:** CloudNET v4's multi-template tasks.
-
-### Service Deployments ✓
-
-Automatically copy changed files from a service back to its template when it stops:
-
-- Configurable per group: which paths to deploy back (e.g., `world/`, `plugins/*/config.yml`)
-- Useful for SMPs, SkyBlock, and other persistent game modes
-- Optional: only deploy if service stopped cleanly (not on crash)
-
-**Inspiration:** CloudNET v4's deployment system.
-
-### Remote File Management API ✓
-
-Browse, read, and edit files on running services through the REST API:
-
-```
-GET    /api/services/{name}/files?path=/plugins/
-GET    /api/services/{name}/files/content?path=/server.properties
-PUT    /api/services/{name}/files/content?path=/server.properties
-DELETE /api/services/{name}/files?path=/plugins/old-plugin.jar
-```
-
-Works for both local and remote (agent) services. Enables future dashboard development.
-
-**Inspiration:** SimpleCloud v3's Server Host file management.
+- **Template Stacking** — `templates = ["base", "overlay"]` in group config, applied in order (later overrides earlier). Reduces duplication across groups sharing common plugins. Full agent/cluster protocol support
+- **Warm Pool / Prepared Services** — New `PREPARED` service state with `WarmPoolManager` background replenishment (15s loop). Configurable via `scaling.warm_pool_size` per group. Prepared services start in seconds instead of minutes
+- **Player Module** (`nimbus-module-players`) — Centralized player tracking as a controller module. In-memory map + DB persistence (`player_sessions`, `player_tracking`). REST endpoints, console commands, Bridge remote execution (`/cloud players`). Clean event-driven architecture via `POST /api/proxy/events`
+- **Service Deployments** — Hash-based copy-back of changed files from service to template on stop. Configurable via `lifecycle.deploy_on_stop` and `lifecycle.deploy_excludes`
+- **Remote File Management API** — Browse, read, write, and delete files on agent-hosted services via REST. Transparent proxy through cluster WebSocket with path traversal protection
+- **Module Auto-Sync** — Embedded module JARs automatically updated on startup, no manual copying after rebuilds
 
 ---
 
