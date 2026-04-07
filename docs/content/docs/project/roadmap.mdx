@@ -4,7 +4,6 @@ description: Current development status, planned features, and long-term vision 
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
-import { Steps, Step } from 'fumadocs-ui/components/steps';
 
 This page tracks where Nimbus is, where it's going, and why. Each version has a clear theme — features are grouped by the problem they solve, not by when someone thought of them.
 
@@ -19,7 +18,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 | Version | Status | Theme |
 |---------|--------|-------|
 | [v0.1.0 – v0.1.4](#v01x--foundation) | Released | Foundation & core cloud features |
-| [v0.2.0](#v020--security--production-readiness) | **In Progress** | Security, stability & production readiness |
+| [v0.2.0](#v020--security--production-readiness) | Released | Security, stability & production readiness |
 | [v0.3.0](#v030--competitive-features) | Planned | Warm pool, player tracking, smarter scaling |
 | [v0.4.0+](#v040--cloud-native) | Vision | Docker, S3 storage, dashboard |
 
@@ -84,74 +83,22 @@ The first public release shipped a fully functional cloud system:
 
 ---
 
-## v0.2.0 — Security & Production Readiness
-
-<Callout type="warn">
-  This version is currently in development on the `feat/v0.2.0-security-production-readiness` branch.
-</Callout>
+## v0.2.0 — Security & Production Readiness (April 7, 2026)
 
 **Theme:** Make Nimbus production-ready. Fix the gaps that matter when real players are online and real money is on the line.
 
-This version focuses on three pillars: **resilience** (services survive controller crashes), **security** (proper API auth), and **correctness** (no duplicate services after restart).
+Three pillars: **resilience** (services survive controller crashes), **security** (proper API auth), and **correctness** (no duplicate services after restart).
 
-### State Reconciliation
-
-**Problem:** When the controller restarts, it doesn't know which services are already running on agent nodes. It starts new instances to satisfy `min_instances`, causing duplicates.
-
-**Solution:**
-
-<Steps>
-<Step>
-**Grace Period** — On startup, the controller waits for agent reconnections before starting any services (configurable, default 15 seconds).
-</Step>
-<Step>
-**Agent State Reports** — Reconnecting agents report their currently running services with PIDs, ports, and state.
-</Step>
-<Step>
-**Registry Rebuild** — Controller rebuilds the ServiceRegistry from agent reports before evaluating scaling rules.
-</Step>
-<Step>
-**Local PID Persistence** — Analogous to the agent's `AgentStateStore`, the controller persists local service PIDs to disk. On restart, it checks if those PIDs are still alive and re-adopts them.
-</Step>
-</Steps>
-
-**Status:** Agent-side recovery already works (`AgentStateStore` + `recoverServices()`). Controller-side reconciliation and local PID persistence are the missing pieces.
-
-### API Authentication Overhaul
-
-**Problem:** The current API uses a single bearer token with full admin access. There's a derived HMAC token for service-level access, but no granular permissions, no multi-user support, and no token expiry.
-
-**Planned:**
-
-| Feature | Description |
-|---------|-------------|
-| **JWT Tokens** | Signed tokens with expiry, replacing static bearer tokens |
-| **Scoped Permissions** | Granular scopes like `services:read`, `services:write`, `groups:manage`, `admin` |
-| **Multiple API Keys** | Create/revoke named API keys with specific scope sets |
-| **Service Tokens** | Auto-generated, scoped tokens passed to child processes (replaces HMAC derivation) |
-
-The existing single-token auth remains as a fallback for simple setups.
-
-### Local Service Resilience
-
-**Problem:** Services started directly on the controller are child processes of the controller JVM. If the controller crashes, these local services also die.
-
-**Options under evaluation:**
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| **PID file + re-adopt** | Simple, matches agent behavior | Services still die on crash (just detected faster) |
-| **Screen/tmux sessions** | Services survive controller crash | Extra dependency, complexity |
-| **Process detachment** | No extra deps, true independence | Platform-specific, harder to monitor |
-
-### Already Shipped in v0.2.0
-
-These changes are already on the branch:
-
-- **Org Rename** — `KryonixMC` to `NimbusPowered`, package `dev.nimbuspowered.nimbus`
-- **Migration Bootstrap** — Self-repair for baseline detection, handles upgrades from v0.1.x
-- **Fumadocs** — Documentation migrated from VitePress to Next.js + Fumadocs
+- **Database Migration System** — `MigrationManager` with versioned schema changes, auto-bootstrap for pre-0.2.0 databases, module migrations via `ModuleContext.registerMigrations()`
+- **Audit Logging** — `AuditCollector` with EventBus subscription, actor tracking, `audit` console command, `GET /api/audit` endpoint, configurable retention (default 90 days)
+- **Environment Variable Overrides** — `NIMBUS_API_TOKEN`, `NIMBUS_DB_*`, `NIMBUS_CLUSTER_TOKEN`, `NIMBUS_AGENT_TOKEN`, `NIMBUS_AGENT_CONTROLLER` override TOML config
+- **Cluster TLS** — Netty engine with native `sslConnector`, auto-generated self-signed keystore, `wss://` default (breaking)
+- **Local PID Persistence** — `ControllerStateStore` persists service PIDs to `state/services.json`, re-adopts running processes via `ProcessHandle.adopt()` (Windows-compatible)
+- **State Reconciliation** — Grace period (`reconciliation_delay`, default 10s) lets agents report running services before new instances start
+- **JWT Scoped API Auth** — Opt-in via `jwt_enabled = true`, HMAC-SHA256 tokens with 13 granular scopes, token management endpoints, service-level JWT
 - **Leaf Support** — Leaf (Paper fork) added as supported server software
+- **Org Rename** — `KryonixMC` to `NimbusPowered`, package `dev.nimbuspowered.nimbus`
+- **Fumadocs** — Documentation migrated from VitePress to Next.js + Fumadocs
 - **Interactive Pickers** — Arrow-key selection replacing Y/N prompts throughout
 
 ---
@@ -301,9 +248,9 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Service Lifecycle | 5/5 | Core loop is solid — start, stop, crash recovery, restart limits |
 | Auto-Scaling (player-based) | 5/5 | Cooldowns, thresholds, global caps, stress test awareness |
 | Smart Scaling (time/predictive) | 4/5 | Works well, but requires `nimbus-module-scaling` (not in core) |
-| REST API | 4/5 | 17 route files, rate limiting, CORS — auth needs JWT upgrade |
+| REST API | 4/5 | 17 route files, rate limiting, CORS, JWT scoped auth (opt-in) |
 | WebSocket Events | 4/5 | Live events + bidirectional console work reliably |
-| Multi-Node Cluster | 4/5 | Agent recovery, TLS, placement strategies — needs reconciliation fix |
+| Multi-Node Cluster | 5/5 | Agent recovery, TLS, placement strategies, state reconciliation with grace period |
 | TCP Load Balancer | 4/5 | Async NIO, PROXY protocol v2, health checks — production-capable |
 | Module System | 5/5 | ServiceLoader, dependency resolution, versioning, SetupWizard integration |
 | Permission System | 4/5 | Groups, inheritance, tracks, meta, LuckPerms — audit integration could go deeper |
@@ -340,11 +287,11 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 
 ### What competitors have that we don't (yet)
 
-| Feature | Who has it | Our plan |
+| Feature | Who has it | Our status |
 |---------|-----------|----------|
-| Services survive controller crash (local) | SimpleCloud (Screen), CloudNET (Wrapper) | v0.2.0 |
-| State reconciliation on restart | SimpleCloud (auto-reattach) | v0.2.0 |
-| JWT/scoped API auth | CloudNET (module-rest) | v0.2.0 |
+| Services survive controller crash (local) | SimpleCloud (Screen), CloudNET (Wrapper) | v0.2.0 ✓ |
+| State reconciliation on restart | SimpleCloud (auto-reattach) | v0.2.0 ✓ |
+| JWT/scoped API auth | CloudNET (module-rest) | v0.2.0 ✓ |
 | Warm pool / prepared services | CloudNET (smart module) | v0.3.0 |
 | Cross-server player management | SimpleCloud (Player Droplet) | v0.3.0 |
 | Template stacking | CloudNET (multi-template tasks) | v0.3.0 |
