@@ -31,6 +31,7 @@ public class ProxySyncListener {
     private final Logger logger;
     private final NimbusApiClient apiClient;
     private final dev.nimbuspowered.nimbus.sdk.NimbusEventStream eventStream;
+    private final dev.nimbuspowered.nimbus.sdk.NimbusClient sdkClient;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
     // Maintenance handler (set externally after construction)
@@ -67,11 +68,13 @@ public class ProxySyncListener {
     private ScheduledExecutorService scheduler;
 
     public ProxySyncListener(ProxyServer server, Logger logger, NimbusApiClient apiClient,
-                             dev.nimbuspowered.nimbus.sdk.NimbusEventStream eventStream) {
+                             dev.nimbuspowered.nimbus.sdk.NimbusEventStream eventStream,
+                             dev.nimbuspowered.nimbus.sdk.NimbusClient sdkClient) {
         this.server = server;
         this.logger = logger;
         this.apiClient = apiClient;
         this.eventStream = eventStream;
+        this.sdkClient = sdkClient;
     }
 
     public void setMaintenanceHandler(MaintenanceHandler handler) {
@@ -182,6 +185,7 @@ public class ProxySyncListener {
             applyTabList(player);
             applyPlayerDisplayName(player);
         }).delay(500, TimeUnit.MILLISECONDS).schedule();
+
     }
 
     @Subscribe
@@ -192,13 +196,34 @@ public class ProxySyncListener {
             applyTabList(player);
             applyPlayerDisplayName(player);
         }).delay(250, TimeUnit.MILLISECONDS).schedule();
+
+        // Report player events to controller
+        var previousServer = event.getPreviousServer();
+        player.getCurrentServer().ifPresent(conn -> {
+            String currentService = conn.getServerInfo().getName();
+            if (previousServer == null) {
+                // First server = initial connect
+                sdkClient.reportPlayerConnect(currentService, player.getUsername(), player.getUniqueId().toString());
+            } else {
+                // Server switch
+                String from = previousServer.getServerInfo().getName();
+                sdkClient.reportPlayerSwitch(player.getUsername(), player.getUniqueId().toString(), from, currentService);
+            }
+        });
     }
 
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
         playerTabOverrides.remove(uuid.toString());
         playerDisplayCache.remove(uuid);
+
+        // Report player disconnect to controller
+        player.getCurrentServer().ifPresent(conn -> {
+            String serviceName = conn.getServerInfo().getName();
+            sdkClient.reportPlayerDisconnect(serviceName, player.getUsername(), uuid.toString());
+        });
     }
 
     @Subscribe

@@ -65,6 +65,56 @@ const platforms = [
   'Forge', 'Fabric', 'NeoForge', 'Vanilla',
 ];
 
+const serverSoftware = [
+  {
+    name: 'Paper',
+    tagline: 'The industry standard',
+    ratings: { performance: 4, stability: 5, plugins: 5, customization: 3 },
+    minVersion: '1.8.8+',
+    bestFor: 'Safe default for any server — largest community, fastest patches',
+    logo: 'https://raw.githubusercontent.com/PaperMC/website/main/src/assets/brand/paper.svg',
+  },
+  {
+    name: 'Purpur',
+    tagline: 'Your Minecraft, your way',
+    ratings: { performance: 4, stability: 4, plugins: 5, customization: 5 },
+    minVersion: '1.14+',
+    bestFor: 'Hundreds of extra config options for gameplay tweaks',
+    logo: 'https://raw.githubusercontent.com/PurpurMC/PurpurWebsite/master/public/images/purpur.svg',
+  },
+  {
+    name: 'Pufferfish',
+    tagline: 'Built for large servers',
+    ratings: { performance: 5, stability: 4, plugins: 5, customization: 3 },
+    minVersion: '1.17.1+',
+    bestFor: 'Entity-heavy servers — DAB + SIMD optimizations for 100+ players',
+    logo: 'https://avatars.githubusercontent.com/u/87461856?v=4',
+  },
+  {
+    name: 'Leaf',
+    tagline: 'Experimental, bleeding-edge',
+    ratings: { performance: 4, stability: 3, plugins: 5, customization: 3 },
+    minVersion: '1.19.3+',
+    bestFor: 'Aggregates patches from multiple forks — for adventurous admins',
+    logo: 'https://raw.githubusercontent.com/Winds-Studio/Leaf/ver/1.21.11/public/image/leaf_logo.png',
+  },
+  {
+    name: 'Folia',
+    tagline: 'Regionized multithreading',
+    ratings: { performance: 5, stability: 3, plugins: 1, customization: 2 },
+    minVersion: '1.19.4+',
+    bestFor: '200+ spread-out players on 16+ core hardware',
+    logo: 'https://raw.githubusercontent.com/PaperMC/website/main/src/assets/brand/folia.svg',
+  },
+] as const;
+
+const ratingLabels: Record<string, string> = {
+  performance: 'Performance',
+  stability: 'Stability',
+  plugins: 'Plugin Compatibility',
+  customization: 'Customization',
+};
+
 const footerDocs = [
   { label: 'Quick Start', href: '/docs/guide/quickstart' },
   { label: 'Installation', href: '/docs/guide/installation' },
@@ -186,6 +236,74 @@ export default function Page() {
             >
               {name}
             </span>
+          ))}
+        </div>
+      </section>
+
+      {/* Server Software Comparison */}
+      <section className="mx-auto mt-24 max-w-fd-container px-6">
+        <div className="text-center mb-10">
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Choose your server software.
+          </h2>
+          <p className="mt-3 text-fd-muted-foreground text-base">
+            All Paper-based — same plugins, different strengths.
+          </p>
+        </div>
+
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+          {serverSoftware.map((sw) => (
+            <div
+              key={sw.name}
+              className="group relative flex flex-col rounded-xl border border-fd-border bg-fd-card p-5 transition-all duration-300 ease-out hover:border-fd-primary/30 hover:shadow-md hover:shadow-fd-primary/5 hover:-translate-y-0.5"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={sw.logo}
+                  alt={sw.name}
+                  className="size-9 shrink-0 rounded-lg object-contain"
+                />
+                <div className="min-w-0">
+                  <h3 className="font-semibold leading-tight">{sw.name}</h3>
+                  <p className="text-xs text-fd-muted-foreground truncate">{sw.tagline}</p>
+                </div>
+              </div>
+
+              {/* Ratings */}
+              <div className="space-y-2.5 mt-4 mb-4">
+                {Object.entries(sw.ratings).map(([key, value]) => (
+                  <div key={key}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-fd-muted-foreground">
+                        {ratingLabels[key]}
+                      </span>
+                      <span className="text-xs font-medium text-fd-muted-foreground">
+                        {value}/5
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-fd-border">
+                      <div
+                        className="h-full rounded-full bg-fd-primary/70"
+                        style={{ width: `${(value / 5) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Best for */}
+              <p className="mt-auto text-xs text-fd-muted-foreground leading-relaxed">
+                {sw.bestFor}
+              </p>
+
+              {/* Version badge */}
+              <span className="mt-3 inline-block w-fit rounded-full border border-fd-border px-2 py-0.5 text-xs text-fd-muted-foreground">
+                {sw.minVersion}
+              </span>
+
+            </div>
           ))}
         </div>
       </section>

@@ -30,7 +30,7 @@ Install scripts: `install.sh`, `install.ps1`, `install-agent.sh`, `install-agent
 java -jar nimbus-core/build/libs/nimbus-core-<version>-all.jar
 ```
 
-`shadowJar` also builds and embeds module JARs (perms, display, scaling) into `controller-modules/` inside the fat JAR.
+`shadowJar` also builds and embeds module JARs (perms, display, scaling, players) into `controller-modules/` inside the fat JAR.
 
 Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 
@@ -64,6 +64,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 - `nimbus-module-perms` — Permissions module: groups, tracks, prefix/suffix, audit log (extracted from core)
 - `nimbus-module-display` — Display module: server selector signs + NPCs config (extracted from core)
 - `nimbus-module-scaling` — Smart Scaling module: time-based schedules, predictive warmup, player count history
+- `nimbus-module-players` — Player module: centralized tracking, session history, cross-server management (controller module, auto-deployed)
 
 ## Tech Stack
 
@@ -80,7 +81,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 ```
 nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ├── Nimbus.kt              # Entry point, bootstrap
-├── api/                   # Ktor REST API + WebSocket (v0.2)
+├── api/                   # Ktor REST API + WebSocket (v0.2), ProxyEventRoutes (proxy event endpoint)
 ├── config/                # TOML config loading (NimbusConfig, GroupConfig)
 ├── console/               # JLine3 REPL, CommandDispatcher, 30 commands
 ├── database/              # Exposed ORM: DatabaseManager, MigrationManager, Tables, MetricsCollector, AuditCollector
@@ -90,10 +91,11 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ├── module/                # ModuleManager, ModuleContextImpl (dynamic module loading)
 ├── scaling/               # ScalingEngine + ScalingRule (auto-scale by player count)
 ├── proxy/                 # ProxySyncManager (tab list, MOTD, chat, maintenance)
-├── service/               # Service lifecycle, ProcessHandle, PortAllocator, ServerListPing
+├── service/               # Service lifecycle, ProcessHandle, PortAllocator, ServerListPing, WarmPoolManager (warm pool)
 ├── setup/                 # First-run interactive SetupWizard
 ├── stress/                # StressTestManager (simulated player load testing)
-├── template/              # TemplateManager, ConfigPatcher, SoftwareResolver (auto-download)
+├── template/              # TemplateManager, ConfigPatcher, SoftwareResolver (auto-download), ServiceDeployer (deploy-back)
+├── cluster/               # RemoteFileProxy (remote file proxy for agent nodes)
 ├── update/                # UpdateChecker (GitHub Releases auto-updater)
 └── velocity/              # VelocityConfigGen (auto-manage proxy server list)
 # Note: permissions, display code now lives in their respective module JARs
@@ -106,6 +108,7 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 - `data/nimbus.db` — SQLite database (default, configurable to MySQL/PostgreSQL)
 - `config/modules/display/*.toml` — Display configs per group (signs + NPCs)
 - `config/modules/scaling/*.toml` — Smart Scaling configs per group (schedules + warmup)
+- `config/modules/players/` — Player module config (tracking, session history)
 - `config/modules/syncproxy/motd.toml` — MOTD + maintenance mode config
 - `config/modules/syncproxy/tablist.toml` — Tab list header, footer, player format
 - `config/modules/syncproxy/chat.toml` — Chat format settings
@@ -117,6 +120,7 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 - MySQL connections use SSL by default (`useSSL=true`)
 - `modules/` directory — Controller module JARs loaded at startup
 - Module JARs embedded in core shadowJar under `controller-modules/` for SetupWizard extraction
+- Group config fields: `scaling.warm_pool_size` (pre-staged services), `lifecycle.deploy_on_stop` (deploy-back on stop), `lifecycle.deploy_excludes` (files to skip during deploy-back), `group.templates` (list of template names, applied in order)
 
 ## Key Patterns
 
@@ -150,6 +154,10 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 - Embedded modules auto-discovered via build-generated `controller-modules/modules.list`
 - SetupWizard lets users choose which modules to install
 - `plugins` command: live search on Hangar + Modrinth with multi-select, version-aware, auto-installs dependencies
+- Template stacking: `templates = ["base", "overlay"]` in group config, applied in order (later overrides earlier)
+- Warm pool: `warm_pool_size` configures pre-staged services per group, PREPARED state between PREPARING and STARTING
+- Service deployments: `deploy_on_stop = true` copies changed files back to template on service stop
+- Player tracking: Bridge reports player events via `POST /api/proxy/events`, Player Module subscribes via EventBus
 
 ## Cross-Version Compatibility
 
@@ -175,7 +183,9 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ## API (v0.2)
 
 - Bearer token auth (`Authorization: Bearer <token>`), auto-generated if not configured
-- REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/audit` (admin-only audit log), `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module)
+- REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/audit` (admin-only audit log), `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module), `/api/players/*` (player module)
+- Proxy events: `POST /api/proxy/events` — generic proxy event reporting (player connect/disconnect/switch)
+- Player module: `/api/players/online`, `/api/players/history/{uuid}`, `/api/players/info/{uuid}`, `/api/players/stats`
 - WebSocket: `/api/events` (live events), `/api/services/{name}/console` (bidirectional) — auth via `Authorization` header or `?token=` query param
 - `/api/health` is always public (no auth), all other endpoints (including `/api/metrics`) require auth
 - Rate limiting: 120 requests/minute global, 5 requests/minute for stress endpoints

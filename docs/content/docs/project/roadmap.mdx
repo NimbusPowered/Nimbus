@@ -19,7 +19,8 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 |---------|--------|-------|
 | [v0.1.0 – v0.1.4](#v01x--foundation) | Released | Foundation & core cloud features |
 | [v0.2.0 – v0.2.1](#v02x--security--production-readiness) | Released | Security, stability & production readiness |
-| [v0.3.0](#v030--competitive-features) | Planned | Warm pool, player tracking, smarter scaling |
+| [v0.3.0](#v030--competitive-features) | In Development | Warm pool, player tracking, smarter scaling |
+| [v0.3.1](#v031--remote-cli) | Planned | Remote CLI |
 | [v0.4.0+](#v040--cloud-native) | Vision | Docker, S3 storage, dashboard |
 
 ---
@@ -117,18 +118,19 @@ Three pillars: **resilience** (services survive controller crashes), **security*
 
 **Theme:** Close the gaps with SimpleCloud and CloudNET. Add the features that make operators choose Nimbus over alternatives.
 
-### Warm Pool / Prepared Services
+### Warm Pool / Prepared Services ✓
 
 Pre-configure services without starting them. When scaling triggers, a prepared service starts in seconds instead of minutes.
 
 - Templates copied and configs patched in advance
 - Services held in `PREPARED` state until needed
 - Configurable pool size per group (e.g., always keep 2 BedWars servers prepared)
+- Background replenishment keeps the pool filled
 - Especially valuable for modded servers with long startup times (Forge, modpacks)
 
 **Inspiration:** CloudNET v4's `preparedServices` concept.
 
-### Player Module (`nimbus-module-players`)
+### Player Module (`nimbus-module-players`) ✓
 
 Centralized player data management as a controller module:
 
@@ -140,7 +142,7 @@ Centralized player data management as a controller module:
 
 **Inspiration:** SimpleCloud v3's Player Droplet.
 
-### Template Stacking
+### Template Stacking ✓
 
 Allow multiple templates to be composed per group, applied in order:
 
@@ -154,7 +156,7 @@ templates = ["global", "paper-shared", "BedWars"]
 
 **Inspiration:** CloudNET v4's multi-template tasks.
 
-### Service Deployments
+### Service Deployments ✓
 
 Automatically copy changed files from a service back to its template when it stops:
 
@@ -164,7 +166,7 @@ Automatically copy changed files from a service back to its template when it sto
 
 **Inspiration:** CloudNET v4's deployment system.
 
-### Remote File Management API
+### Remote File Management API ✓
 
 Browse, read, and edit files on running services through the REST API:
 
@@ -178,6 +180,12 @@ DELETE /api/services/{name}/files?path=/plugins/old-plugin.jar
 Works for both local and remote (agent) services. Enables future dashboard development.
 
 **Inspiration:** SimpleCloud v3's Server Host file management.
+
+---
+
+## v0.3.1 — Remote CLI
+
+**Theme:** Remote management tooling.
 
 ### Remote CLI
 
@@ -275,6 +283,10 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Console UX | 5/5 | JLine3, interactive pickers, 30+ commands, ANSI formatting |
 | Install Scripts | 4/5 | Linux/macOS/Windows, Java auto-install, systemd/screen integration |
 | Auto-Updater | 4/5 | Semver comparison, backup, swap, manual prompt for major versions |
+| Template Stacking | 4/5 | Multi-template composition, backwards compatible |
+| Warm Pool | 4/5 | Pre-staged services, background replenishment |
+| Player Module | 3/5 | Tracking, sessions, history — needs real-world testing |
+| Service Deployments | 3/5 | Hash-based copy-back, local only (agent support planned) |
 
 ---
 
@@ -302,9 +314,9 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 | Services survive controller crash (local) | SimpleCloud (Screen), CloudNET (Wrapper) | v0.2.0 ✓ |
 | State reconciliation on restart | SimpleCloud (auto-reattach) | v0.2.0 ✓ |
 | JWT/scoped API auth | CloudNET (module-rest) | v0.2.0 ✓ |
-| Warm pool / prepared services | CloudNET (smart module) | v0.3.0 |
-| Cross-server player management | SimpleCloud (Player Droplet) | v0.3.0 |
-| Template stacking | CloudNET (multi-template tasks) | v0.3.0 |
+| Warm pool / prepared services | CloudNET (smart module) | v0.3.0 ✓ |
+| Cross-server player management | SimpleCloud (Player Droplet) | v0.3.0 ✓ |
+| Template stacking | CloudNET (multi-template tasks) | v0.3.0 ✓ |
 | Docker runtime | CloudNET (dockerized-services) | v0.4.0+ |
 | S3/SFTP template storage | CloudNET (storage-s3, storage-sftp) | v0.4.0+ |
 | Web dashboard | SimpleCloud (hosted) | v0.4.0+ |
