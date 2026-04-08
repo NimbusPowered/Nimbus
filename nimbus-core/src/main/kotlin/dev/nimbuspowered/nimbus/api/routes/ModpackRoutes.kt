@@ -14,7 +14,6 @@ import dev.nimbuspowered.nimbus.template.SoftwareResolver
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.http.*
-import io.ktor.http.content.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -56,15 +55,6 @@ data class ModpackImportResponse(
     val groupName: String = "",
     val filesDownloaded: Int = 0,
     val filesFailed: Int = 0
-)
-
-@Serializable
-data class ModpackUploadImportRequest(
-    val groupName: String,
-    val type: String = "DYNAMIC",
-    val memory: String = "2G",
-    val minInstances: Int = 1,
-    val maxInstances: Int = 2
 )
 
 fun Route.modpackRoutes(
@@ -207,70 +197,51 @@ fun Route.modpackRoutes(
             ))
         }
 
-        // POST /api/modpacks/upload — Upload a server pack ZIP and import it
+        // POST /api/modpacks/upload?groupName=X&type=STATIC&memory=4G — Upload a server pack ZIP
+        // File is sent as raw request body (application/octet-stream) to avoid multipart buffering OOM.
+        // Query params: groupName (required), type, memory, minInstances, maxInstances, fileName
         post("upload") {
-            val contentType = call.request.contentType()
-            if (!contentType.match(ContentType.MultiPart.FormData)) {
-                return@post call.respond(HttpStatusCode.BadRequest, apiError("Expected multipart/form-data", ApiErrors.VALIDATION_FAILED))
-            }
-
-            val multipart = call.receiveMultipart()
-            var zipPath: Path? = null
-            var groupName = ""
-            var type = "DYNAMIC"
-            var memory = "2G"
-            var minInstances = 1
-            var maxInstances = 2
-
-            val uploadDir = templatesDir.resolve(".modpack-uploads")
-            Files.createDirectories(uploadDir)
-
-            multipart.forEachPart { part ->
-                when (part) {
-                    is PartData.FileItem -> {
-                        val fileName = part.originalFileName ?: "upload.zip"
-                        val target = uploadDir.resolve(fileName)
-                        // Stream directly to disk — never buffer the full file in memory
-                        @Suppress("DEPRECATION")
-                        part.streamProvider().use { input ->
-                            java.io.FileOutputStream(target.toFile()).use { output ->
-                                val written = input.copyTo(output, bufferSize = 8192)
-                                if (written > maxUploadBytes) {
-                                    output.close()
-                                    Files.deleteIfExists(target)
-                                    part.dispose()
-                                    return@forEachPart
-                                }
-                            }
-                        }
-                        zipPath = target
-                    }
-                    is PartData.FormItem -> {
-                        when (part.name) {
-                            "groupName" -> groupName = part.value
-                            "type" -> type = part.value
-                            "memory" -> memory = part.value
-                            "minInstances" -> minInstances = part.value.toIntOrNull() ?: 1
-                            "maxInstances" -> maxInstances = part.value.toIntOrNull() ?: 2
-                        }
-                    }
-                    else -> {}
-                }
-                part.dispose()
-            }
-
-            val uploadedZip = zipPath
-            if (uploadedZip == null) {
-                return@post call.respond(HttpStatusCode.BadRequest, apiError("No file uploaded", ApiErrors.MODPACK_UPLOAD_FAILED))
-            }
+            val groupName = call.request.queryParameters["groupName"] ?: ""
+            val type = call.request.queryParameters["type"] ?: "DYNAMIC"
+            val memory = call.request.queryParameters["memory"] ?: "2G"
+            val minInstances = call.request.queryParameters["minInstances"]?.toIntOrNull() ?: 1
+            val maxInstances = call.request.queryParameters["maxInstances"]?.toIntOrNull() ?: 2
+            val fileName = call.request.queryParameters["fileName"] ?: "upload.zip"
 
             if (groupName.isBlank() || !groupName.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
-                Files.deleteIfExists(uploadedZip)
                 return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid group name", ApiErrors.VALIDATION_FAILED))
             }
             if (groupManager.getGroup(groupName) != null) {
-                Files.deleteIfExists(uploadedZip)
                 return@post call.respond(HttpStatusCode.Conflict, apiError("Group '$groupName' already exists", ApiErrors.GROUP_ALREADY_EXISTS))
+            }
+
+            // Stream request body directly to disk — no memory buffering
+            val uploadDir = templatesDir.resolve(".modpack-uploads")
+            Files.createDirectories(uploadDir)
+            val uploadedZip = uploadDir.resolve(fileName)
+
+            try {
+                call.receiveStream().use { input ->
+                    java.io.FileOutputStream(uploadedZip.toFile()).use { output ->
+                        val buf = ByteArray(65536)
+                        var totalWritten = 0L
+                        var read: Int
+                        while (input.read(buf).also { read = it } != -1) {
+                            output.write(buf, 0, read)
+                            totalWritten += read
+                            if (totalWritten > maxUploadBytes) {
+                                output.close()
+                                Files.deleteIfExists(uploadedZip)
+                                return@post call.respond(HttpStatusCode.PayloadTooLarge,
+                                    apiError("File too large (max ${maxUploadBytes / 1024 / 1024}MB)", ApiErrors.PAYLOAD_TOO_LARGE))
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Files.deleteIfExists(uploadedZip)
+                return@post call.respond(HttpStatusCode.InternalServerError,
+                    apiError("Upload failed: ${e.message}", ApiErrors.MODPACK_UPLOAD_FAILED))
             }
 
             val templateName = groupName.lowercase()

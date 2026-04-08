@@ -263,17 +263,20 @@ export default function GroupsPage() {
     setImportProgress("Importing...");
     try {
       if (importMode === "upload" && importFile) {
-        // File upload via multipart
+        // Stream file directly as request body (no multipart — avoids server OOM)
         setImportProgress(`Uploading ${importFile.name}...`);
-        const formData = new FormData();
-        formData.append("file", importFile);
-        formData.append("groupName", importGroupName.trim());
-        formData.append("type", importType);
-        formData.append("memory", importMemory);
-        formData.append("minInstances", String(importMinInstances));
-        formData.append("maxInstances", String(importMaxInstances));
-
-        const result = await apiUpload<ModpackImportResponse>("/api/modpacks/upload", formData);
+        const params = new URLSearchParams({
+          groupName: importGroupName.trim(),
+          type: importType,
+          memory: importMemory,
+          minInstances: String(importMinInstances),
+          maxInstances: String(importMaxInstances),
+          fileName: importFile.name,
+        });
+        const result = await apiUpload<ModpackImportResponse>(
+          `/api/modpacks/upload?${params.toString()}`,
+          importFile
+        );
         if (result.filesFailed > 0) {
           toast.warning(`Imported with ${result.filesFailed} failed downloads`);
         } else {

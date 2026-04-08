@@ -57,11 +57,12 @@ export async function apiFetch<T = unknown>(
 }
 
 /**
- * Upload a file via multipart/form-data (no Content-Type header — browser sets boundary).
+ * Upload a file as raw request body (streamed, no multipart buffering).
+ * Parameters should be passed as query params in the path.
  */
 export async function apiUpload<T = unknown>(
   path: string,
-  formData: FormData
+  file: File | Blob
 ): Promise<T> {
   const apiUrl = getApiUrl();
   const token = getToken();
@@ -70,8 +71,9 @@ export async function apiUpload<T = unknown>(
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
     },
-    body: formData,
+    body: file,
   });
 
   if (res.status === 401) {
