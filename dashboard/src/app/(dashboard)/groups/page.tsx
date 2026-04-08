@@ -1,0 +1,436 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { apiFetch } from "@/lib/api";
+import { toast } from "sonner";
+import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
+
+interface Group {
+  name: string;
+  type: string;
+  software: string;
+  version: string;
+  resources: { memory: string; maxPlayers: number };
+  scaling: { minInstances: number; maxInstances: number };
+  activeInstances: number;
+}
+
+interface GroupListResponse {
+  groups: Group[];
+  total: number;
+}
+
+interface SoftwareInfo {
+  name: string;
+  needsModloaderVersion: boolean;
+  needsCustomJar: boolean;
+  isProxy: boolean;
+}
+
+interface VersionListResponse {
+  software: string;
+  stable: string[];
+  snapshots: string[];
+  latest: string | null;
+}
+
+export default function GroupsPage() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // Create form state
+  const [softwareList, setSoftwareList] = useState<SoftwareInfo[]>([]);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("DYNAMIC");
+  const [newSoftware, setNewSoftware] = useState("PAPER");
+  const [newVersion, setNewVersion] = useState("");
+  const [newModloaderVersion, setNewModloaderVersion] = useState("");
+  const [newMemory, setNewMemory] = useState("1G");
+  const [newMinInstances, setNewMinInstances] = useState(1);
+  const [newMaxInstances, setNewMaxInstances] = useState(4);
+  const [versions, setVersions] = useState<VersionListResponse | null>(null);
+  const [modloaderVersions, setModloaderVersions] = useState<VersionListResponse | null>(null);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [loadingModloader, setLoadingModloader] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const selectedSoftware = softwareList.find((s) => s.name === newSoftware);
+
+  async function load() {
+    try {
+      const data = await apiFetch<GroupListResponse>("/api/groups");
+      setGroups(data.groups);
+    } catch {
+      // handled
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // Fetch software list when dialog opens
+  useEffect(() => {
+    if (!createOpen) return;
+    apiFetch<{ software: SoftwareInfo[] }>("/api/software")
+      .then((data) => setSoftwareList(data.software))
+      .catch(() => {});
+  }, [createOpen]);
+
+  // Fetch versions when software changes
+  useEffect(() => {
+    if (!createOpen || newSoftware === "CUSTOM") {
+      setVersions(null);
+      return;
+    }
+    setLoadingVersions(true);
+    setNewVersion("");
+    apiFetch<VersionListResponse>(`/api/software/${newSoftware}/versions`)
+      .then((data) => {
+        setVersions(data);
+        if (data.latest) setNewVersion(data.latest);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingVersions(false));
+  }, [newSoftware, createOpen]);
+
+  // Fetch modloader versions when MC version changes (for Forge/NeoForge/Fabric)
+  useEffect(() => {
+    if (!selectedSoftware?.needsModloaderVersion || !newVersion) {
+      setModloaderVersions(null);
+      return;
+    }
+    setLoadingModloader(true);
+    setNewModloaderVersion("");
+    apiFetch<VersionListResponse>(
+      `/api/software/${newSoftware}/modloader-versions?mcVersion=${newVersion}`
+    )
+      .then((data) => {
+        setModloaderVersions(data);
+        if (data.latest) setNewModloaderVersion(data.latest);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingModloader(false));
+  }, [newSoftware, newVersion, selectedSoftware?.needsModloaderVersion]);
+
+  async function createGroup() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    try {
+      await apiFetch("/api/groups", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newName.trim(),
+          type: newType,
+          software: newSoftware,
+          version: newVersion,
+          modloaderVersion: newModloaderVersion,
+          memory: newMemory,
+          minInstances: newMinInstances,
+          maxInstances: newMaxInstances,
+        }),
+      });
+      toast.success(`Group '${newName}' created`);
+      setCreateOpen(false);
+      setNewName("");
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create group");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function deleteGroup(name: string) {
+    if (!confirm(`Delete group '${name}'? All running services must be stopped first.`))
+      return;
+    try {
+      await apiFetch(`/api/groups/${name}`, { method: "DELETE" });
+      toast.success(`Group '${name}' deleted`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete group");
+    }
+  }
+
+  if (loading) return <Skeleton className="h-96 rounded-xl" />;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Groups ({groups.length})</CardTitle>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogTrigger
+            render={
+              <Button>
+                <Plus className="mr-1 size-4" /> New Group
+              </Button>
+            }
+          />
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create Group</DialogTitle>
+              <DialogDescription>
+                Configure a new server group.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <Field>
+                <FieldLabel>Group Name</FieldLabel>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. BedWars"
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel>Type</FieldLabel>
+                <Select value={newType} onValueChange={(v) => v && setNewType(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="DYNAMIC">Dynamic (fresh from template)</SelectItem>
+                      <SelectItem value="STATIC">Static (persistent world)</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>Server Software</FieldLabel>
+                <Select value={newSoftware} onValueChange={(v) => v && setNewSoftware(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {softwareList.length > 0
+                        ? softwareList.map((sw) => (
+                            <SelectItem key={sw.name} value={sw.name}>
+                              {sw.name}{sw.isProxy ? " (Proxy)" : ""}
+                            </SelectItem>
+                          ))
+                        : ["PAPER","VELOCITY","PURPUR","FOLIA","FORGE","NEOFORGE","FABRIC","PUFFERFISH","LEAF","CUSTOM"].map((sw) => (
+                            <SelectItem key={sw} value={sw}>{sw}</SelectItem>
+                          ))
+                      }
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>
+                  Version{" "}
+                  {loadingVersions && (
+                    <Loader2 className="inline size-3 animate-spin ml-1" />
+                  )}
+                </FieldLabel>
+                {versions && versions.stable.length > 0 ? (
+                  <Select value={newVersion} onValueChange={(v) => v && setNewVersion(v)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>Stable</SelectLabel>
+                        {versions.stable.map((v) => (
+                          <SelectItem key={v} value={v}>
+                            {v}{v === versions.latest ? " (latest)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      {versions.snapshots.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel>Snapshots</SelectLabel>
+                          {versions.snapshots.map((v) => (
+                            <SelectItem key={v} value={v}>{v}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={newVersion}
+                    onChange={(e) => setNewVersion(e.target.value)}
+                    placeholder="e.g. 1.21.4"
+                  />
+                )}
+              </Field>
+
+              {selectedSoftware?.needsModloaderVersion && (
+                <Field>
+                  <FieldLabel>
+                    Modloader Version{" "}
+                    {loadingModloader && (
+                      <Loader2 className="inline size-3 animate-spin ml-1" />
+                    )}
+                  </FieldLabel>
+                  {modloaderVersions && modloaderVersions.stable.length > 0 ? (
+                    <Select value={newModloaderVersion} onValueChange={(v) => v && setNewModloaderVersion(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {modloaderVersions.stable.map((v) => (
+                            <SelectItem key={v} value={v}>
+                              {v}{v === modloaderVersions.latest ? " (latest)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={newModloaderVersion}
+                      onChange={(e) => setNewModloaderVersion(e.target.value)}
+                      placeholder="Modloader version"
+                    />
+                  )}
+                  <FieldDescription>
+                    Leave empty for latest version
+                  </FieldDescription>
+                </Field>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <Field>
+                  <FieldLabel>Memory</FieldLabel>
+                  <Input
+                    value={newMemory}
+                    onChange={(e) => setNewMemory(e.target.value)}
+                    placeholder="1G"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Min Instances</FieldLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newMinInstances}
+                    onChange={(e) => setNewMinInstances(Number(e.target.value))}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Max Instances</FieldLabel>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={newMaxInstances}
+                    onChange={(e) => setNewMaxInstances(Number(e.target.value))}
+                  />
+                </Field>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={createGroup}
+                disabled={creating || !newName.trim() || !newVersion}
+              >
+                {creating ? "Creating..." : "Create Group"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent>
+        {groups.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No groups configured</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Software</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Memory</TableHead>
+                <TableHead className="text-right">Instances</TableHead>
+                <TableHead className="text-right">Max Players</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groups.map((g) => (
+                <TableRow key={g.name}>
+                  <TableCell>
+                    <Link
+                      href={`/groups/${g.name}`}
+                      className="font-medium hover:underline"
+                    >
+                      {g.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{g.type}</Badge>
+                  </TableCell>
+                  <TableCell>{g.software}</TableCell>
+                  <TableCell>{g.version}</TableCell>
+                  <TableCell>{g.resources.memory}</TableCell>
+                  <TableCell className="text-right">
+                    {g.activeInstances} / {g.scaling.minInstances}-
+                    {g.scaling.maxInstances}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {g.resources.maxPlayers}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-destructive"
+                      onClick={() => deleteGroup(g.name)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
