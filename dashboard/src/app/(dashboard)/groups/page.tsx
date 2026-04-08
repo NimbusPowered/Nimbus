@@ -35,7 +35,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, Package } from "lucide-react";
+import { Plus, Trash2, Loader2, Package, FolderTreeIcon } from "lucide-react";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 
 interface ModpackInfo {
@@ -239,21 +239,28 @@ export default function GroupsPage() {
     }
   }
 
-  async function deleteGroup(name: string) {
-    if (!confirm(`Delete group '${name}'? All running services must be stopped first.`))
-      return;
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await apiFetch(`/api/groups/${name}`, { method: "DELETE" });
-      toast.success(`Group '${name}' deleted`);
+      await apiFetch(`/api/groups/${deleteTarget}`, { method: "DELETE" });
+      toast.success(`Group '${deleteTarget}' deleted`);
+      setDeleteTarget(null);
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to delete group");
+    } finally {
+      setDeleting(false);
     }
   }
 
   if (loading) return <Skeleton className="h-96 rounded-xl" />;
 
   return (
+    <>
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Groups ({groups.length})</CardTitle>
@@ -508,7 +515,11 @@ export default function GroupsPage() {
       </CardHeader>
       <CardContent>
         {groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No groups configured</p>
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <FolderTreeIcon className="size-10 text-muted-foreground/50 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">No groups configured</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">Create a group to get started</p>
+          </div>
         ) : (
           <Table>
             <TableHeader>
@@ -552,7 +563,7 @@ export default function GroupsPage() {
                       variant="ghost"
                       size="icon"
                       className="size-8 text-destructive"
-                      onClick={() => deleteGroup(g.name)}
+                      onClick={() => setDeleteTarget(g.name)}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -564,5 +575,25 @@ export default function GroupsPage() {
         )}
       </CardContent>
     </Card>
+
+    <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Group</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete &apos;{deleteTarget}&apos;? All running services must be stopped first. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

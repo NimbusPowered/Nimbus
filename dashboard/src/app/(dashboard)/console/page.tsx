@@ -105,7 +105,7 @@ export default function ConsolePage() {
         </Badge>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col min-h-0">
-        <div className="flex-1 overflow-y-auto rounded-md bg-black p-3 font-mono text-xs text-[#abb2bf]">
+        <div className="flex-1 overflow-y-auto rounded-md bg-black p-3 font-mono text-xs text-[#abb2bf] scrollbar-thin">
           {lines.map((line, i) => (
             <AnsiLine key={i} text={line} />
           ))}

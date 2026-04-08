@@ -244,7 +244,7 @@ export default function PermissionsPage() {
                     {groups.map((g) => (
                       <TableRow
                         key={g.name}
-                        className="cursor-pointer hover:bg-accent/50"
+                        className="cursor-pointer"
                         onClick={() => openEdit(g)}
                       >
                         <TableCell className="font-medium">{g.name}</TableCell>
@@ -330,7 +330,7 @@ export default function PermissionsPage() {
                     {players.map((p) => (
                       <TableRow
                         key={p.uuid}
-                        className="cursor-pointer hover:bg-accent/50"
+                        className="cursor-pointer"
                         onClick={() => {
                           setSelectedPlayer(p.uuid);
                           setSheetOpen(true);

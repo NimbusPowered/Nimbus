@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
-import { Save } from "lucide-react";
+import { Save, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import {
   Field,
   FieldLabel,
@@ -114,7 +115,12 @@ export default function GroupDetailPage({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">{group.name}</h2>
+        <div className="flex items-center gap-3">
+          <Link href="/groups" className="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors">
+            <ArrowLeft className="size-4" />
+          </Link>
+          <h2 className="text-2xl font-bold">{group.name}</h2>
+        </div>
         <Button onClick={save} disabled={saving}>
           <Save className="mr-1 size-4" />
           {saving ? "Saving..." : "Save Changes"}

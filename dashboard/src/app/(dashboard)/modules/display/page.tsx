@@ -127,7 +127,7 @@ export default function DisplayPage() {
                 {displays.map((d) => (
                   <TableRow
                     key={d.name}
-                    className="cursor-pointer hover:bg-accent/50"
+                    className="cursor-pointer"
                     onClick={() => openEdit(d)}
                   >
                     <TableCell className="font-medium">{d.name}</TableCell>

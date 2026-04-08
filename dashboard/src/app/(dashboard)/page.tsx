@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
-import { Activity, Server, Users, Clock } from "lucide-react";
+import { Activity, Server, Users, Clock, CircleDot } from "lucide-react";
+import Link from "next/link";
 
 interface GroupStatus {
   name: string;
@@ -96,7 +97,8 @@ export default function OverviewPage() {
             <Activity className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="flex items-center gap-2 text-2xl font-bold">
+              <CircleDot className={`size-4 ${status?.online ? "text-green-400" : "text-muted-foreground"}`} />
               {status?.online ? "Online" : "Offline"}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -164,8 +166,12 @@ export default function OverviewPage() {
               </TableHeader>
               <TableBody>
                 {status.groups.map((group) => (
-                  <TableRow key={group.name}>
-                    <TableCell className="font-medium">{group.name}</TableCell>
+                  <TableRow key={group.name} className="cursor-pointer">
+                    <TableCell className="font-medium">
+                      <Link href={`/groups/${group.name}`} className="hover:underline">
+                        {group.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline">{group.software}</Badge>
                     </TableCell>

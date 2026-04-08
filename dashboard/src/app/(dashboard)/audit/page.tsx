@@ -79,12 +79,15 @@ export default function AuditPage() {
               className="pl-9 w-40"
             />
           </div>
-          <Input
-            value={actorFilter}
-            onChange={(e) => setActorFilter(e.target.value)}
-            placeholder="Filter actor..."
-            className="w-40"
-          />
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+              placeholder="Filter actor..."
+              className="pl-9 w-40"
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
