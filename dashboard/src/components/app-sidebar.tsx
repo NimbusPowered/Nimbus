@@ -21,6 +21,9 @@ import {
   NetworkIcon,
   TerminalIcon,
   Settings2Icon,
+  PlugIcon,
+  ZapIcon,
+  ScrollTextIcon,
   ShieldIcon,
   UsersIcon,
   MonitorIcon,
@@ -37,6 +40,9 @@ const navMain = [
   { title: "Groups", url: "/groups", icon: <FolderTreeIcon /> },
   { title: "Nodes", url: "/nodes", icon: <NetworkIcon /> },
   { title: "Console", url: "/console", icon: <TerminalIcon /> },
+  { title: "Plugins", url: "/plugins", icon: <PlugIcon /> },
+  { title: "Stress Test", url: "/stress", icon: <ZapIcon /> },
+  { title: "Audit Log", url: "/audit", icon: <ScrollTextIcon /> },
 ]
 
 const navSecondary = [

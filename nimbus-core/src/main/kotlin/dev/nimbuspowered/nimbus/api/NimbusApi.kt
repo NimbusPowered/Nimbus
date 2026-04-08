@@ -304,6 +304,10 @@ class NimbusApi(
                 if (softwareResolver != null) {
                     softwareRoutes(softwareResolver)
                     modpackRoutes(softwareResolver, groupManager, serviceManager, groupsDir, templatesDir)
+                    pluginRoutes(
+                        dev.nimbuspowered.nimbus.template.PluginSearchClient(io.ktor.client.HttpClient(io.ktor.client.engine.cio.CIO)),
+                        groupManager, templatesDir
+                    )
                 }
                 // Module admin-level routes
                 moduleContext?.adminRoutes?.forEach { block -> block() }
