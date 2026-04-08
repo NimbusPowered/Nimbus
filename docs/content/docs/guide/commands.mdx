@@ -409,13 +409,16 @@ Press **Ctrl+C** at any point to cancel the wizard. Selecting `modpack` as the s
 
 ### `import`
 
-Import a Modrinth modpack as a new server group. Clears the screen and walks through resolving the modpack, displaying its info, downloading the modloader, mods, configs/overrides, and proxy forwarding mods.
+Import a modpack as a new server group. Supports Modrinth, CurseForge, and server pack ZIPs. Clears the screen and walks through resolving the modpack, displaying its info, downloading the modloader, mods, configs/overrides, and proxy forwarding mods.
 
-**Syntax:** `import <url|slug|path.mrpack>`
+**Syntax:** `import <url|slug|curseforge:slug|path.mrpack|path.zip>`
 
 Accepts:
 - Modrinth URLs: `import https://modrinth.com/modpack/adrenaserver`
 - Modrinth slugs: `import adrenaserver`
+- CurseForge URLs: `import https://curseforge.com/minecraft/modpacks/all-the-mods-10`
+- CurseForge slugs: `import curseforge:all-the-mods-10`
+- Server pack ZIPs: `import /path/to/ServerFiles-6.6.zip`
 - Local `.mrpack` files: `import /path/to/modpack.mrpack`
 
 ```text title="Nimbus — Import Wizard"

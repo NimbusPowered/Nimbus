@@ -2238,11 +2238,11 @@ List installed plugins for a group template.
 
 ## Modpacks
 
-Endpoints for importing Modrinth modpacks. Used by both the console `import` command and the [Web Dashboard](/docs/guide/dashboard).
+Endpoints for importing modpacks from Modrinth, CurseForge, or uploading server pack ZIPs. Used by both the console `import` command and the [Web Dashboard](/docs/guide/dashboard).
 
-### POST /api/modpacks/import
+### POST /api/modpacks/resolve
 
-Import a Modrinth modpack as a new server group.
+Inspect a modpack without importing. Returns metadata (name, version, modloader, MC version, mod count).
 
 **Auth:** Admin token required.
 
@@ -2250,9 +2250,7 @@ Import a Modrinth modpack as a new server group.
 
 ```json title="Request"
 {
-  "slug": "adrenaserver",
-  "version": "latest",
-  "groupName": "Modded"
+  "source": "adrenaserver"
 }
 ```
 
@@ -2260,17 +2258,80 @@ Import a Modrinth modpack as a new server group.
 
 ```json title="Response (200 OK)"
 {
-  "success": true,
-  "message": "Modpack imported as group 'Modded'",
-  "group": "Modded"
+  "name": "Adrenaserver",
+  "version": "1.5.2",
+  "mcVersion": "1.21.4",
+  "modloader": "FABRIC",
+  "modloaderVersion": "0.16.9",
+  "totalFiles": 59,
+  "serverFiles": 47,
+  "source": "MODRINTH"
 }
 ```
 
-### GET /api/modpacks/platforms
+The `source` field indicates the modpack type: `MODRINTH`, `CURSEFORGE_API`, or `SERVER_PACK`.
 
-List supported modpack platforms.
+### POST /api/modpacks/import
+
+Import a modpack as a new server group. Accepts Modrinth slugs/URLs, CurseForge slugs/URLs (`curseforge:slug`), or local file paths.
 
 **Auth:** Admin token required.
+
+**Request:**
+
+```json title="Request"
+{
+  "source": "adrenaserver",
+  "groupName": "Modded",
+  "type": "DYNAMIC",
+  "memory": "2G",
+  "minInstances": 1,
+  "maxInstances": 2
+}
+```
+
+**Response:**
+
+```json title="Response (201 Created)"
+{
+  "success": true,
+  "message": "Modpack 'Adrenaserver' imported as group 'Modded'",
+  "groupName": "Modded",
+  "filesDownloaded": 47,
+  "filesFailed": 0
+}
+```
+
+### POST /api/modpacks/upload
+
+Upload a server pack ZIP or `.mrpack` file and import it as a new group. The file is streamed directly to disk — no memory buffering.
+
+**Auth:** Admin token required.
+
+**Content-Type:** `application/octet-stream` (raw file body, not multipart).
+
+**Query Parameters:**
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `groupName` | Yes | — | Name for the new group |
+| `type` | No | `DYNAMIC` | `STATIC` or `DYNAMIC` |
+| `memory` | No | `2G` | Memory per instance |
+| `minInstances` | No | `1` | Minimum instance count |
+| `maxInstances` | No | `2` | Maximum instance count |
+| `fileName` | No | `upload.zip` | Original filename (for detection) |
+
+**Response:**
+
+```json title="Response (201 Created)"
+{
+  "success": true,
+  "message": "Server pack imported as group 'ATM10' (NEOFORGE 21.1.224, MC 1.21.1, 449 mods)",
+  "groupName": "ATM10",
+  "filesDownloaded": 449,
+  "filesFailed": 0
+}
+```
 
 ---
 

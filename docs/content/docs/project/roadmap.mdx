@@ -22,6 +22,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 | [v0.3.0](#v030--competitive-features) | Released | Template stacking, warm pool, player module, deployments |
 | [v0.3.1](#v031--remote-cli) | Released | Remote CLI, session tracking |
 | [v0.4.0](#v040--web-dashboard) | Released (ALPHA) | Web Dashboard, new API endpoints |
+| [v0.4.1](#v041--curseforge--server-pack-import) | Released | CurseForge support, server pack ZIP import |
 | [v0.5.0+](#v050--cloud-native) | Vision | Docker, S3 storage, multi-controller HA |
 
 ---
@@ -162,7 +163,7 @@ A self-hosted web UI available at [dashboard.nimbuspowered.org](https://dashboar
   - Group management: view, create, configure server groups
   - Real-time console per service with ANSI rendering
   - Plugin management: search Hangar + Modrinth, install plugins
-  - Modpack import from Modrinth
+  - Modpack import from Modrinth, CurseForge, and server pack ZIP upload
   - Stress testing: start, stop, monitor
   - Audit log viewer with filters
   - Node management for multi-node clusters
@@ -170,6 +171,15 @@ A self-hosted web UI available at [dashboard.nimbuspowered.org](https://dashboar
   - Metrics visualization with charts
   - Responsive design (desktop + mobile)
 - **New API endpoints** — Modpack import (`/api/modpacks/*`), plugin management (`/api/plugins/*`), and software versions (`/api/software/*`) added to core for dashboard and external tool consumption
+
+### v0.4.1 — CurseForge & Server Pack Import (April 8, 2026)
+
+CurseForge modpack support and server pack ZIP upload — the most requested modpack feature:
+
+- **CurseForge support** — Import modpacks from CurseForge via slug, URL, or server pack ZIP. Optional `[curseforge] api_key` in `nimbus.toml` for API-based fetching
+- **Server pack ZIP import** — Upload pre-built server packs (e.g. ATM10 `ServerFiles-6.6.zip`) via CLI or dashboard. Auto-detects modloader, MC version, and mod count from installer JARs and startup scripts
+- **Dashboard upload** — Drag-and-drop file upload in the Import Modpack dialog. Streamed directly to controller (no memory buffering)
+- **NeoForge Windows fix** — Directory junctions as symlink fallback, proper `libraries/` detection
 
 ### How to connect
 

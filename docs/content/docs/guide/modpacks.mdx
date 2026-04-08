@@ -1,11 +1,11 @@
 ---
 title: Modpack Import
-description: Import Modrinth modpacks into Nimbus as fully managed, auto-scaling server groups with a single command.
+description: Import modpacks from Modrinth, CurseForge, or server pack ZIPs into Nimbus as fully managed, auto-scaling server groups.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Nimbus can import any **Modrinth modpack** and turn it into a fully managed, auto-scaling server group — with a single command.
+Nimbus can import modpacks from **Modrinth**, **CurseForge**, or a **server pack ZIP** and turn them into fully managed, auto-scaling server groups — with a single command.
 
 No manual downloading, no extracting ZIPs, no hunting for the right modloader version. Just point Nimbus at a modpack and it handles everything.
 
@@ -15,7 +15,14 @@ No manual downloading, no extracting ZIPs, no hunting for the right modloader ve
 |--------|---------|
 | Modrinth slug | `import adrenaserver` |
 | Modrinth URL | `import https://modrinth.com/modpack/adrenaserver` |
+| CurseForge slug | `import curseforge:all-the-mods-10` |
+| CurseForge URL | `import https://curseforge.com/minecraft/modpacks/all-the-mods-10` |
+| Server pack ZIP | `import /path/to/ServerFiles-6.6.zip` |
 | Local `.mrpack` file | `import /path/to/modpack.mrpack` |
+
+<Callout type="info">
+CurseForge API fetching requires an API key configured in `nimbus.toml` under `[curseforge] api_key`. Server pack ZIPs can always be imported without an API key — just download the server pack from CurseForge and point Nimbus at the file.
+</Callout>
 
 ## Supported Modloaders
 
@@ -63,11 +70,11 @@ That's it. Your modded server is live and accepting players through the proxy.
 
 Behind the scenes, the `import` command runs through six stages:
 
-1. **Resolve** — Downloads the `.mrpack` from Modrinth (or reads a local file). Modrinth slugs and URLs are both resolved via the Modrinth API.
-2. **Parse** — Reads `modrinth.index.json` inside the pack for the mod list, Minecraft version, and required modloader.
+1. **Resolve** — Downloads the `.mrpack` from Modrinth, fetches the server pack from CurseForge, or reads a local file. Modrinth/CurseForge slugs and URLs are resolved via their respective APIs. Server pack ZIPs are analyzed directly.
+2. **Parse** — For `.mrpack`: reads `modrinth.index.json` for the mod list and dependencies. For server pack ZIPs: auto-detects modloader and MC version from installer JARs, startup scripts, and args files.
 3. **Configure** — Interactive prompts ask for group name, service type, memory allocation, and scaling limits. Sensible defaults are pre-filled based on the pack metadata.
-4. **Download** — Fetches the correct modloader server JAR and all server-side mods. Downloads run 8 at a time with SHA1 verification to ensure integrity. Client-only mods are automatically skipped.
-5. **Install** — Extracts config overrides from the pack, installs the appropriate proxy forwarding mod for Velocity, and auto-accepts the EULA.
+4. **Download** — For Modrinth packs: fetches the modloader JAR and all server-side mods (8 parallel downloads with SHA1 verification). For server packs: extracts the pre-built files directly (mods are already included).
+5. **Install** — Extracts config overrides, installs the modloader, adds the appropriate proxy forwarding mod for Velocity, and auto-accepts the EULA.
 6. **Create** — Generates a group config file in `groups/<name>.toml` with all the settings you chose.
 
 ## What Gets Installed
@@ -173,6 +180,47 @@ Installing...
 ↓ Configs & overrides ✓
 ↓ Proxy mods ✓
 Modpack 'All the Mods 10' imported as group 'AllTheMods10'!
+```
+
+### CurseForge Server Pack ZIP
+
+Download the server pack from CurseForge and import the ZIP directly — no API key needed:
+
+```text title="Nimbus"
+nimbus » import ServerFiles-6.6.zip
+Import Modpack
+Resolving modpack... ✓
+
+Server Pack ServerFiles-6.6.zip
+MC 1.21.1 · NEOFORGE 21.1.224
+449 mods
+
+Group name [66]: ATM10
+Static services keep their data (world, configs) across restarts.
+Dynamic services start fresh from the template every time.
+✓ Static
+Memory per instance [4G]: 8G
+Min instances [1]: 1
+Max instances [1]: 1
+
+Installing...
+↓ Extracting server pack... ✓
+✓ 449 mods extracted
+↓ NEOFORGE 21.1.224 ✓
+↓ Proxy mod ✓
+
+✓ config/groups/atm10.toml
+✓ Group configs reloaded
+✓ Server pack imported as group 'ATM10'!
+✓ Service start initiated.
+```
+
+### CurseForge API (with API key)
+
+With a CurseForge API key configured, you can import by slug — Nimbus auto-downloads the server pack:
+
+```text title="Nimbus"
+nimbus » import curseforge:all-the-mods-10
 ```
 
 ### Local Modpack File

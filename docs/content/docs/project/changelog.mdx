@@ -9,6 +9,26 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.4.1 (April 8, 2026)
+
+CurseForge modpack support and server pack ZIP import.
+
+### Added
+- **CurseForge modpack support**: Import modpacks from CurseForge via slug (`import curseforge:all-the-mods-10`), URL (`import https://curseforge.com/minecraft/modpacks/all-the-mods-10`), or by uploading the server pack ZIP. Requires an optional `[curseforge] api_key` in `nimbus.toml` for API-based fetching
+- **Server pack ZIP import**: Upload pre-built CurseForge server pack ZIPs (e.g. `ServerFiles-6.6.zip`) via CLI (`import /path/to/ServerFiles.zip`) or the dashboard. Auto-detects modloader type, version, and Minecraft version from installer JARs and startup scripts
+- **Modpack upload API** (`POST /api/modpacks/upload`): Streamed file upload endpoint for the dashboard. Files are written directly to disk with a 64KB buffer — no memory buffering, no OOM for large packs. Parameters passed as query params
+- **Dashboard modpack upload**: New upload mode in the Import Modpack dialog with drag-and-drop file picker. Supports both Modrinth/CurseForge sources and server pack ZIP uploads with group type, memory, and instance configuration
+
+### Changed
+- **Import command** now accepts CurseForge URLs, `curseforge:slug` prefix, and `.zip` files alongside existing Modrinth sources
+- **Memory input normalization**: Bare numbers in memory prompts are auto-suffixed (e.g. `8` → `8G`, `512` → `512M`) across `import` and `create` commands
+
+### Fixed
+- **NeoForge startup on Windows**: `TemplateManager` now uses Windows directory junctions (`mklink /J`) as fallback when symlinks fail (no admin rights required). Previously, the `libraries/` symlink silently failed on Windows without Developer Mode, causing NeoForge servers to crash with `-jar server.jar` instead of `@libraries/.../win_args.txt`
+- **NeoForge installation detection**: `hasServerJar()` now recognizes modern NeoForge installations that use `libraries/` with args files instead of a standalone server JAR. Prevents the installer from re-running on every service start
+
+---
+
 ## v0.4.0 (April 8, 2026)
 
 Web Dashboard: manage your cloud from the browser.
@@ -23,7 +43,7 @@ Web Dashboard: manage your cloud from the browser.
   - **Group management** — view, create, and configure server groups
   - **Real-time console** per service with ANSI log rendering
   - **Plugin management** — search and install plugins from Hangar + Modrinth
-  - **Modpack import** — import Modrinth modpacks directly from the dashboard
+  - **Modpack import** — import Modrinth/CurseForge modpacks or upload server pack ZIPs from the dashboard
   - **Stress testing** — start, stop, and monitor stress tests
   - **Audit log viewer** — browse the full audit trail with filters
   - **Node management** — monitor connected agent nodes

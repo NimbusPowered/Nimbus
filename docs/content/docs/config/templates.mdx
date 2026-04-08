@@ -198,13 +198,18 @@ For Paper, Pufferfish, Purpur, Leaf, and Folia servers, Nimbus automatically acc
 
 ## Modpack Installation
 
-Nimbus supports installing Modrinth modpacks (`.mrpack` format) into templates. Modpacks can be specified by:
+Nimbus supports installing modpacks from multiple sources into templates:
 
-- **Local file path** -- A `.mrpack` file on disk
-- **Modrinth URL** -- e.g., `https://modrinth.com/modpack/cobblemon`
 - **Modrinth slug** -- e.g., `cobblemon`
+- **Modrinth URL** -- e.g., `https://modrinth.com/modpack/cobblemon`
+- **CurseForge slug** -- e.g., `curseforge:all-the-mods-10` (requires `[curseforge] api_key` in `nimbus.toml`)
+- **CurseForge URL** -- e.g., `https://curseforge.com/minecraft/modpacks/all-the-mods-10`
+- **Server pack ZIP** -- Pre-built server files (e.g., CurseForge's "Server Pack" download)
+- **Local `.mrpack` file** -- A Modrinth `.mrpack` file on disk
 
 ### How It Works
+
+**Modrinth / CurseForge packs (`.mrpack`):**
 
 1. The `.mrpack` is downloaded (if not local) and its `modrinth.index.json` is parsed
 2. The modloader and Minecraft version are detected from the pack's dependencies
@@ -212,19 +217,26 @@ Nimbus supports installing Modrinth modpacks (`.mrpack` format) into templates. 
 4. File integrity is verified using SHA-1 hashes
 5. The `overrides/` and `server-overrides/` directories from the pack are extracted to the template
 
+**Server pack ZIPs:**
+
+1. The ZIP is analyzed for installer JARs (`neoforge-*-installer.jar`, `forge-*-installer.jar`) and startup scripts (`startserver.sh`)
+2. The modloader type, version, and Minecraft version are auto-detected
+3. All server files (mods, configs, data) are extracted to the template — installer JARs and startup scripts are skipped (Nimbus manages its own startup)
+4. The modloader is installed via Nimbus's standard installer pipeline
+
 ### Supported Modloaders
 
 The modpack installer automatically detects and configures the correct modloader:
 
-| Dependency Key | Maps To |
-|----------------|---------|
-| `fabric-loader` | `FABRIC` |
-| `forge` | `FORGE` |
-| `neoforge` | `NEOFORGE` |
+| Dependency Key / Detection | Maps To |
+|----------------------------|---------|
+| `fabric-loader` / `fabric-server-launch.jar` | `FABRIC` |
+| `forge` / `forge-*-installer.jar` | `FORGE` |
+| `neoforge` / `neoforge-*-installer.jar` | `NEOFORGE` |
 | `quilt-loader` | `FABRIC` (fallback -- most Quilt mods are Fabric-compatible) |
 
 <Callout type="info">
-Client-only files (where `env.server = "unsupported"`) are automatically skipped during installation.
+Client-only files (where `env.server = "unsupported"`) are automatically skipped during Modrinth pack installation. Server pack ZIPs contain only server files by definition.
 </Callout>
 
 ---
