@@ -47,7 +47,7 @@ export default function ServiceDetailPage({
   const [consoleLines, setConsoleLines] = useState<string[]>([]);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [command, setCommand] = useState("");
-  const wsRef = useRef<WebSocket | null>(null);
+  const sendRef = useRef<((msg: string) => void) | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const metrics = useServiceMetrics(name);
 
@@ -68,10 +68,10 @@ export default function ServiceDetailPage({
   }, [name]);
 
   useEffect(() => {
-    const { getSocket, cleanup } = apiWebSocketReconnect(
+    const { send, cleanup } = apiWebSocketReconnect(
       `/api/services/${name}/console`,
       {
-        onOpen: (ws) => { wsRef.current = ws; },
+        onOpen: () => { sendRef.current = send; },
         onMessage: (event) => {
           setConsoleLines((prev) => {
             const next = [...prev, event.data];
@@ -79,9 +79,10 @@ export default function ServiceDetailPage({
           });
         },
         onError: () => toast.error("Console connection failed"),
-        onClose: () => setConsoleLines((prev) => [...prev, "--- disconnected ---"]),
+        onClose: () => { sendRef.current = null; setConsoleLines((prev) => [...prev, "--- disconnected ---"]); },
       }
     );
+    sendRef.current = send;
     return cleanup;
   }, [name]);
 
@@ -91,8 +92,8 @@ export default function ServiceDetailPage({
 
   function sendCommand(e: React.FormEvent) {
     e.preventDefault();
-    if (!command.trim() || !wsRef.current) return;
-    wsRef.current.send(command);
+    if (!command.trim() || !sendRef.current) return;
+    sendRef.current(command);
     setCommand("");
   }
 
