@@ -9,6 +9,15 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.5.2 (April 9, 2026)
+
+Auto-configure Velocity for large modpacks.
+
+### Fixed
+- **Velocity max-known-packs**: Auto-sets `-Dvelocity.max-known-packs=512` on proxy JVM args when any backend group uses Forge/NeoForge/Fabric. Default Velocity limit of 64 caused silent disconnects during configuration phase with large modpacks (e.g. AllTheMods10 with 400+ mods)
+
+---
+
 ## v0.5.1 (April 9, 2026)
 
 Modded client routing hotfixes.

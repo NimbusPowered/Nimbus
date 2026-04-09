@@ -46,6 +46,15 @@ class ServiceFactory(
     private val logger = LoggerFactory.getLogger(ServiceFactory::class.java)
     private val configPatcher = ConfigPatcher()
     private val performanceOptimizer = PerformanceOptimizer()
+
+    private companion object {
+        val MODDED_SOFTWARE = setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)
+    }
+
+    /** Checks if any configured group uses modded server software. */
+    private fun hasModdedBackends(): Boolean {
+        return groupManager.getAllGroups().any { it.config.group.software in MODDED_SOFTWARE }
+    }
     private val geyserConfigGen = GeyserConfigGen()
     private val javaResolver = JavaResolver(config.java.toMap(), Path(config.paths.templates).toAbsolutePath().parent ?: Path("."))
 
@@ -281,6 +290,12 @@ class ServiceFactory(
             // Tell proxy services whether the load balancer is active so they can block direct connections
             if (software == ServerSoftware.VELOCITY && config.loadbalancer.enabled) {
                 command.add("-Dnimbus.loadbalancer.enabled=true")
+            }
+
+            // Auto-set max-known-packs for Velocity when modded backends exist (default 64 is too low for modpacks)
+            if (software == ServerSoftware.VELOCITY && hasModdedBackends()) {
+                command.add("-Dvelocity.max-known-packs=512")
+                logger.info("Set velocity.max-known-packs=512 for modded backend support")
             }
 
             // Build startup command based on software type
