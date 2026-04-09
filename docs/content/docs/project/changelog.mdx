@@ -9,6 +9,20 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.4.2 (April 9, 2026)
+
+CORS configuration hotfix for new installations.
+
+### Fixed
+- **CORS default missing**: New installs via SetupWizard now include `allowed_origins = ["dashboard.nimbuspowered.org"]` in the generated `nimbus.toml`. Previously the field was omitted, causing the dashboard to fail with CORS errors on fresh setups
+- **Unknown config keys crash**: TOML parser now tolerates unknown keys (e.g. typos like `cors_origins`) instead of refusing to start. Nimbus silently ignores unrecognized fields for forward compatibility
+- **Wrong key name in docs**: Dashboard guide referenced `cors_origins` instead of the correct `allowed_origins`, leading users to add an invalid key that crashed Nimbus
+
+### Changed
+- **ApiConfig default**: `allowed_origins` defaults to `["dashboard.nimbuspowered.org"]` even when the field is absent from `nimbus.toml`, matching the documented behavior
+
+---
+
 ## v0.4.1 (April 8, 2026)
 
 CurseForge modpack support and server pack ZIP import.
