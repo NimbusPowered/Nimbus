@@ -19,11 +19,10 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 |---------|--------|-------|
 | [v0.1.0 – v0.1.4](#v01x--foundation) | Released | Foundation & core cloud features |
 | [v0.2.0 – v0.2.1](#v02x--security--production-readiness) | Released | Security, stability & production readiness |
-| [v0.3.0](#v030--competitive-features) | Released | Template stacking, warm pool, player module, deployments |
-| [v0.3.1](#v031--remote-cli) | Released | Remote CLI, session tracking |
-| [v0.4.0](#v040--web-dashboard) | Released (ALPHA) | Web Dashboard, new API endpoints |
-| [v0.4.1](#v041--curseforge--server-pack-import) | Released | CurseForge support, server pack ZIP import |
-| [v0.5.0+](#v050--cloud-native) | Vision | Docker, S3 storage, multi-controller HA |
+| [v0.3.0 – v0.3.1](#v03x--competitive-features) | Released | Template stacking, warm pool, player module, remote CLI |
+| [v0.4.0 – v0.4.7](#v04x--web-dashboard) | Released (ALPHA) | Web Dashboard, modpack import, module loading fixes |
+| [v0.5.0 – v0.5.3](#v05x--modded-support) | Released | Modded client routing, mod list matching |
+| [Vision](#vision--cloud-native) | Planned | Docker, S3 storage, multi-controller HA |
 
 ---
 
@@ -146,7 +145,7 @@ A standalone binary (`nimbus-cli`, 11MB JAR) that connects to the controller's A
 
 ---
 
-## v0.4.0 — Web Dashboard
+## v0.4.x — Web Dashboard
 
 **Theme:** Manage your cloud from the browser. The dashboard is a separate Next.js application that connects to the existing REST API + WebSocket infrastructure.
 
@@ -181,6 +180,24 @@ CurseForge modpack support and server pack ZIP upload — the most requested mod
 - **Dashboard upload** — Drag-and-drop file upload in the Import Modpack dialog. Streamed directly to controller (no memory buffering)
 - **NeoForge Windows fix** — Directory junctions as symlink fallback, proper `libraries/` detection
 
+### v0.4.2 — CORS Hotfix (April 9, 2026)
+
+- **CORS defaults** — New installs now include `allowed_origins` for the dashboard. Existing installs with missing field get a safe default instead of blocking all dashboard requests
+
+### v0.4.3 — Dashboard Proxy (April 9, 2026)
+
+- **Server-side proxy** — Hosted dashboard can connect to HTTP controllers without TLS certificates. SSE bridge for WebSocket connections through the proxy
+- **Chunked modpack upload** — Large modpack uploads (up to 2 GB) split into 4 MB chunks with zero RAM buffering on client, proxy, and controller
+
+### v0.4.4 – v0.4.7 — Module Loading Fixes (April 9, 2026)
+
+A series of rapid-fire fixes for module loading issues discovered on production VPS deployments:
+
+- **NeoForge symlink traversal** — `Files.walk()` now follows symlinks so `libraries/` is found correctly on Linux
+- **Module loading bypass** — `ServiceLoader` replaced with `main_class` in `module.properties` for reliable direct class loading on all Java 21 configurations
+- **Module lifecycle ordering** — `initAll()` (registers migrations) runs before DB migrations, `enableAll()` (queries DB) runs after — guarantees tables exist before modules query them
+- **Error handling** — `catch (Throwable)` instead of `catch (Exception)` to surface `NoClassDefFoundError` and `ServiceConfigurationError`
+
 ### How to connect
 
 1. Open [dashboard.nimbuspowered.org](https://dashboard.nimbuspowered.org) in your browser
@@ -194,7 +211,39 @@ CurseForge modpack support and server pack ZIP upload — the most requested mod
 
 ---
 
-## v0.5.0+ — Cloud-Native
+## v0.5.x — Modded Support
+
+**Theme:** Make modded servers first-class citizens. Automatic routing, proxy configuration, and smart client matching so operators can run multiple modpacks on one network without manual setup.
+
+### v0.5.0 — Modded Client Routing (April 9, 2026)
+
+- **Modded client detection** — Bridge detects Forge/NeoForge clients via Velocity's internal `ConnectionType` (FML handshake marker) and routes them to modded backend groups instead of the Paper lobby
+- **Automatic Velocity modded config** — `VelocityConfigGen` detects modded backends and auto-sets `announce-forge = true`, increases `connection-timeout` (10s) and `read-timeout` (60s) for large modpack handshakes
+- **Modded groups cache** — Bridge fetches group software types from `/api/groups` on startup and refreshes on controller reconnect
+
+### v0.5.1 — Modded Hotfixes (April 9, 2026)
+
+- **NeoForwarding mod** — NeoForge 1.20.2+ now uses [NeoForwarding](https://modrinth.com/mod/neoforwarding) instead of proxy-compatible-forge (which caused `Empty key` errors)
+- **Connection type detection** — Uses Velocity's internal `ConnectionType` instead of `player.getModInfo()` which was empty at initial server selection
+- **Kick loop prevention** — Modded clients kicked from a modded server are no longer redirected to a vanilla lobby
+
+### v0.5.2 — Velocity Max Packs (April 9, 2026)
+
+- **`velocity.max-known-packs`** — Auto-sets `-Dvelocity.max-known-packs=512` on proxy JVM args when modded backends exist. Default limit of 64 caused silent disconnects with large modpacks (400+ mods)
+
+### v0.5.3 — Mod List Matching (April 9, 2026)
+
+Smart routing based on mod list overlap — the key feature for networks running multiple modpacks:
+
+- **ModScanner** — Scans template `mods/` directories on group load, extracting mod IDs from NeoForge/Forge `mods.toml`, Fabric `fabric.mod.json`, and legacy `mcmod.info`. Cached on `ServerGroup`, exposed via `GET /api/groups` as `modIds`
+- **Protocol version filtering** — Client protocol version must match the group's MC version (prevents 1.20.1 Forge clients landing on 1.21.1 NeoForge servers)
+- **Connection type compatibility** — `LEGACY_FORGE` matches Forge only; `MODERN_FORGE` matches Forge or NeoForge
+- **Mod overlap scoring** — `|clientMods ∩ serverMods| / |serverMods|` with 0.5 threshold. Best-scoring group wins, ties broken by player count
+- **Alternate group fallback on kick** — Modded clients kicked from one group try a different modded group before disconnecting
+
+---
+
+## Vision — Cloud-Native
 
 **Theme:** Enterprise features for large networks. These are long-term goals, not promises.
 
@@ -283,6 +332,7 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Service Deployments | 3/5 | Hash-based copy-back, local only (agent support planned) |
 | Remote CLI | 4/5 | Full JLine3 experience, tab completion, events, screen sessions, session tracking with GeoIP |
 | Web Dashboard | 2/5 | ALPHA — functional but still evolving, needs real-world testing and polish |
+| Modded Client Routing | 4/5 | Protocol filtering, connection type matching, mod list overlap scoring, alternate group fallback |
 
 ---
 
@@ -304,6 +354,7 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 - Folia compatibility across all plugins
 - Remote CLI with session tracking and GeoIP (SimpleCloud has CLI but no session auditing)
 - Web Dashboard (ALPHA) — browser-based management UI connecting to existing API (SimpleCloud's dashboard is hosted/commercial)
+- Smart modded client routing with mod list matching (no manual config, auto-scans template mods)
 
 ### What competitors have that we don't (yet)
 
@@ -315,8 +366,8 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 | Warm pool / prepared services | CloudNET (smart module) | v0.3.0 ✓ |
 | Cross-server player management | SimpleCloud (Player Droplet) | v0.3.0 ✓ |
 | Template stacking | CloudNET (multi-template tasks) | v0.3.0 ✓ |
-| Docker runtime | CloudNET (dockerized-services) | v0.5.0+ |
-| S3/SFTP template storage | CloudNET (storage-s3, storage-sftp) | v0.5.0+ |
+| Docker runtime | CloudNET (dockerized-services) | Vision |
+| S3/SFTP template storage | CloudNET (storage-s3, storage-sftp) | Vision |
 | Web dashboard | SimpleCloud (hosted) | v0.4.0 ✓ (ALPHA) |
 | BungeeCord support | Both | No plans (Velocity-only by design) |
 | Peer-to-peer cluster (no SPOF) | CloudNET | v0.5.0+ (if demand exists) |
