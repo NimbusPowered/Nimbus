@@ -156,27 +156,17 @@ fun Route.dedicatedRoutes(
             dedicatedServiceManager.writeTOML(config)
             dedicatedServiceManager.addConfig(config)
 
-            // Proxy-enabled toggle for modded servers: install or remove forwarding mods
+            // Proxy-enabled toggle for modded servers: install/remove forwarding mod +
+            // patch the server-side forwarding config. Delegates to ServiceFactory so
+            // the same logic runs at both edit-time and start-time.
             val proxyChanged = existing.dedicated.proxyEnabled != request.proxyEnabled
-            val resolver = softwareResolver
             var proxyModMsg: String? = null
-            if (proxyChanged && resolver != null && software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
+            if (proxyChanged && software in setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
                 val serviceDir = dedicatedServiceManager.getServiceDirectory(name)
-                if (request.proxyEnabled) {
-                    when (software) {
-                        ServerSoftware.FABRIC -> resolver.ensureFabricProxyMod(serviceDir, request.version)
-                        ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> resolver.ensureForwardingMod(software, request.version, serviceDir)
-                        else -> {}
-                    }
-                    proxyModMsg = "proxy forwarding mod installed"
-                } else {
-                    when (software) {
-                        ServerSoftware.FABRIC -> resolver.removeFabricProxyMod(serviceDir)
-                        ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> resolver.removeForwardingMod(serviceDir)
-                        else -> {}
-                    }
-                    proxyModMsg = "proxy forwarding mod removed"
-                }
+                serviceManager.serviceFactory.syncDedicatedProxyForwarding(
+                    serviceDir, software, request.version, request.proxyEnabled
+                )
+                proxyModMsg = if (request.proxyEnabled) "proxy forwarding installed" else "proxy forwarding removed"
             }
 
             val baseMsg = if (wasRunning) "Dedicated service '$name' updated (was running, stopped — restart to apply)"

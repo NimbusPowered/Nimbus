@@ -351,6 +351,45 @@ class ServiceFactory(
         }
     }
 
+    /**
+     * Installs or removes the appropriate proxy forwarding mod for a modded dedicated
+     * service and patches its server-side config. No-op for non-modded software.
+     * Used by both [prepareDedicated] (start-time sync) and the edit REST endpoint
+     * (immediate sync when the proxyEnabled flag is toggled).
+     */
+    suspend fun syncDedicatedProxyForwarding(
+        workDir: Path,
+        software: ServerSoftware,
+        version: String,
+        proxyEnabled: Boolean
+    ) {
+        if (software !in setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) return
+
+        if (proxyEnabled) {
+            // Install mod(s)
+            when (software) {
+                ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(workDir, version)
+                ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(software, version, workDir)
+                else -> {}
+            }
+            // Patch forwarding config with the velocity secret
+            val velocityTemplateDir = Path(config.paths.templates).resolve("proxy")
+            val forwardingMode = compatibilityChecker.determineForwardingMode()
+            when (software) {
+                ServerSoftware.FABRIC -> configPatcher.patchFabricProxyLite(workDir, velocityTemplateDir, forwardingMode)
+                ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> configPatcher.patchForgeProxy(workDir, velocityTemplateDir, forwardingMode)
+                else -> {}
+            }
+        } else {
+            // Remove mod(s) — config files are left in place (harmless without the mod)
+            when (software) {
+                ServerSoftware.FABRIC -> softwareResolver.removeFabricProxyMod(workDir)
+                ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.removeForwardingMod(workDir)
+                else -> {}
+            }
+        }
+    }
+
     suspend fun prepareDedicated(config: DedicatedDefinition): PreparedService? {
         val serviceName = config.name
         val port = config.port
@@ -377,22 +416,8 @@ class ServiceFactory(
             return null
         }
 
-        // Ensure proxy forwarding mods match the proxyEnabled setting for modded servers
-        if (software in setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
-            if (config.proxyEnabled) {
-                when (software) {
-                    ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(workDir, config.version)
-                    ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(software, config.version, workDir)
-                    else -> {}
-                }
-            } else {
-                when (software) {
-                    ServerSoftware.FABRIC -> softwareResolver.removeFabricProxyMod(workDir)
-                    ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.removeForwardingMod(workDir)
-                    else -> {}
-                }
-            }
-        }
+        // Ensure proxy forwarding mods + config match proxyEnabled for modded servers
+        syncDedicatedProxyForwarding(workDir, software, config.version, config.proxyEnabled)
 
         val service = Service(
             name = serviceName,
