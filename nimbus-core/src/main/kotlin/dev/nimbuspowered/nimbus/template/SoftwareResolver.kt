@@ -414,20 +414,37 @@ class SoftwareResolver {
     /**
      * Auto-downloads the correct proxy forwarding mod for Forge/NeoForge servers.
      * - NeoForge 1.20.2+: NeoForwarding (dedicated NeoForge support, includes CrossStitch)
-     * - Forge (all versions): proxy-compatible-forge
+     * - Forge (all versions) / older NeoForge: proxy-compatible-forge
+     *
+     * If a forwarding mod from the "wrong" family is present (e.g. PCF when the version
+     * now calls for NeoForwarding), it is removed before installing the correct one.
      */
     suspend fun ensureForwardingMod(software: ServerSoftware, mcVersion: String, templateDir: Path) {
         val modsDir = templateDir.resolve("mods")
         if (!modsDir.exists()) modsDir.createDirectories()
 
-        val hasForwardingMod = modsDir.toFile().listFiles()?.any {
-            val name = it.name.lowercase()
-            name.contains("proxy-compatible") || name.contains("bungeeforge")
-                    || name.contains("neovelocity") || name.contains("neoforwarding")
-        } ?: false
-        if (hasForwardingMod) return
+        val useNeoForwarding = software == ServerSoftware.NEOFORGE && isVersionAtLeast(mcVersion, "1.20.2")
+        val expectedNeedle = if (useNeoForwarding) "neoforwarding" else "proxy-compatible"
 
-        if (software == ServerSoftware.NEOFORGE && isVersionAtLeast(mcVersion, "1.20.2")) {
+        // Short-circuit if the correct mod is already installed
+        val hasExpectedMod = modsDir.toFile().listFiles()?.any {
+            val name = it.name.lowercase()
+            name.contains(expectedNeedle) && name.endsWith(".jar")
+        } ?: false
+        if (hasExpectedMod) return
+
+        // Remove any stale forwarding mods from the wrong family (e.g. PCF when we now need NeoForwarding)
+        modsDir.toFile().listFiles()?.filter {
+            val name = it.name.lowercase()
+            if (!name.endsWith(".jar")) return@filter false
+            val isForwarding = name.contains("proxy-compatible") || name.contains("bungeeforge")
+                || name.contains("neovelocity") || name.contains("neoforwarding")
+            isForwarding && !name.contains(expectedNeedle)
+        }?.forEach {
+            if (it.delete()) logger.info("Removed outdated forwarding mod: {}", it.name)
+        }
+
+        if (useNeoForwarding) {
             // NeoForge 1.20.2+: use NeoForwarding (better compatibility than PCF)
             downloadModrinthMod("neoforwarding", "neoforge", modsDir, "NeoForwarding", mcVersion)
         } else {
@@ -453,6 +470,24 @@ class SoftwareResolver {
     }
 
     /**
+     * Removes Forge/NeoForge proxy forwarding mods from a directory.
+     * Safe to call when the mods directory or the mod doesn't exist.
+     */
+    fun removeForwardingMod(templateDir: Path) {
+        val modsDir = templateDir.resolve("mods")
+        if (!modsDir.exists()) return
+        val removed = modsDir.toFile().listFiles()?.filter {
+            val name = it.name.lowercase()
+            (name.contains("proxy-compatible") || name.contains("bungeeforge")
+                || name.contains("neovelocity") || name.contains("neoforwarding"))
+                && name.endsWith(".jar")
+        } ?: emptyList()
+        for (file in removed) {
+            if (file.delete()) logger.info("Removed proxy forwarding mod: {}", file.name)
+        }
+    }
+
+    /**
      * Auto-downloads FabricProxy-Lite and its dependency Fabric API for Fabric servers.
      */
     suspend fun ensureFabricProxyMod(templateDir: Path, mcVersion: String) {
@@ -475,6 +510,23 @@ class SoftwareResolver {
         } ?: false
         if (!hasProxyMod) {
             downloadModrinthMod("fabricproxy-lite", "fabric", modsDir, "FabricProxy-Lite", mcVersion)
+        }
+    }
+
+    /**
+     * Removes FabricProxy-Lite from a directory. Fabric API is left in place
+     * because it's a general dependency used by many non-proxy mods.
+     */
+    fun removeFabricProxyMod(templateDir: Path) {
+        val modsDir = templateDir.resolve("mods")
+        if (!modsDir.exists()) return
+        val removed = modsDir.toFile().listFiles()?.filter {
+            val name = it.name.lowercase()
+            (name.contains("fabricproxy") || name.contains("proxy-lite"))
+                && name.endsWith(".jar")
+        } ?: emptyList()
+        for (file in removed) {
+            if (file.delete()) logger.info("Removed proxy forwarding mod: {}", file.name)
         }
     }
 

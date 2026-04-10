@@ -59,7 +59,9 @@ class NimbusApi(
     private val moduleManager: dev.nimbuspowered.nimbus.module.ModuleManager? = null,
     private val dispatcher: dev.nimbuspowered.nimbus.console.CommandDispatcher? = null,
     private val databaseManager: dev.nimbuspowered.nimbus.database.DatabaseManager? = null,
-    private val softwareResolver: dev.nimbuspowered.nimbus.template.SoftwareResolver? = null
+    private val softwareResolver: dev.nimbuspowered.nimbus.template.SoftwareResolver? = null,
+    private val dedicatedServiceManager: dev.nimbuspowered.nimbus.service.DedicatedServiceManager? = null,
+    private val dedicatedDir: Path? = null
 ) {
     private val logger = LoggerFactory.getLogger(NimbusApi::class.java)
 
@@ -68,6 +70,11 @@ class NimbusApi(
     } else null
 
     val startedAt: Instant = Instant.now()
+
+    // Long-lived update checker for the /api/controller/info endpoint.
+    // Separate from the one used at bootstrap (which is closed after the initial check).
+    private val apiUpdateChecker: dev.nimbuspowered.nimbus.update.UpdateChecker =
+        dev.nimbuspowered.nimbus.update.UpdateChecker(baseDir)
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
@@ -124,6 +131,7 @@ class NimbusApi(
 
         server?.stop(1000, 5000)
         server = null
+        try { apiUpdateChecker.close() } catch (_: Exception) {}
         logger.info("REST API stopped")
 
         scope.launch {
@@ -273,6 +281,7 @@ class NimbusApi(
                 proxySyncRoutes(proxySyncManager, eventBus)
                 groupRoutes(registry, groupManager, groupsDir, eventBus)
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
+                controllerInfoRoutes(startedAt, apiUpdateChecker, config, registry, groupManager, serviceManager.dedicatedServiceManager)
                 maintenanceRoutes(proxySyncManager, eventBus)
                 metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt)
                 // Command proxy routes (for Bridge dynamic commands)
@@ -299,6 +308,10 @@ class NimbusApi(
                 }
                 if (databaseManager != null && config.audit.enabled) {
                     auditRoutes(databaseManager)
+                }
+                if (dedicatedServiceManager != null && dedicatedDir != null) {
+                    dedicatedRoutes(registry, dedicatedServiceManager, serviceManager, groupManager, eventBus, dedicatedDir,
+                        softwareResolver, templatesDir, config.curseforge)
                 }
                 tokenRoutes(jwtTokenManager)
                 if (softwareResolver != null) {

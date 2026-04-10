@@ -395,5 +395,15 @@ private fun NimbusEvent.toEventMessage(): EventMessage {
                 "commandCount" to commandCount.toString()
             )
         )
+        is NimbusEvent.DedicatedCreated -> EventMessage(
+            type = "DEDICATED_CREATED",
+            timestamp = timestamp.toString(),
+            data = mapOf("name" to name)
+        )
+        is NimbusEvent.DedicatedDeleted -> EventMessage(
+            type = "DEDICATED_DELETED",
+            timestamp = timestamp.toString(),
+            data = mapOf("name" to name)
+        )
     }
 }

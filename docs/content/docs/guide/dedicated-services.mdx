@@ -1,0 +1,212 @@
+---
+title: Dedicated Services
+description: Single-instance, fixed-port servers with a managed directory — no templates, no scaling.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Dedicated services are a new first-class concept in Nimbus for servers that don't fit the "spawn N identical copies from a template" model. They sit alongside [server groups](/docs/guide/server-groups) and are meant for:
+
+- **Sandbox / test servers** — throw-away experiments or dev environments
+- **Single-instance modpacks** — one ATM10 server for your community, not a dynamic pool
+- **Custom servers** — hand-curated configs, worlds, and plugins that should never be reset
+- **One-off side projects** — a creative world, a mapping server, a survival side-build
+
+Dedicated services trade scaling for simplicity. Everything is fixed: one instance, one port, one directory. Nimbus still manages the lifecycle (start, stop, auto-restart on crash, proxy registration), but it stops trying to be smart about templates.
+
+## How they differ from groups
+
+| | Group | Dedicated |
+|---|---|---|
+| Instances | 1…N, auto-scaled | Always 1 |
+| Name | Auto-numbered (`Lobby-1`, `Lobby-2`) | User-defined (`sandbox`) |
+| Port | Allocated from `30000-39999` range | User-defined |
+| Directory | `services/temp/<Name>/` (dynamic) or `services/static/<Name>/` (static), recreated from template | `dedicated/<name>/`, persistent, managed by user |
+| Template | Required | **None** |
+| Scaling engine | Participates | Ignored |
+| Proxy | Always registered | Optional via `proxy_enabled` |
+| Config file | `config/groups/<name>.toml` | `config/dedicated/<name>.toml` |
+
+## Creating a dedicated service
+
+### From the dashboard
+
+Open `/dedicated` in the dashboard, click **New Dedicated**, and fill in:
+
+- **Name** — unique identifier, alphanumeric + dash + underscore
+- **Port** — any free TCP port on the host
+- **Software** — Paper, Purpur, Folia, Forge, NeoForge, Fabric, Custom, etc. (fetched from `/api/software`)
+- **Version** — populated from `/api/software/<name>/versions` with the latest pre-selected
+- **Memory** — `-Xmx` for the JVM (e.g. `2G`, `4G`)
+- **Proxy Enabled** — whether this service should be registered with Velocity
+- **Restart on Crash** — auto-restart on unexpected exit
+
+The directory is auto-created at `dedicated/<name>/`, and the server JAR is downloaded on first start. No manual file management needed.
+
+### From the console
+
+```text
+nimbus » dedicated create
+```
+
+The interactive wizard mirrors the dashboard create flow. Same inputs, same result.
+
+### From the REST API
+
+```http
+POST /api/dedicated
+Content-Type: application/json
+
+{
+  "name": "sandbox",
+  "port": 25570,
+  "software": "PAPER",
+  "version": "1.21.4",
+  "memory": "2G",
+  "proxyEnabled": true,
+  "restartOnCrash": true
+}
+```
+
+## Importing a modpack as a dedicated service
+
+Modpack import works the same way as for groups — but the pack files land in the dedicated service directory instead of a template.
+
+### From the dashboard
+
+Click **Import Modpack** on the `/dedicated` page. Choose between:
+
+- **Modrinth / CurseForge** — paste a URL, slug, or `curseforge:all-the-mods-10`, click **Resolve** to see the modpack info (name, version, modloader, mod count), then click **Import**
+- **Upload Server Pack** — drag & drop a `.zip` or `.mrpack` file
+
+Nimbus auto-detects the modloader (Forge, NeoForge, Fabric) and MC version from the pack, installs the correct proxy forwarding mod (if `proxyEnabled` is on), writes `eula.txt`, and creates the dedicated service config in one step.
+
+### From the REST API
+
+```http
+POST /api/dedicated/modpack/import
+Content-Type: application/json
+
+{
+  "source": "all-the-mods-10",
+  "name": "ATM10",
+  "port": 25580,
+  "memory": "8G",
+  "proxyEnabled": true
+}
+```
+
+Or for uploads:
+
+```http
+POST /api/dedicated/modpack/upload?name=ATM10&port=25580&memory=8G&proxyEnabled=true&fileName=ServerFiles-6.6.zip
+Content-Type: application/octet-stream
+
+<raw ZIP body>
+```
+
+## Proxy integration
+
+Dedicated services have a `proxyEnabled` flag that controls whether they show up in Velocity's server list:
+
+- **`proxy_enabled = true`** (default) — registered in `velocity.toml`, accessible via `/server <name>`, forwarding mods auto-installed for modded servers
+- **`proxy_enabled = false`** — completely standalone. The server still runs under Nimbus, but players connect directly via the server address + port. Useful for standalone Velocity proxies, test servers that shouldn't appear on your network, or servers behind their own firewall rules
+
+Toggling `proxyEnabled` in the edit dialog is applied immediately: for modded servers, the correct forwarding mod is installed (when enabled) or removed (when disabled), and the forwarding config is patched with the current Velocity secret. You still need to restart the service for the change to take effect at runtime.
+
+## Editing a dedicated service
+
+Use the **Edit** action in the dashboard dropdown menu (or `PUT /api/dedicated/{name}`) to change:
+
+- Port
+- Memory
+- Proxy enabled
+- Restart on crash
+
+Software and version are intentionally not editable — changing them would require re-downloading the server JAR and potentially cleaning up the directory. To switch software, delete the dedicated service and create a new one.
+
+<Callout type="info">
+  If the service is running when you save an edit, Nimbus stops it first. You'll need to start it again manually — this is intentional so you can inspect the config changes before the service comes back up.
+</Callout>
+
+## Directory layout
+
+```text
+<nimbus-root>/
+├── config/
+│   └── dedicated/
+│       ├── sandbox.toml
+│       └── ATM10.toml
+└── dedicated/
+    ├── sandbox/
+    │   ├── eula.txt
+    │   ├── server.properties
+    │   ├── paper-1.21.4.jar
+    │   └── world/
+    └── ATM10/
+        ├── eula.txt
+        ├── mods/
+        ├── config/
+        ├── libraries/
+        └── neoforge-*.jar
+```
+
+Config TOML:
+
+```toml title="config/dedicated/sandbox.toml"
+[dedicated]
+name = "sandbox"
+port = 25570
+software = "PAPER"
+version = "1.21.4"
+memory = "2G"
+proxy_enabled = true
+restart_on_crash = true
+max_restarts = 5
+
+[dedicated.jvm]
+args = []
+optimize = true
+```
+
+The `paths.dedicated` setting in `nimbus.toml` controls the base directory:
+
+```toml title="nimbus.toml"
+[paths]
+templates = "templates"
+services = "services"
+dedicated = "dedicated"    # base dir for dedicated service working directories
+logs = "logs"
+```
+
+## Console commands
+
+```text
+dedicated list                 — list all dedicated services
+dedicated create               — interactive creation wizard
+dedicated info <name>          — show config + runtime state
+dedicated start <name>         — start the service
+dedicated stop <name>          — stop the service
+dedicated restart <name>       — restart
+dedicated delete <name>        — delete the config (stops if running)
+```
+
+Tab-completion works for all subcommands and the `<name>` argument.
+
+## When to use groups vs dedicated
+
+Use **groups** when you want:
+
+- Multiple identical instances (minigames, lobbies, game servers)
+- Auto-scaling based on player count
+- Template-driven deployments (CI/CD-friendly)
+- Consistent configuration across instances
+
+Use **dedicated services** when you want:
+
+- A single, persistent server you maintain manually
+- A fixed port for external connections
+- Experiments or sandboxes that don't need templates
+- A standalone modpack server without the template overhead
+
+Nothing stops you from mixing both — a typical setup is a Velocity group, a Lobby group, a few minigame groups, _and_ a handful of dedicated services for creative worlds or test servers.

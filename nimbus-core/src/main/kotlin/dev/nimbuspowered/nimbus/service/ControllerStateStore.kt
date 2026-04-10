@@ -23,7 +23,8 @@ data class PersistedLocalService(
     val workDir: String,
     val isStatic: Boolean,
     val bedrockPort: Int = 0,
-    val startedAtEpochMs: Long
+    val startedAtEpochMs: Long,
+    val isDedicated: Boolean = false
 )
 
 @Serializable

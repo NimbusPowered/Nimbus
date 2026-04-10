@@ -3,6 +3,7 @@ package dev.nimbuspowered.nimbus.service
 import dev.nimbuspowered.nimbus.api.auth.JwtTokenManager
 import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.cluster.RemoteServiceHandle
+import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.GroupDefinition
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.config.ServerSoftware
@@ -53,6 +54,9 @@ class ServiceManager(
     /** Warm pool manager, set after construction in Nimbus.kt. */
     var warmPoolManager: WarmPoolManager? = null
 
+    /** Dedicated service manager, set after construction in Nimbus.kt. */
+    var dedicatedServiceManager: DedicatedServiceManager? = null
+
     /** Groups currently being restarted — ScalingEngine should skip these. */
     val restartingGroups: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -99,6 +103,21 @@ class ServiceManager(
         return startLocalService(service, prepared)
     }
 
+    suspend fun startDedicatedService(config: DedicatedDefinition): Service? {
+        val existing = registry.get(config.name)
+        if (existing != null) {
+            if (existing.state == ServiceState.STOPPED || existing.state == ServiceState.CRASHED) {
+                registry.unregister(config.name)
+            } else {
+                logger.warn("Dedicated service '{}' is already running (state: {})", config.name, existing.state)
+                return null
+            }
+        }
+
+        val prepared = serviceFactory.prepareDedicated(config) ?: return null
+        return startLocalService(prepared.service, prepared)
+    }
+
     private suspend fun startLocalService(service: Service, prepared: ServiceFactory.PreparedService): Service? {
         val (_, workDir, command, readyPattern, isModded, readyTimeout, env) = prepared
         val serviceName = service.name
@@ -122,7 +141,8 @@ class ServiceManager(
                 workDir = workDir.toAbsolutePath().toString(),
                 isStatic = service.isStatic,
                 bedrockPort = service.bedrockPort ?: 0,
-                startedAtEpochMs = System.currentTimeMillis()
+                startedAtEpochMs = System.currentTimeMillis(),
+                isDedicated = service.isDedicated
             ))
 
             service.transitionTo(ServiceState.STARTING)
@@ -275,14 +295,20 @@ class ServiceManager(
 
     private fun launchExitMonitor(service: Service, handle: ServiceHandle) {
         val serviceName = service.name
-        val group = groupManager.getGroup(service.groupName)
+        val restartOnCrash: Boolean
+        val maxRestarts: Int
+        if (service.isDedicated) {
+            val dedicatedConfig = dedicatedServiceManager?.getConfig(serviceName)?.dedicated
+            restartOnCrash = dedicatedConfig?.restartOnCrash ?: false
+            maxRestarts = dedicatedConfig?.maxRestarts ?: 0
+        } else {
+            val group = groupManager.getGroup(service.groupName)
+            restartOnCrash = group?.config?.group?.lifecycle?.restartOnCrash ?: false
+            maxRestarts = group?.config?.group?.lifecycle?.maxRestarts ?: 0
+        }
         scope.launch {
             try {
-                monitorProcess(
-                    service, handle, service.groupName,
-                    group?.config?.group?.lifecycle?.restartOnCrash ?: false,
-                    group?.config?.group?.lifecycle?.maxRestarts ?: 0
-                )
+                monitorProcess(service, handle, service.groupName, restartOnCrash, maxRestarts)
             } catch (e: Exception) {
                 logger.error("Error monitoring service '{}'", serviceName, e)
             }
@@ -374,7 +400,12 @@ class ServiceManager(
 
         if (restartOnCrash && service.restartCount < maxRestarts) {
             logger.info("Restarting service '{}' (attempt {}/{})", serviceName, service.restartCount + 1, maxRestarts)
-            val newService = startService(groupName)
+            val newService = if (service.isDedicated) {
+                val dedicatedConfig = dedicatedServiceManager?.getConfig(serviceName)?.dedicated
+                if (dedicatedConfig != null) startDedicatedService(dedicatedConfig) else null
+            } else {
+                startService(groupName)
+            }
             if (newService != null) {
                 newService.restartCount = service.restartCount + 1
             }
@@ -565,6 +596,7 @@ class ServiceManager(
             val handle = ProcessHandle.adopt(persisted.pid, persisted.serviceName)
             if (handle != null) {
                 val workDir = Path(persisted.workDir)
+                val dedicatedConfig = if (persisted.isDedicated) dedicatedServiceManager?.getConfig(persisted.serviceName) else null
                 val service = Service(
                     name = persisted.serviceName,
                     groupName = persisted.groupName,
@@ -573,7 +605,9 @@ class ServiceManager(
                     workingDirectory = workDir,
                     isStatic = persisted.isStatic,
                     bedrockPort = if (persisted.bedrockPort > 0) persisted.bedrockPort else null,
-                    initialState = ServiceState.READY
+                    initialState = ServiceState.READY,
+                    isDedicated = persisted.isDedicated,
+                    proxyEnabled = dedicatedConfig?.dedicated?.proxyEnabled ?: true
                 )
                 service.startedAt = Instant.ofEpochMilli(persisted.startedAtEpochMs)
 
@@ -638,6 +672,15 @@ class ServiceManager(
             logger.info("Startup phase 2: Starting backend group(s)...")
             startGroupsAndCollect(backendGroups)
         }
+
+        // Phase 3: Start all dedicated services
+        val dedicatedConfigs = dedicatedServiceManager?.getAllConfigs() ?: emptyList()
+        if (dedicatedConfigs.isNotEmpty()) {
+            logger.info("Startup phase 3: Starting {} dedicated service(s)...", dedicatedConfigs.size)
+            for (cfg in dedicatedConfigs) {
+                startDedicatedService(cfg.dedicated)
+            }
+        }
     }
 
     private suspend fun startGroupsAndCollect(groups: List<dev.nimbuspowered.nimbus.group.ServerGroup>): List<Service> {
@@ -697,15 +740,19 @@ class ServiceManager(
     }
 
     suspend fun stopAll() {
-        logger.info("Stopping all services (ordered: game -> lobby -> proxy)")
+        logger.info("Stopping all services (ordered: dedicated/game -> lobby -> proxy)")
         val allServices = registry.getAll()
+
+        // Dedicated services stop first alongside game servers
+        val dedicated = allServices.filter { it.isDedicated }
 
         // Categorize services: game servers (stopOnEmpty=true), lobbies (stopOnEmpty=false), proxies
         val proxies = allServices.filter {
-            val group = groupManager.getGroup(it.groupName)
-            group?.config?.group?.software == ServerSoftware.VELOCITY
+            !it.isDedicated &&
+                groupManager.getGroup(it.groupName)?.config?.group?.software == ServerSoftware.VELOCITY
         }
         val backends = allServices.filter {
+            if (it.isDedicated) return@filter false
             val group = groupManager.getGroup(it.groupName)
             group != null && group.config.group.software != ServerSoftware.VELOCITY
         }
@@ -716,6 +763,13 @@ class ServiceManager(
         val lobbies = backends.filter {
             val group = groupManager.getGroup(it.groupName)
             group?.config?.group?.lifecycle?.stopOnEmpty != true
+        }
+
+        if (dedicated.isNotEmpty()) {
+            logger.info("Stopping {} dedicated service(s)...", dedicated.size)
+            for (service in dedicated) {
+                stopService(service.name, forceful = true)
+            }
         }
 
         if (gameServers.isNotEmpty()) {

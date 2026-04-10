@@ -120,6 +120,7 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 
 - `config/nimbus.toml` — Main config (network, controller, console, paths, API, database, audit, cluster TLS)
 - `config/groups/*.toml` — One file per server group (proxy, lobby, game servers)
+- `config/dedicated/*.toml` — One file per dedicated service (single-instance, fixed-port, managed directory under `paths.dedicated`)
 - `data/nimbus.db` — SQLite database (default, configurable to MySQL/PostgreSQL)
 - `config/modules/display/*.toml` — Display configs per group (signs + NPCs)
 - `config/modules/scaling/*.toml` — Smart Scaling configs per group (schedules + warmup)
@@ -139,7 +140,10 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 
 ## Key Patterns
 
-- Services named `<GroupName>-<N>` (e.g., `Lobby-1`, `BedWars-3`)
+- Services named `<GroupName>-<N>` (e.g., `Lobby-1`, `BedWars-3`); dedicated services use the user-defined name as-is
+- Dedicated services: single instance, fixed port, managed dir under `paths.dedicated/<name>/`, no template, optional proxy registration via `proxy_enabled` flag. Server JAR is auto-downloaded on first start via `softwareResolver.ensureJarAvailable()`. API at `/api/dedicated/*`, console command `dedicated`, dashboard page `/dedicated`
+- Memory: `ServiceMemoryResolver` reads resident set size from `/proc/<pid>/status` (Linux/WSL) or `tasklist` (Windows) via `ProcessMemoryReader`; agent nodes push their services' RSS in cluster heartbeats. SDK `reportHealth()` only sends TPS now (memory is the controller's job). The displayed "max" includes a 30%/256MB JVM overhead budget on top of `-Xmx` so RSS comparison is fair
+- Proxy forwarding mod sync: `ServiceFactory.syncProxyForwardingMods()` runs on every service prepare (groups + dedicated) and cleans up stale mods from the wrong modloader. `syncDedicatedProxyForwarding()` additionally patches the forwarding config (neoforwarding-server.toml / proxy-compatible-forge-server.toml / FabricProxy-Lite.toml). `ensureForwardingMod()` swaps between PCF and NeoForwarding automatically based on NeoForge MC version (1.20.2+ = NeoForwarding)
 - Proxy ports: 25565+, backend ports: 30000+
 - Velocity forwarding: `modern` if all backends >=1.13, else `legacy` (BungeeCord)
 - Modded client routing: Bridge detects Forge/NeoForge clients via Velocity's internal `ConnectionType` (FML handshake marker), filters groups by protocol version + connection type, then scores by mod list overlap (`|clientMods ∩ serverMods| / |serverMods|`, threshold 0.5). ModScanner extracts mod IDs from template `mods/` JARs on group load

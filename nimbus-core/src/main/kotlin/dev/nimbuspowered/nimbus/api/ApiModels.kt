@@ -19,6 +19,8 @@ data class ServiceResponse(
     val restartCount: Int,
     val uptime: String?,
     val isStatic: Boolean = false,
+    val isDedicated: Boolean = false,
+    val proxyEnabled: Boolean = true,
     val bedrockPort: Int? = null,
     val tps: Double = 20.0,
     val memoryUsedMb: Long = 0,
@@ -102,6 +104,50 @@ data class CreateGroupRequest(
     val jvmOptimize: Boolean = true
 )
 
+// ── Dedicated Service DTOs ─────────────────────────────────────────
+
+@Serializable
+data class DedicatedServiceResponse(
+    val name: String,
+    val directory: String,
+    val port: Int,
+    val software: String,
+    val version: String,
+    val memory: String,
+    val proxyEnabled: Boolean,
+    val restartOnCrash: Boolean,
+    val maxRestarts: Int,
+    val jvmArgs: List<String>,
+    val jvmOptimize: Boolean,
+    val state: String?,
+    val pid: Long?,
+    val playerCount: Int?,
+    val uptime: String?
+)
+
+@Serializable
+data class DedicatedListResponse(
+    val services: List<DedicatedServiceResponse>,
+    val total: Int
+)
+
+@Serializable
+data class CreateDedicatedRequest(
+    val name: String,
+    val port: Int,
+    val software: String = "PAPER",
+    val version: String = "1.21.4",
+    val jarName: String = "",
+    val readyPattern: String = "",
+    val javaPath: String = "",
+    val proxyEnabled: Boolean = true,
+    val memory: String = "1G",
+    val restartOnCrash: Boolean = true,
+    val maxRestarts: Int = 5,
+    val jvmArgs: List<String> = emptyList(),
+    val jvmOptimize: Boolean = true
+)
+
 // ── Network / Status DTOs ───────────────────────────────────────────
 
 @Serializable
@@ -112,6 +158,42 @@ data class StatusResponse(
     val totalServices: Int,
     val totalPlayers: Int,
     val groups: List<GroupStatusResponse>
+)
+
+// ── Controller Info DTOs ─────────────────────────────────────────────
+
+@Serializable
+data class ControllerInfoResponse(
+    val version: String,
+    val startedAt: String,
+    val uptimeSeconds: Long,
+    // Controller JVM heap (the Nimbus process itself — informational)
+    val jvmMemoryUsedMb: Long,
+    val jvmMemoryMaxMb: Long,
+    val jvmMemoryAllocatedMb: Long,
+    // Configured max memory budget for all services (from nimbus.toml controller.max_memory)
+    val servicesMaxMemoryMb: Long,
+    // Sum of configured memory for currently running services
+    val servicesAllocatedMemoryMb: Long,
+    // Sum of actual process RSS for currently running services (best effort; Linux only)
+    val servicesUsedMemoryMb: Long,
+    val runningServices: Int,
+    val updateAvailable: Boolean,
+    val latestVersion: String? = null,
+    val updateType: String? = null,
+    val releaseUrl: String? = null
+)
+
+@Serializable
+data class ChangelogEntry(
+    val version: String,
+    val title: String,
+    val body: String
+)
+
+@Serializable
+data class ChangelogResponse(
+    val entries: List<ChangelogEntry>
 )
 
 @Serializable
@@ -250,8 +332,10 @@ data class ReportPlayerCountRequest(
 @Serializable
 data class ReportHealthRequest(
     val tps: Double,
-    val memoryUsedMb: Long,
-    val memoryMaxMb: Long
+    // memoryUsedMb / memoryMaxMb are accepted for backwards compatibility with
+    // older SDK versions but ignored — memory is now read from /proc by the controller.
+    val memoryUsedMb: Long = 0,
+    val memoryMaxMb: Long = 0
 )
 
 @Serializable
