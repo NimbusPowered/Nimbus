@@ -53,6 +53,8 @@ interface Service {
   memoryMaxMb: number;
   healthy: boolean;
   uptime: string | null;
+  isDedicated?: boolean;
+  proxyEnabled?: boolean;
 }
 
 interface ServiceListResponse {
@@ -181,14 +183,21 @@ export default function ServicesPage() {
               {services.map((s) => (
                 <TableRow key={s.name}>
                   <TableCell>
-                    <Link
-                      href={`/services/${s.name}`}
-                      className="font-medium hover:underline"
-                    >
-                      {s.name}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/services/${s.name}`}
+                        className="font-medium hover:underline"
+                      >
+                        {s.name}
+                      </Link>
+                      {s.isDedicated && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          DEDICATED
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
-                  <TableCell>{s.groupName}</TableCell>
+                  <TableCell>{s.isDedicated ? "—" : s.groupName}</TableCell>
                   <TableCell>
                     <Badge
                       variant="outline"

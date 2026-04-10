@@ -3,6 +3,7 @@ package dev.nimbuspowered.nimbus.service
 import dev.nimbuspowered.nimbus.api.NimbusApi
 import dev.nimbuspowered.nimbus.api.auth.ApiScope
 import dev.nimbuspowered.nimbus.api.auth.JwtTokenManager
+import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.config.ServerSoftware
 import dev.nimbuspowered.nimbus.event.EventBus
@@ -42,6 +43,9 @@ class ServiceFactory(
     private val moduleContext: ModuleContextImpl? = null,
     private val jwtTokenManager: JwtTokenManager? = null
 ) {
+
+    /** Late-set by Nimbus.kt after construction (circular dependency with ServiceManager). */
+    var dedicatedServiceManager: DedicatedServiceManager? = null
 
     private val logger = LoggerFactory.getLogger(ServiceFactory::class.java)
     private val configPatcher = ConfigPatcher()
@@ -342,6 +346,133 @@ class ServiceFactory(
             logger.error("Failed to prepare service '{}'", serviceName, e)
             portAllocator.release(port)
             service.bedrockPort?.let { portAllocator.releaseBedrockPort(it) }
+            registry.unregister(serviceName)
+            null
+        }
+    }
+
+    suspend fun prepareDedicated(config: DedicatedDefinition): PreparedService? {
+        val serviceName = config.name
+        val port = config.port
+        val software = config.software
+
+        val manager = dedicatedServiceManager
+        if (manager == null) {
+            logger.error("Cannot start dedicated service '{}': DedicatedServiceManager not wired", serviceName)
+            return null
+        }
+
+        val workDir = manager.ensureServiceDirectory(serviceName)
+
+        if (!portAllocator.reserveIfAvailable(port)) {
+            logger.error("Cannot start dedicated service '{}': port {} is already in use", serviceName, port)
+            return null
+        }
+
+        // Auto-download server JAR if missing
+        val jarAvailable = softwareResolver.ensureJarAvailable(software, config.version, workDir, customJarName = config.jarName)
+        if (!jarAvailable) {
+            logger.error("Cannot start dedicated service '{}': server JAR could not be prepared", serviceName)
+            portAllocator.release(port)
+            return null
+        }
+
+        // Auto-accept EULA for non-proxy servers
+        if (software != ServerSoftware.VELOCITY) {
+            val eulaFile = workDir.resolve("eula.txt")
+            if (!eulaFile.exists()) {
+                eulaFile.writeText("eula=true\n")
+                logger.info("Created eula.txt for dedicated service '{}'", serviceName)
+            }
+        }
+
+        val service = Service(
+            name = serviceName,
+            groupName = serviceName,
+            port = port,
+            initialState = ServiceState.PREPARING,
+            workingDirectory = workDir,
+            isStatic = true,
+            isDedicated = true,
+            proxyEnabled = config.proxyEnabled
+        )
+
+        registry.register(service)
+        logger.info("Preparing dedicated service '{}' on port {}", serviceName, port)
+
+        return try {
+            val memory = config.memory
+            val jvmConfig = config.jvm
+            val javaBin = javaResolver.resolve(config.version, software, config.javaPath)
+            val requiredJava = javaResolver.requiredJavaVersion(config.version, software)
+            logger.info("Dedicated service '{}' using Java {} ({})", serviceName, requiredJava, javaBin)
+            val command = mutableListOf(javaBin, "-Xmx$memory")
+
+            if (jvmConfig.optimize && jvmConfig.args.isEmpty()) {
+                command.addAll(performanceOptimizer.aikarsFlags(memory))
+                logger.debug("Applied Aikar's JVM flags for '{}'", serviceName)
+            } else {
+                command.addAll(jvmConfig.args)
+            }
+
+            command.add("-Dnimbus.service.name=$serviceName")
+            command.add("-Dnimbus.service.group=$serviceName")
+            command.add("-Dnimbus.service.port=$port")
+            command.add("-Dnimbus.service.dedicated=true")
+
+            val processEnv = mutableMapOf<String, String>()
+            if (this.config.api.enabled) {
+                command.add("-Dnimbus.api.url=http://127.0.0.1:${this.config.api.port}")
+                if (this.config.api.token.isNotBlank()) {
+                    val token = if (jwtTokenManager != null) {
+                        jwtTokenManager.generateToken(serviceName, ApiScope.SERVICE_SCOPES, expiresInSeconds = 86400 * 7)
+                    } else {
+                        NimbusApi.deriveServiceToken(this.config.api.token)
+                    }
+                    processEnv["NIMBUS_API_TOKEN"] = token
+                }
+            }
+
+            val isModded = software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC, ServerSoftware.CUSTOM)
+            if (isModded) {
+                val startArgs = softwareResolver.getModdedStartCommand(software, workDir, config.jarName)
+                command.addAll(startArgs)
+            } else {
+                command.add("-jar")
+                val jarName = if (config.jarName.isNotEmpty()) config.jarName else softwareResolver.jarFileName(software)
+                command.add(jarName)
+            }
+
+            if (software != ServerSoftware.VELOCITY) {
+                if (isModded) {
+                    command.add("nogui")
+                } else {
+                    val flag = compatibilityChecker.noguiFlag(config.version)
+                    if (flag != null) command.add(flag)
+                }
+            }
+
+            val customPattern = config.readyPattern
+            val readyPattern = when {
+                customPattern.isNotEmpty() -> Regex(customPattern)
+                software == ServerSoftware.FORGE || software == ServerSoftware.NEOFORGE -> Regex("""Done \(|For help, type""")
+                else -> null
+            }
+
+            val readyTimeout = if (isModded) 180.seconds else 120.seconds
+
+            PreparedService(
+                service = service,
+                workDir = workDir,
+                command = command,
+                readyPattern = readyPattern,
+                isModded = isModded,
+                readyTimeout = readyTimeout,
+                env = processEnv
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to prepare dedicated service '{}'", serviceName, e)
+            portAllocator.release(port)
             registry.unregister(serviceName)
             null
         }

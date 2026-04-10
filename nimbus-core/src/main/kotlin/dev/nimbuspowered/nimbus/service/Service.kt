@@ -29,7 +29,9 @@ class Service(
     /** Whether this service is considered healthy (TPS >= 15, memory < 95%). */
     @Volatile var healthy: Boolean = true,
     /** Last time a health report was received from the SDK. */
-    @Volatile var lastHealthReport: Instant? = null
+    @Volatile var lastHealthReport: Instant? = null,
+    var isDedicated: Boolean = false,
+    var proxyEnabled: Boolean = true
 ) {
     private val logger = org.slf4j.LoggerFactory.getLogger(Service::class.java)
 

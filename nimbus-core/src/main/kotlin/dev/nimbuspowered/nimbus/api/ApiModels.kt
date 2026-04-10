@@ -19,6 +19,8 @@ data class ServiceResponse(
     val restartCount: Int,
     val uptime: String?,
     val isStatic: Boolean = false,
+    val isDedicated: Boolean = false,
+    val proxyEnabled: Boolean = true,
     val bedrockPort: Int? = null,
     val tps: Double = 20.0,
     val memoryUsedMb: Long = 0,
@@ -96,6 +98,50 @@ data class CreateGroupRequest(
     val scaleThreshold: Double = 0.8,
     val idleTimeout: Long = 0,
     val stopOnEmpty: Boolean = false,
+    val restartOnCrash: Boolean = true,
+    val maxRestarts: Int = 5,
+    val jvmArgs: List<String> = emptyList(),
+    val jvmOptimize: Boolean = true
+)
+
+// ── Dedicated Service DTOs ─────────────────────────────────────────
+
+@Serializable
+data class DedicatedServiceResponse(
+    val name: String,
+    val directory: String,
+    val port: Int,
+    val software: String,
+    val version: String,
+    val memory: String,
+    val proxyEnabled: Boolean,
+    val restartOnCrash: Boolean,
+    val maxRestarts: Int,
+    val jvmArgs: List<String>,
+    val jvmOptimize: Boolean,
+    val state: String?,
+    val pid: Long?,
+    val playerCount: Int?,
+    val uptime: String?
+)
+
+@Serializable
+data class DedicatedListResponse(
+    val services: List<DedicatedServiceResponse>,
+    val total: Int
+)
+
+@Serializable
+data class CreateDedicatedRequest(
+    val name: String,
+    val port: Int,
+    val software: String = "PAPER",
+    val version: String = "1.21.4",
+    val jarName: String = "",
+    val readyPattern: String = "",
+    val javaPath: String = "",
+    val proxyEnabled: Boolean = true,
+    val memory: String = "1G",
     val restartOnCrash: Boolean = true,
     val maxRestarts: Int = 5,
     val jvmArgs: List<String> = emptyList(),

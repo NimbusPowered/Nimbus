@@ -4,6 +4,7 @@ import dev.nimbuspowered.nimbus.console.commands.ShutdownCommand
 import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.module.CommandOutput
 import dev.nimbuspowered.nimbus.module.ModuleCommand
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import org.slf4j.LoggerFactory
 
@@ -22,6 +23,7 @@ class CommandDispatcher {
     // Set externally for contextual tab completion
     var registry: ServiceRegistry? = null
     var groupManager: GroupManager? = null
+    var dedicatedServiceManager: DedicatedServiceManager? = null
 
     // Commands that take a service name as first arg
     private val serviceArgCommands = setOf("stop", "restart", "screen", "exec", "logs", "players")
@@ -295,6 +297,20 @@ class CommandDispatcher {
                         2 -> listOf("list", "search", "remove")
                             .filter { it.startsWith(argPrefix, ignoreCase = true) }
                         3 -> targets.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                        else -> emptyList()
+                    }
+                }
+                "dedicated" -> {
+                    val subcommands = listOf("list", "create", "start", "stop", "restart", "delete", "info")
+                    val nameSubcommands = setOf("start", "stop", "restart", "delete", "info")
+                    when (parts.size) {
+                        2 -> subcommands.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                        3 -> {
+                            if (parts[1].lowercase() in nameSubcommands) {
+                                val names = dedicatedServiceManager?.getAllConfigs()?.map { it.dedicated.name } ?: emptyList()
+                                names.filter { it.startsWith(argPrefix, ignoreCase = true) }
+                            } else emptyList()
+                        }
                         else -> emptyList()
                     }
                 }

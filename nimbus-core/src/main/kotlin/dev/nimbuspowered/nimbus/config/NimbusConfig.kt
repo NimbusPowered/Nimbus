@@ -50,6 +50,7 @@ data class ConsoleConfig(
 data class PathsConfig(
     val templates: String = "templates",
     val services: String = "services",
+    val dedicated: String = "dedicated",
     val logs: String = "logs"
 )
 

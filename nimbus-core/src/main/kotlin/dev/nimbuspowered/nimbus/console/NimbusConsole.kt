@@ -9,6 +9,8 @@ import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.loadbalancer.TcpLoadBalancer
 import dev.nimbuspowered.nimbus.service.CompatibilityChecker
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
+import dev.nimbuspowered.nimbus.service.PortAllocator
 import dev.nimbuspowered.nimbus.service.ServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import dev.nimbuspowered.nimbus.module.ModuleManager
@@ -46,7 +48,10 @@ class NimbusConsole(
     private val stressTestManager: StressTestManager? = null,
     private val moduleManager: ModuleManager? = null,
     private val scalingEngine: ScalingEngine? = null,
-    private val sharedDispatcher: CommandDispatcher? = null
+    private val sharedDispatcher: CommandDispatcher? = null,
+    private val dedicatedServiceManager: DedicatedServiceManager? = null,
+    private val dedicatedDir: Path? = null,
+    private val portAllocator: PortAllocator? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(NimbusConsole::class.java)
@@ -134,6 +139,9 @@ class NimbusConsole(
         }
         if (stressTestManager != null) {
             dispatcher.register(StressCommand(stressTestManager, registry, groupManager))
+        }
+        if (dedicatedServiceManager != null && dedicatedDir != null && portAllocator != null) {
+            dispatcher.register(DedicatedCommand(terminal, dedicatedServiceManager, serviceManager, registry, groupManager, portAllocator, dedicatedDir, this, eventBus))
         }
         if (moduleManager != null) {
             val templatesPath = java.nio.file.Path.of(config.paths.templates)

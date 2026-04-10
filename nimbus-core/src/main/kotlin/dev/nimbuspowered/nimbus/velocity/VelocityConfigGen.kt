@@ -39,6 +39,7 @@ class VelocityConfigGen(
         val backendServices = registry.getAll()
             .filter { service ->
                 service.state == ServiceState.READY &&
+                    service.proxyEnabled &&
                     groupManager.getGroup(service.groupName)
                         ?.config?.group?.software != ServerSoftware.VELOCITY
             }

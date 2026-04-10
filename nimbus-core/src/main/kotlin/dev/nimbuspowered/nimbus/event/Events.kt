@@ -89,6 +89,10 @@ sealed class NimbusEvent {
     // Stress Test
     data class StressTestUpdated(val simulatedPlayers: Int, val targetPlayers: Int, val targetGroup: String?, val perService: Map<String, Int>) : NimbusEvent()
 
+    // Dedicated
+    data class DedicatedCreated(val name: String) : NimbusEvent()
+    data class DedicatedDeleted(val name: String) : NimbusEvent()
+
     // Config
     data class ConfigReloaded(val groupsLoaded: Int) : NimbusEvent()
 

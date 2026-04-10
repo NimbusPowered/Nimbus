@@ -40,4 +40,10 @@ class ServiceRegistry {
 
     fun countByGroup(groupName: String): Int =
         services.values.count { it.groupName == groupName }
+
+    fun getDedicated(): List<Service> =
+        services.values.filter { it.isDedicated }
+
+    fun getNonDedicated(): List<Service> =
+        services.values.filter { !it.isDedicated }
 }

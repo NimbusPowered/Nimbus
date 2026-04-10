@@ -59,7 +59,9 @@ class NimbusApi(
     private val moduleManager: dev.nimbuspowered.nimbus.module.ModuleManager? = null,
     private val dispatcher: dev.nimbuspowered.nimbus.console.CommandDispatcher? = null,
     private val databaseManager: dev.nimbuspowered.nimbus.database.DatabaseManager? = null,
-    private val softwareResolver: dev.nimbuspowered.nimbus.template.SoftwareResolver? = null
+    private val softwareResolver: dev.nimbuspowered.nimbus.template.SoftwareResolver? = null,
+    private val dedicatedServiceManager: dev.nimbuspowered.nimbus.service.DedicatedServiceManager? = null,
+    private val dedicatedDir: Path? = null
 ) {
     private val logger = LoggerFactory.getLogger(NimbusApi::class.java)
 
@@ -299,6 +301,9 @@ class NimbusApi(
                 }
                 if (databaseManager != null && config.audit.enabled) {
                     auditRoutes(databaseManager)
+                }
+                if (dedicatedServiceManager != null && dedicatedDir != null) {
+                    dedicatedRoutes(registry, dedicatedServiceManager, serviceManager, groupManager, eventBus, dedicatedDir)
                 }
                 tokenRoutes(jwtTokenManager)
                 if (softwareResolver != null) {

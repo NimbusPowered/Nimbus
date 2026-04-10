@@ -326,6 +326,8 @@ private fun dev.nimbuspowered.nimbus.service.Service.toResponse(): ServiceRespon
         restartCount = restartCount,
         uptime = uptime,
         isStatic = isStatic,
+        isDedicated = isDedicated,
+        proxyEnabled = proxyEnabled,
         bedrockPort = bedrockPort,
         tps = tps,
         memoryUsedMb = memoryUsedMb,

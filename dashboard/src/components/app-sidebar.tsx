@@ -38,6 +38,7 @@ const navMain = [
   { title: "Overview", url: "/", icon: <LayoutDashboardIcon /> },
   { title: "Services", url: "/services", icon: <ServerIcon /> },
   { title: "Groups", url: "/groups", icon: <FolderTreeIcon /> },
+  { title: "Dedicated", url: "/dedicated", icon: <BoxIcon /> },
   { title: "Nodes", url: "/nodes", icon: <NetworkIcon /> },
   { title: "Console", url: "/console", icon: <TerminalIcon /> },
   { title: "Plugins", url: "/plugins", icon: <PlugIcon /> },

@@ -288,6 +288,10 @@ object ConsoleFormatter {
                 val scope = if (event.scope == "global") "GLOBAL" else "group ${BOLD}${event.scope}${RESET}"
                 "${success("✓ MAINTENANCE")} $scope disabled"
             }
+            is NimbusEvent.DedicatedCreated ->
+                "${success("+ DEDICATED")} ${BOLD}${event.name}${RESET} created"
+            is NimbusEvent.DedicatedDeleted ->
+                "${warn("- DEDICATED")} ${BOLD}${event.name}${RESET} deleted"
         }
         return "$time $message"
     }

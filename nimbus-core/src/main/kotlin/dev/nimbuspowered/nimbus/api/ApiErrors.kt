@@ -36,6 +36,13 @@ object ApiErrors {
     const val GROUP_ALREADY_EXISTS = "GROUP_ALREADY_EXISTS"
     const val GROUP_HAS_RUNNING_INSTANCES = "GROUP_HAS_RUNNING_INSTANCES"
 
+    // ── Dedicated ─────────────────────────────────────────────────
+    const val DEDICATED_NOT_FOUND = "DEDICATED_NOT_FOUND"
+    const val DEDICATED_ALREADY_EXISTS = "DEDICATED_ALREADY_EXISTS"
+    const val DEDICATED_ALREADY_RUNNING = "DEDICATED_ALREADY_RUNNING"
+    const val DEDICATED_DIRECTORY_NOT_FOUND = "DEDICATED_DIRECTORY_NOT_FOUND"
+    const val DEDICATED_PORT_IN_USE = "DEDICATED_PORT_IN_USE"
+
     // ── Command ────────────────────────────────────────────────────
     const val COMMAND_NOT_FOUND = "COMMAND_NOT_FOUND"
     const val COMMAND_NOT_REMOTE = "COMMAND_NOT_REMOTE"
