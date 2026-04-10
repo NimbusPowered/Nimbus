@@ -3,6 +3,7 @@ package dev.nimbuspowered.nimbus.service
 import dev.nimbuspowered.nimbus.api.NimbusApi
 import dev.nimbuspowered.nimbus.api.auth.ApiScope
 import dev.nimbuspowered.nimbus.api.auth.JwtTokenManager
+import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.config.ServerSoftware
 import dev.nimbuspowered.nimbus.event.EventBus
@@ -42,6 +43,9 @@ class ServiceFactory(
     private val moduleContext: ModuleContextImpl? = null,
     private val jwtTokenManager: JwtTokenManager? = null
 ) {
+
+    /** Late-set by Nimbus.kt after construction (circular dependency with ServiceManager). */
+    var dedicatedServiceManager: DedicatedServiceManager? = null
 
     private val logger = LoggerFactory.getLogger(ServiceFactory::class.java)
     private val configPatcher = ConfigPatcher()
@@ -142,12 +146,10 @@ class ServiceFactory(
             return null
         }
 
-        // Auto-deploy proxy forwarding mods for modded servers
-        if (software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE)) {
-            softwareResolver.ensureForwardingMod(software, group.config.group.version, templateDir)
-        } else if (software == ServerSoftware.FABRIC) {
-            softwareResolver.ensureFabricProxyMod(templateDir, group.config.group.version)
-        }
+        // Sync proxy forwarding mods on the template (installs the correct mod for
+        // the current software, removes any stale mods from other modloaders in case
+        // the group's software was changed). Groups always run behind the proxy.
+        syncProxyForwardingMods(templateDir, software, group.config.group.version, proxyEnabled = true)
 
         // Auto-create eula.txt for all game servers
         if (software != ServerSoftware.VELOCITY) {
@@ -342,6 +344,191 @@ class ServiceFactory(
             logger.error("Failed to prepare service '{}'", serviceName, e)
             portAllocator.release(port)
             service.bedrockPort?.let { portAllocator.releaseBedrockPort(it) }
+            registry.unregister(serviceName)
+            null
+        }
+    }
+
+    /**
+     * Installs the correct proxy forwarding mod for the given software and removes
+     * any mods belonging to OTHER modloaders (handles software changes, e.g. Forge→Fabric).
+     * Operates on whatever directory is passed — template dir for groups, service dir
+     * for dedicated services.
+     *
+     * No-op for non-modded software. If [proxyEnabled] is false, all proxy forwarding
+     * mods are removed regardless of software.
+     */
+    suspend fun syncProxyForwardingMods(
+        dir: Path,
+        software: ServerSoftware,
+        version: String,
+        proxyEnabled: Boolean
+    ) {
+        // Cleanup stale mods from other modloaders (e.g. group software changed)
+        if (software != ServerSoftware.FABRIC) {
+            softwareResolver.removeFabricProxyMod(dir)
+        }
+        if (software !in setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE)) {
+            softwareResolver.removeForwardingMod(dir)
+        }
+
+        if (!proxyEnabled) {
+            // Ensure everything is gone if proxy is disabled
+            softwareResolver.removeFabricProxyMod(dir)
+            softwareResolver.removeForwardingMod(dir)
+            return
+        }
+
+        // Install the correct forwarding mod for the current software
+        when (software) {
+            ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(dir, version)
+            ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(software, version, dir)
+            else -> {} // paper/velocity/etc. don't need forwarding mods
+        }
+    }
+
+    /**
+     * Dedicated-specific: syncs both the forwarding mods AND the server-side forwarding
+     * config file (neoforwarding-server.toml / proxy-compatible-forge-server.toml /
+     * FabricProxy-Lite.toml) with the current Velocity secret.
+     * Used by both [prepareDedicated] (start-time sync) and the edit REST endpoint
+     * (immediate sync when the proxyEnabled flag is toggled).
+     */
+    suspend fun syncDedicatedProxyForwarding(
+        workDir: Path,
+        software: ServerSoftware,
+        version: String,
+        proxyEnabled: Boolean
+    ) {
+        syncProxyForwardingMods(workDir, software, version, proxyEnabled)
+
+        if (proxyEnabled && software in setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)) {
+            val velocityTemplateDir = Path(config.paths.templates).resolve("proxy")
+            val forwardingMode = compatibilityChecker.determineForwardingMode()
+            when (software) {
+                ServerSoftware.FABRIC -> configPatcher.patchFabricProxyLite(workDir, velocityTemplateDir, forwardingMode)
+                ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> configPatcher.patchForgeProxy(workDir, velocityTemplateDir, forwardingMode)
+                else -> {}
+            }
+        }
+    }
+
+    suspend fun prepareDedicated(config: DedicatedDefinition): PreparedService? {
+        val serviceName = config.name
+        val port = config.port
+        val software = config.software
+
+        val manager = dedicatedServiceManager
+        if (manager == null) {
+            logger.error("Cannot start dedicated service '{}': DedicatedServiceManager not wired", serviceName)
+            return null
+        }
+
+        val workDir = manager.ensureServiceDirectory(serviceName, software)
+
+        if (!portAllocator.reserveIfAvailable(port)) {
+            logger.error("Cannot start dedicated service '{}': port {} is already in use", serviceName, port)
+            return null
+        }
+
+        // Auto-download server JAR if missing
+        val jarAvailable = softwareResolver.ensureJarAvailable(software, config.version, workDir, customJarName = config.jarName)
+        if (!jarAvailable) {
+            logger.error("Cannot start dedicated service '{}': server JAR could not be prepared", serviceName)
+            portAllocator.release(port)
+            return null
+        }
+
+        // Ensure proxy forwarding mods + config match proxyEnabled for modded servers
+        syncDedicatedProxyForwarding(workDir, software, config.version, config.proxyEnabled)
+
+        val service = Service(
+            name = serviceName,
+            groupName = serviceName,
+            port = port,
+            initialState = ServiceState.PREPARING,
+            workingDirectory = workDir,
+            isStatic = true,
+            isDedicated = true,
+            proxyEnabled = config.proxyEnabled
+        )
+
+        registry.register(service)
+        logger.info("Preparing dedicated service '{}' on port {}", serviceName, port)
+
+        return try {
+            val memory = config.memory
+            val jvmConfig = config.jvm
+            val javaBin = javaResolver.resolve(config.version, software, config.javaPath)
+            val requiredJava = javaResolver.requiredJavaVersion(config.version, software)
+            logger.info("Dedicated service '{}' using Java {} ({})", serviceName, requiredJava, javaBin)
+            val command = mutableListOf(javaBin, "-Xmx$memory")
+
+            if (jvmConfig.optimize && jvmConfig.args.isEmpty()) {
+                command.addAll(performanceOptimizer.aikarsFlags(memory))
+                logger.debug("Applied Aikar's JVM flags for '{}'", serviceName)
+            } else {
+                command.addAll(jvmConfig.args)
+            }
+
+            command.add("-Dnimbus.service.name=$serviceName")
+            command.add("-Dnimbus.service.group=$serviceName")
+            command.add("-Dnimbus.service.port=$port")
+            command.add("-Dnimbus.service.dedicated=true")
+
+            val processEnv = mutableMapOf<String, String>()
+            if (this.config.api.enabled) {
+                command.add("-Dnimbus.api.url=http://127.0.0.1:${this.config.api.port}")
+                if (this.config.api.token.isNotBlank()) {
+                    val token = if (jwtTokenManager != null) {
+                        jwtTokenManager.generateToken(serviceName, ApiScope.SERVICE_SCOPES, expiresInSeconds = 86400 * 7)
+                    } else {
+                        NimbusApi.deriveServiceToken(this.config.api.token)
+                    }
+                    processEnv["NIMBUS_API_TOKEN"] = token
+                }
+            }
+
+            val isModded = software in listOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC, ServerSoftware.CUSTOM)
+            if (isModded) {
+                val startArgs = softwareResolver.getModdedStartCommand(software, workDir, config.jarName)
+                command.addAll(startArgs)
+            } else {
+                command.add("-jar")
+                val jarName = if (config.jarName.isNotEmpty()) config.jarName else softwareResolver.jarFileName(software)
+                command.add(jarName)
+            }
+
+            if (software != ServerSoftware.VELOCITY) {
+                if (isModded) {
+                    command.add("nogui")
+                } else {
+                    val flag = compatibilityChecker.noguiFlag(config.version)
+                    if (flag != null) command.add(flag)
+                }
+            }
+
+            val customPattern = config.readyPattern
+            val readyPattern = when {
+                customPattern.isNotEmpty() -> Regex(customPattern)
+                software == ServerSoftware.FORGE || software == ServerSoftware.NEOFORGE -> Regex("""Done \(|For help, type""")
+                else -> null
+            }
+
+            val readyTimeout = if (isModded) 180.seconds else 120.seconds
+
+            PreparedService(
+                service = service,
+                workDir = workDir,
+                command = command,
+                readyPattern = readyPattern,
+                isModded = isModded,
+                readyTimeout = readyTimeout,
+                env = processEnv
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to prepare dedicated service '{}'", serviceName, e)
+            portAllocator.release(port)
             registry.unregister(serviceName)
             null
         }

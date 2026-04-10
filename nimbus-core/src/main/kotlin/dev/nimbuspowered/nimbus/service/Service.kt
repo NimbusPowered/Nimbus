@@ -22,14 +22,18 @@ class Service(
     var bedrockPort: Int? = null,
     /** Current TPS (ticks per second, 20.0 = perfect). Updated by SDK health reports. */
     @Volatile var tps: Double = 20.0,
-    /** Used heap memory in MB. Updated by SDK health reports. */
+    /**
+     * Cached resident memory of the service process in MB. For local services,
+     * populated by [ServiceMemoryResolver] by reading /proc on demand. For remote
+     * (agent) services, pushed from agent cluster heartbeats.
+     */
     @Volatile var memoryUsedMb: Long = 0,
-    /** Max heap memory in MB. Updated by SDK health reports. */
-    @Volatile var memoryMaxMb: Long = 0,
-    /** Whether this service is considered healthy (TPS >= 15, memory < 95%). */
+    /** Whether this service is considered healthy (TPS >= 15). */
     @Volatile var healthy: Boolean = true,
-    /** Last time a health report was received from the SDK. */
-    @Volatile var lastHealthReport: Instant? = null
+    /** Last time a TPS report was received from the SDK. */
+    @Volatile var lastHealthReport: Instant? = null,
+    var isDedicated: Boolean = false,
+    var proxyEnabled: Boolean = true
 ) {
     private val logger = org.slf4j.LoggerFactory.getLogger(Service::class.java)
 
@@ -37,12 +41,11 @@ class Service(
     private var _state: ServiceState = initialState
     val state: ServiceState get() = _state
 
-    fun updateHealth(tps: Double, usedMb: Long, maxMb: Long) {
+    /** Updates TPS from the SDK. Memory is read separately from /proc. */
+    fun updateTps(tps: Double) {
         this.tps = tps
-        this.memoryUsedMb = usedMb
-        this.memoryMaxMb = maxMb
         this.lastHealthReport = Instant.now()
-        this.healthy = tps >= 15.0 && (maxMb == 0L || usedMb.toDouble() / maxMb < 0.95)
+        this.healthy = tps >= 15.0
     }
 
     @Synchronized

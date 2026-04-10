@@ -60,6 +60,33 @@ object ConfigLoader {
         return configs
     }
 
+    fun loadDedicatedConfigs(dedicatedDir: Path): List<DedicatedServiceConfig> {
+        if (!dedicatedDir.exists() || !dedicatedDir.isDirectory()) {
+            logger.warn("Dedicated directory not found at {}, returning empty list", dedicatedDir)
+            return emptyList()
+        }
+        val configs = mutableListOf<DedicatedServiceConfig>()
+        val files = dedicatedDir.listDirectoryEntries("*.toml")
+        if (files.isEmpty()) {
+            logger.info("No dedicated config files found in {}", dedicatedDir)
+            return emptyList()
+        }
+        for (file in files) {
+            try {
+                val content = file.readText()
+                val config = toml.decodeFromString(serializer<DedicatedServiceConfig>(), content)
+                validateDedicatedConfig(config, file)
+                configs.add(config)
+                logger.info("Loaded dedicated config '{}' from {}", config.dedicated.name, file.fileName)
+            } catch (e: ConfigException) {
+                logger.error("Validation failed for dedicated config {}: {}", file.fileName, e.message)
+            } catch (e: Exception) {
+                logger.error("Failed to parse dedicated config {}: {}", file.fileName, e.message, e)
+            }
+        }
+        return configs
+    }
+
     fun reloadGroupConfigs(groupsDir: Path): List<GroupConfig> {
         logger.info("Reloading group configs from {}", groupsDir)
         return loadGroupConfigs(groupsDir)
@@ -130,6 +157,35 @@ object ConfigLoader {
         if (config.database.port !in 1..65535) {
             throw ConfigException(
                 "database.port must be between 1 and 65535 in $source (got ${config.database.port})"
+            )
+        }
+    }
+
+    private fun validateDedicatedConfig(config: DedicatedServiceConfig, source: Path) {
+        val ded = config.dedicated
+
+        require(ded.name.isNotBlank()) {
+            throw ConfigException("Dedicated service name must not be blank in $source")
+        }
+        if (!ded.name.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
+            throw ConfigException(
+                "Dedicated service name '${ded.name}' contains invalid characters in $source — only alphanumeric, hyphen and underscore allowed"
+            )
+        }
+        if (ded.port !in 1..65535) {
+            throw ConfigException(
+                "Port must be between 1 and 65535 for dedicated service '${ded.name}' in $source (got ${ded.port})"
+            )
+        }
+        val memoryPattern = Regex("^\\d+[MmGg]$")
+        if (!memoryPattern.matches(ded.memory)) {
+            throw ConfigException(
+                "Invalid memory format '${ded.memory}' for dedicated service '${ded.name}' in $source — expected format like '512M' or '2G'"
+            )
+        }
+        if (ded.maxRestarts < 0) {
+            throw ConfigException(
+                "max_restarts must be >= 0 for dedicated service '${ded.name}' in $source"
             )
         }
     }

@@ -25,6 +25,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 import dev.nimbuspowered.nimbus.service.ControllerStateStore
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
 import dev.nimbuspowered.nimbus.service.PortAllocator
 import dev.nimbuspowered.nimbus.service.ServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
@@ -174,11 +175,13 @@ fun nimbusMain() = runBlocking {
     val globalTemplateDir = templatesDir.resolve("global")
     val globalProxyTemplateDir = templatesDir.resolve("global_proxy")
 
+    val dedicatedDir = configDir.resolve("dedicated")
+    val dedicatedServicesDir = baseDir.resolve(config.paths.dedicated)
     val modulesDir = configDir.resolve("modules")
     val proxyDir = modulesDir.resolve("syncproxy")
 
     listOf(
-        templatesDir, staticDir, tempDir, logsDir, configDir, groupsDir, modulesDir, proxyDir,
+        templatesDir, staticDir, tempDir, logsDir, configDir, groupsDir, dedicatedDir, dedicatedServicesDir, modulesDir, proxyDir,
         globalTemplateDir, globalTemplateDir.resolve("plugins"),
         globalProxyTemplateDir, globalProxyTemplateDir.resolve("plugins")
     ).forEach { dir ->
@@ -236,6 +239,12 @@ fun nimbusMain() = runBlocking {
     groupManager.loadGroups(groupConfigs)
     logger.info("Found ${groupConfigs.size} groups: ${groupConfigs.joinToString { it.group.name }}")
 
+    // Load dedicated service configs
+    val dedicatedServiceManager = DedicatedServiceManager(dedicatedDir, dedicatedServicesDir)
+    val dedicatedConfigs = ConfigLoader.loadDedicatedConfigs(dedicatedDir)
+    dedicatedServiceManager.loadConfigs(dedicatedConfigs)
+    logger.info("Found ${dedicatedConfigs.size} dedicated service(s)")
+
     // ── Module system ─────────────────────────────────
     val controllerModulesDir = baseDir.resolve("modules")
     if (!controllerModulesDir.exists()) controllerModulesDir.createDirectories()
@@ -244,6 +253,7 @@ fun nimbusMain() = runBlocking {
     val dispatcher = dev.nimbuspowered.nimbus.console.CommandDispatcher()
     dispatcher.registry = registry
     dispatcher.groupManager = groupManager
+    dispatcher.dedicatedServiceManager = dedicatedServiceManager
 
     val moduleContext = ModuleContextImpl(
         eventBus = eventBus,
@@ -313,6 +323,10 @@ fun nimbusMain() = runBlocking {
         stateStore = controllerStateStore,
         jwtTokenManager = jwtTokenManager
     )
+
+    // Wire dedicated service manager into service manager and factory
+    serviceManager.dedicatedServiceManager = dedicatedServiceManager
+    serviceManager.serviceFactory.dedicatedServiceManager = dedicatedServiceManager
 
     // Recover local services from previous session
     val (recoveredServices, protectedDirs) = serviceManager.recoverLocalServices()
@@ -390,7 +404,9 @@ fun nimbusMain() = runBlocking {
         moduleManager = moduleManager,
         dispatcher = dispatcher,
         databaseManager = databaseManager,
-        softwareResolver = softwareResolver
+        softwareResolver = softwareResolver,
+        dedicatedServiceManager = dedicatedServiceManager,
+        dedicatedDir = dedicatedDir
     )
 
     // Register shutdown hook for external signals (SIGTERM, SIGINT, terminal close)
@@ -446,7 +462,10 @@ fun nimbusMain() = runBlocking {
         stressTestManager = stressTestManager,
         moduleManager = moduleManager,
         scalingEngine = scalingEngine,
-        sharedDispatcher = dispatcher
+        sharedDispatcher = dispatcher,
+        dedicatedServiceManager = dedicatedServiceManager,
+        dedicatedDir = dedicatedDir,
+        portAllocator = portAllocator
     )
     console.init()
 
@@ -504,6 +523,15 @@ fun nimbusMain() = runBlocking {
     // Start minimum instances for all groups (auto-downloads JARs if missing)
     // This runs phased: proxy first (waits for READY), then backends.
     serviceManager.startMinimumInstances()
+
+    // Start dedicated services after group services
+    for (cfg in dedicatedServiceManager.getAllConfigs()) {
+        try {
+            serviceManager.startDedicatedService(cfg.dedicated)
+        } catch (e: Exception) {
+            logger.error("Failed to start dedicated service '{}': {}", cfg.dedicated.name, e.message)
+        }
+    }
 
     // Start scaling engine AFTER initial boot completes — prevents the engine from
     // racing the phased startup (e.g. starting backends before the proxy is ready).

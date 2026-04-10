@@ -80,6 +80,17 @@ class PortAllocator(
         return port
     }
 
+    fun reserveIfAvailable(port: Int): Boolean {
+        synchronized(allocatedPorts) {
+            if (allocatedPorts.contains(port) || !isTcpPortAvailable(port)) {
+                return false
+            }
+            allocatedPorts.add(port)
+        }
+        logger.info("Reserved dedicated port {}", port)
+        return true
+    }
+
     fun reserve(port: Int) {
         synchronized(allocatedPorts) {
             allocatedPorts.add(port)

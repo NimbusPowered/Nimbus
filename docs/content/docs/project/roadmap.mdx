@@ -22,6 +22,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 | [v0.3.0 – v0.3.1](#v03x--competitive-features) | Released | Template stacking, warm pool, player module, remote CLI |
 | [v0.4.0 – v0.4.7](#v04x--web-dashboard) | Released (ALPHA) | Web Dashboard, modpack import, module loading fixes |
 | [v0.5.0 – v0.5.3](#v05x--modded-support) | Released | Modded client routing, mod list matching |
+| [v0.6.0](#v06x--dedicated-services) | Released | Dedicated services, unified memory, controller info |
 | [Vision](#vision--cloud-native) | Planned | Docker, S3 storage, multi-controller HA |
 
 ---
@@ -240,6 +241,24 @@ Smart routing based on mod list overlap — the key feature for networks running
 - **Connection type compatibility** — `LEGACY_FORGE` matches Forge only; `MODERN_FORGE` matches Forge or NeoForge
 - **Mod overlap scoring** — `|clientMods ∩ serverMods| / |serverMods|` with 0.5 threshold. Best-scoring group wins, ties broken by player count
 - **Alternate group fallback on kick** — Modded clients kicked from one group try a different modded group before disconnecting
+
+---
+
+## v0.6.x — Dedicated Services
+
+**Theme:** Sometimes you don't want a template. Let operators drop a server into a managed directory with a fixed port and a name — no scaling, no template juggling, no plugin patching. And while we're in there, stop pretending the controller only knows about its own heap: read real process memory for every service.
+
+### v0.6.0 — Dedicated Services (April 10, 2026)
+
+- **Dedicated Services** — A new first-class concept alongside groups. Single instance, fixed name, fixed port, managed directory under `paths.dedicated/<name>/`, no template. Ideal for sandbox servers, custom modpacks the operator hand-curates, or anything that doesn't fit the "spawn N identical copies from a template" model. On first start Nimbus auto-creates the directory and downloads the correct server JAR (Paper/Purpur/Folia/Forge/NeoForge/Fabric/etc.)
+- **Dedicated modpack import** — `/api/dedicated/modpack/import` (Modrinth or CurseForge source) and `/api/dedicated/modpack/upload` (ZIP / `.mrpack` file) install directly into the dedicated service's directory, detect the modloader and MC version from the pack, and auto-install the correct proxy forwarding mod
+- **Dedicated page in the dashboard** — List, create, edit, delete, start/stop/restart. The create flow auto-fetches software list and versions the same way the groups page does. Modpack import has source and upload modes with a resolve-preview step
+- **Controller Info sheet** — New slide-out sheet in the dashboard sidebar showing runtime stats (version, uptime, memory budget with live usage) and the full changelog fetched from the docs folder on GitHub, with per-version collapsibles and the first entry auto-expanded
+- **Unified memory reading** — `ProcessMemoryReader` reads resident set size from `/proc/<pid>/status` on Linux/WSL or `tasklist` on native Windows. `ServiceMemoryResolver` is the single source of truth used by every surface (services list, health command, info sheet, dashboard). Previously only the Velocity proxy (which runs the bridge SDK) had accurate memory — every other service showed 0. Now modded backends, dedicated services, and custom JARs all report real RSS
+- **Agent memory heartbeats** — Cluster agents read RSS on their own host and push it in the service heartbeat so the controller shows correct memory for remote services too
+- **SDK simplified** — `reportHealth(tps)` only reports TPS now. Memory is the controller's job. Backwards-compatible: the API still accepts the old body shape
+- **Proxy forwarding sync on every start** — `syncProxyForwardingMods` runs on every service prepare (groups and dedicated) and cleans up stale mods from other modloaders if the group's software was changed. The NeoForge 1.20.1 ↔ 1.20.2 swap between proxy-compatible-forge and NeoForwarding now happens automatically
+- **Dashboard sidebar redesign** — Nav split into labeled sections (Overview, Infrastructure, Operations, Monitoring, Modules) with tighter spacing. Login page now uses `banner.svg` instead of the square icon
 
 ---
 

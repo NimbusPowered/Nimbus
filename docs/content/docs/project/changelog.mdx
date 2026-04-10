@@ -9,6 +9,41 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.6.0 (April 10, 2026)
+
+Dedicated Services: single-instance, fixed-port servers without templates — plus a unified memory-reading pipeline and a Controller Info sheet in the dashboard.
+
+### Added
+- **Dedicated Services**: a new first-class concept for single-instance, fixed-port servers. Each dedicated service lives in a managed directory under `paths.dedicated/<name>/` (default `dedicated/`), no template required. Users only pick a name, port, software, version and memory; Nimbus auto-creates the directory and downloads the correct server JAR on first start
+- **`config/dedicated/*.toml`**: per-service config files loaded at startup alongside group configs
+- **`PathsConfig.dedicated`**: new `paths.dedicated` option in `nimbus.toml` (default: `"dedicated"`)
+- **Dedicated REST API**: `GET/POST/PUT/DELETE /api/dedicated`, `POST /api/dedicated/{name}/start|stop|restart`, plus `POST /api/dedicated/modpack/import` and `POST /api/dedicated/modpack/upload` for importing Modrinth/CurseForge modpacks or `.mrpack` / server-pack ZIPs directly into a dedicated service
+- **`dedicated` console command**: `dedicated list|create|start|stop|restart|delete|info` with an interactive creation wizard mirroring the `create` command for groups
+- **Dashboard — Dedicated page**: `/dedicated` with a list view, create dialog (auto-fetches software list and versions from `/api/software` — same flow as groups), modpack import dialog with source & upload modes, edit dialog for post-creation changes (port, memory, proxy toggle, restart-on-crash), and inline start/stop/restart/delete actions
+- **Dashboard — Controller Info sheet**: new slide-out sheet in the sidebar footer showing Nimbus version, memory budget with live usage, update-available banner, and a collapsible changelog per version fetched from `docs/content/docs/project/changelog.mdx` on GitHub `main` (5 minute cache)
+- **`GET /api/controller/info`**: returns version, uptime, controller JVM heap, services memory budget (`controller.max_memory`), sum of allocated memory for running services, sum of actual RSS, and update-check result
+- **`GET /api/controller/changelog`**: parses the docs changelog into per-version entries
+- **`ProcessMemoryReader`**: new utility that reads resident set size (RSS) of service processes by PID via `/proc/<pid>/status` on Linux/WSL and `tasklist /FI "PID eq <pid>"` on native Windows
+- **`ServiceMemoryResolver`**: single source of truth for per-service memory stats across REST routes, console commands and the dashboard. Reads RSS for local services, uses agent-pushed value for remote (cluster) services, and budgets a realistic JVM overhead (`-Xmx + max(256 MB, -Xmx × 30%)`) so RSS doesn't appear to overflow the configured heap
+- **Dashboard sidebar redesign**: split nav into labeled sections — **Overview**, **Infrastructure** (Services, Groups, Dedicated, Nodes), **Operations** (Console, Plugins, Stress Test), **Monitoring** (Audit Log), **Modules**. Uses the existing `scrollbar-thin` custom scrollbar style on the info sheet. Login page uses `banner.svg` instead of the square icon
+
+### Changed
+- **Proxy forwarding mod sync is now start-time and edit-time**: `ServiceFactory.syncProxyForwardingMods()` is called on every service prepare (groups and dedicated) and ensures the correct mod for the current software is present while cleaning up stale mods from other modloaders (e.g. Forge→Fabric). `syncDedicatedProxyForwarding()` additionally patches `neoforwarding-server.toml` / `proxy-compatible-forge-server.toml` / `FabricProxy-Lite.toml` with the Velocity secret
+- **NeoForge 1.20.1 ↔ 1.20.2 swap**: `ensureForwardingMod()` now checks for the _expected_ mod family for the current version instead of any forwarding mod, and removes the stale mod from the other family before installing the correct one — so switching a NeoForge group between pre-1.20.2 (proxy-compatible-forge) and 1.20.2+ (NeoForwarding) does the right thing
+- **Dedicated service proxy toggle**: `PUT /api/dedicated/{name}` detects `proxyEnabled` changes on modded services and installs/removes the forwarding mod + patches the config immediately (no restart needed to see it in the directory)
+- **SDK `reportHealth(tps)`**: the SDK no longer reports `memoryUsedMb`/`memoryMaxMb` — memory is read from `/proc` (or `tasklist`) by the controller itself, so every service (modded, custom, dedicated, proxy) gets accurate RSS stats. The API endpoint still accepts the old shape for backwards compatibility but ignores memory fields
+- **Agent `ServiceHeartbeat.memoryUsedMb`**: agents now read RSS via `/proc` on their own host and push it in the cluster heartbeat, so the controller shows correct memory for services on remote nodes too
+- **EULA auto-accept for dedicated services**: written into the service directory on creation (skipped for Velocity-software dedicated services)
+- **v0.6.0 version bump** in `gradle.properties`
+
+### Fixed
+- **Services list showed 0 memory for non-SDK services**: previously only the Velocity proxy (which runs the bridge plugin) had live memory stats. All other services — modded Paper/Purpur backends, dedicated services, custom JARs — showed `0 / <-Xmx> MB`. Now every service reports real resident memory
+- **Info sheet showed controller JVM heap instead of services budget**: the old implementation exposed `Runtime.getRuntime().maxMemory()` which is the controller process's own `-Xmx` (~256 MB), not the memory budget available to services. The sheet now reads `controller.max_memory` from `nimbus.toml`
+- **RSS exceeded `-Xmx` display**: JVM processes always use more resident memory than their heap (metaspace, thread stacks, code cache, native buffers). Memory max displayed in the UI now includes a realistic overhead budget so `1150 / 1024 MB` becomes `1150 / 1331 MB` (≈86% used)
+- **PUT `/api/dedicated/{name}` used request-body `name` instead of URL path**: could cause config inconsistency if a client sent a different name in the body. The URL path is now authoritative, and port conflicts with other dedicated services are now detected on update
+
+---
+
 ## v0.5.3 (April 9, 2026)
 
 Smart modded client routing via mod list matching.

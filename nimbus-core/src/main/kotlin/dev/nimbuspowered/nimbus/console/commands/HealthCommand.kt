@@ -2,18 +2,30 @@ package dev.nimbuspowered.nimbus.console.commands
 
 import dev.nimbuspowered.nimbus.console.Command
 import dev.nimbuspowered.nimbus.console.ConsoleFormatter
+import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.module.CommandOutput
 import dev.nimbuspowered.nimbus.module.CompletionMeta
 import dev.nimbuspowered.nimbus.module.CompletionType
 import dev.nimbuspowered.nimbus.module.SubcommandMeta
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
+import dev.nimbuspowered.nimbus.service.Service
+import dev.nimbuspowered.nimbus.service.ServiceManager
+import dev.nimbuspowered.nimbus.service.ServiceMemoryResolver
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import dev.nimbuspowered.nimbus.service.ServiceState
 import java.time.Duration
 import java.time.Instant
 
 class HealthCommand(
-    private val registry: ServiceRegistry
+    private val registry: ServiceRegistry,
+    private val groupManager: GroupManager,
+    private val serviceManager: ServiceManager
 ) : Command {
+
+    private val dedicatedServiceManager: DedicatedServiceManager?
+        get() = serviceManager.dedicatedServiceManager
+
+    private fun memFor(svc: Service) = ServiceMemoryResolver.resolve(svc, groupManager, dedicatedServiceManager)
 
     override val name = "health"
     override val description = "Show health metrics for running services"
@@ -41,7 +53,8 @@ class HealthCommand(
         for (svc in services.sortedBy { it.name }) {
             val health = if (svc.state != ServiceState.READY) "-"
                 else if (svc.healthy) "healthy" else "UNHEALTHY"
-            val mem = if (svc.memoryMaxMb > 0) "${svc.memoryUsedMb}/${svc.memoryMaxMb}MB" else "-"
+            val m = memFor(svc)
+            val mem = if (m.maxMb > 0) "${m.usedMb}/${m.maxMb}MB" else "-"
             output.item("${svc.name}: ${svc.state} | TPS ${String.format("%.1f", svc.tps)} | $mem | $health | restarts=${svc.restartCount}")
         }
 
@@ -80,7 +93,7 @@ class HealthCommand(
                 ConsoleFormatter.colorize(svc.name, ConsoleFormatter.BOLD),
                 ConsoleFormatter.coloredState(svc.state),
                 formatTps(svc.tps),
-                formatMemory(svc.memoryUsedMb, svc.memoryMaxMb),
+                memFor(svc).let { formatMemory(it.usedMb, it.maxMb) },
                 formatHealthy(svc.healthy, svc.state),
                 formatRestarts(svc.restartCount),
                 ConsoleFormatter.formatUptime(svc.startedAt)
@@ -111,9 +124,10 @@ class HealthCommand(
 
         println(ConsoleFormatter.section("Performance"))
         println(ConsoleFormatter.field("TPS", formatTps(svc.tps)))
-        println(ConsoleFormatter.field("Memory", formatMemoryDetail(svc.memoryUsedMb, svc.memoryMaxMb)))
-        if (svc.memoryMaxMb > 0) {
-            val pct = (svc.memoryUsedMb.toDouble() / svc.memoryMaxMb * 100).toInt()
+        val m = memFor(svc)
+        println(ConsoleFormatter.field("Memory", formatMemoryDetail(m.usedMb, m.maxMb)))
+        if (m.maxMb > 0) {
+            val pct = (m.usedMb.toDouble() / m.maxMb * 100).toInt()
             println(ConsoleFormatter.field("", "${ConsoleFormatter.progressBar(pct, 100)} $pct%"))
         }
 

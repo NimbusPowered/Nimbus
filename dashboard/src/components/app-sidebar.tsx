@@ -3,12 +3,14 @@
 import Image from "next/image"
 import { NavDocuments } from "@/components/nav-documents"
 import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
+import { InfoSheetTrigger } from "@/components/info-sheet"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -20,7 +22,6 @@ import {
   FolderTreeIcon,
   NetworkIcon,
   TerminalIcon,
-  Settings2Icon,
   PlugIcon,
   ZapIcon,
   ScrollTextIcon,
@@ -34,19 +35,25 @@ import {
 import Link from "next/link"
 import { useModules } from "@/lib/modules"
 
-const navMain = [
-  { title: "Overview", url: "/", icon: <LayoutDashboardIcon /> },
+const navOverview = [
+  { title: "Dashboard", url: "/", icon: <LayoutDashboardIcon /> },
+]
+
+const navInfrastructure = [
   { title: "Services", url: "/services", icon: <ServerIcon /> },
   { title: "Groups", url: "/groups", icon: <FolderTreeIcon /> },
+  { title: "Dedicated", url: "/dedicated", icon: <BoxIcon /> },
   { title: "Nodes", url: "/nodes", icon: <NetworkIcon /> },
+]
+
+const navOperations = [
   { title: "Console", url: "/console", icon: <TerminalIcon /> },
   { title: "Plugins", url: "/plugins", icon: <PlugIcon /> },
   { title: "Stress Test", url: "/stress", icon: <ZapIcon /> },
-  { title: "Audit Log", url: "/audit", icon: <ScrollTextIcon /> },
 ]
 
-const navSecondary = [
-  { title: "Settings", url: "/settings", icon: <Settings2Icon /> },
+const navMonitoring = [
+  { title: "Audit Log", url: "/audit", icon: <ScrollTextIcon /> },
 ]
 
 const coreModules = [
@@ -93,11 +100,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} />
+        <NavMain label="Overview" items={navOverview} />
+        <NavMain label="Infrastructure" items={navInfrastructure} />
+        <NavMain label="Operations" items={navOperations} />
+        <NavMain label="Monitoring" items={navMonitoring} />
         <NavDocuments items={moduleItems} />
-        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
+        <SidebarGroup className="py-0">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <InfoSheetTrigger />
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
         <NavUser />
       </SidebarFooter>
     </Sidebar>

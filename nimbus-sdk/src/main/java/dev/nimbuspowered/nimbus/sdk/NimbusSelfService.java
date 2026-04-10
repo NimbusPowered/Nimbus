@@ -126,11 +126,11 @@ public class NimbusSelfService {
     // ── Health Reporting ──────────────────────────────────────────────
 
     /**
-     * Report TPS and memory usage to the controller.
+     * Report TPS to the controller. Memory is read from /proc by the controller.
      * Called automatically by the SDK at regular intervals.
      */
-    public CompletableFuture<Void> reportHealth(double tps, long memoryUsedMb, long memoryMaxMb) {
-        return client.reportHealth(serviceName, tps, memoryUsedMb, memoryMaxMb);
+    public CompletableFuture<Void> reportHealth(double tps) {
+        return client.reportHealth(serviceName, tps);
     }
 
     // ── Info ──────────────────────────────────────────────────────────

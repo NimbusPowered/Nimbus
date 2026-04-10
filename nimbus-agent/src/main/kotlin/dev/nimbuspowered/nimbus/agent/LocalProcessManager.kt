@@ -144,14 +144,34 @@ class LocalProcessManager(
 
     fun getServiceHeartbeats(): List<ServiceHeartbeat> {
         return handles.map { (name, handle) ->
+            val pid = handle.pid() ?: 0
             ServiceHeartbeat(
                 serviceName = name,
                 groupName = "",  // Agent doesn't track group names, controller knows
                 state = if (handle.isAlive()) "READY" else "STOPPED",
                 port = 0,
-                pid = handle.pid() ?: 0,
-                playerCount = 0  // Agent doesn't ping, controller's scaling engine does
+                pid = pid,
+                playerCount = 0, // Agent doesn't ping, controller's scaling engine does
+                memoryUsedMb = if (pid > 0) readRssMb(pid) else 0
             )
+        }
+    }
+
+    /** Reads resident set size for a process on Linux via /proc. Returns 0 on failure. */
+    private fun readRssMb(pid: Long): Long {
+        val statusFile = java.nio.file.Paths.get("/proc/$pid/status")
+        if (!java.nio.file.Files.exists(statusFile)) return 0
+        return try {
+            var rssKb = 0L
+            java.nio.file.Files.lines(statusFile).use { lines ->
+                lines.filter { it.startsWith("VmRSS:") }.findFirst().ifPresent { line ->
+                    val parsed = line.substringAfter("VmRSS:").trim().removeSuffix("kB").trim().toLongOrNull()
+                    if (parsed != null) rssKb = parsed
+                }
+            }
+            rssKb / 1024
+        } catch (_: Exception) {
+            0
         }
     }
 

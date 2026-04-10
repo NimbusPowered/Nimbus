@@ -80,11 +80,7 @@ public final class Nimbus {
         });
         healthScheduler.scheduleAtFixedRate(() -> {
             try {
-                self.reportHealth(
-                    tpsTracker.getTps(),
-                    TpsTracker.getUsedMemoryMb(),
-                    TpsTracker.getMaxMemoryMb()
-                );
+                self.reportHealth(tpsTracker.getTps());
             } catch (Exception ignored) {
                 // Health reporting is best-effort
             }

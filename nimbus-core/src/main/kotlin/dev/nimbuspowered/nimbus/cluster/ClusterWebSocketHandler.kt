@@ -125,6 +125,10 @@ class ClusterWebSocketHandler(
                             service.playerCount = sh.playerCount
                             service.lastPlayerCountUpdate = java.time.Instant.now()
                         }
+                        // Cache agent-reported memory for remote services (controller can't /proc them)
+                        if (sh.memoryUsedMb > 0) {
+                            service.memoryUsedMb = sh.memoryUsedMb
+                        }
                     }
                 }
             }

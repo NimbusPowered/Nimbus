@@ -11,6 +11,7 @@
     "commands",
     "---Server Setup---",
     "server-groups",
+    "dedicated-services",
     "proxy-setup",
     "scaling",
     "modpacks",
