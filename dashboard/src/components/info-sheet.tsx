@@ -29,6 +29,10 @@ interface ControllerInfo {
   jvmMemoryUsedMb: number;
   jvmMemoryMaxMb: number;
   jvmMemoryAllocatedMb: number;
+  servicesMaxMemoryMb: number;
+  servicesAllocatedMemoryMb: number;
+  servicesUsedMemoryMb: number;
+  runningServices: number;
   updateAvailable: boolean;
   latestVersion: string | null;
   updateType: string | null;
@@ -175,7 +179,10 @@ export function InfoSheetTrigger() {
       .finally(() => setLoadingChangelog(false));
   }, [open]);
 
-  const memPct = info && info.jvmMemoryMaxMb > 0
+  const servicesPct = info && info.servicesMaxMemoryMb > 0
+    ? Math.min(100, Math.round((info.servicesAllocatedMemoryMb / info.servicesMaxMemoryMb) * 100))
+    : 0;
+  const jvmPct = info && info.jvmMemoryMaxMb > 0
     ? Math.min(100, Math.round((info.jvmMemoryUsedMb / info.jvmMemoryMaxMb) * 100))
     : 0;
 
@@ -237,29 +244,51 @@ export function InfoSheetTrigger() {
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
                   <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">JVM heap</span>
+                    <span className="text-muted-foreground">Services memory</span>
                     <span className="font-mono text-xs">
-                      {formatMb(info.jvmMemoryUsedMb)} / {formatMb(info.jvmMemoryMaxMb)}
+                      {formatMb(info.servicesAllocatedMemoryMb)} / {formatMb(info.servicesMaxMemoryMb)}
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div
                       className={cn(
                         "h-full transition-all",
-                        memPct > 90
+                        servicesPct > 90
                           ? "bg-destructive"
-                          : memPct > 75
+                          : servicesPct > 75
                           ? "bg-yellow-500"
                           : "bg-primary"
                       )}
-                      style={{ width: `${memPct}%` }}
+                      style={{ width: `${servicesPct}%` }}
                     />
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Allocated: {formatMb(info.jvmMemoryAllocatedMb)} · {memPct}% used
+                    {info.runningServices} running · actual {formatMb(info.servicesUsedMemoryMb)} · {servicesPct}% allocated
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">Controller JVM heap</span>
+                    <span className="font-mono text-xs">
+                      {formatMb(info.jvmMemoryUsedMb)} / {formatMb(info.jvmMemoryMaxMb)}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full transition-all",
+                        jvmPct > 90
+                          ? "bg-destructive"
+                          : jvmPct > 75
+                          ? "bg-yellow-500"
+                          : "bg-muted-foreground/60"
+                      )}
+                      style={{ width: `${jvmPct}%` }}
+                    />
                   </div>
                 </div>
 

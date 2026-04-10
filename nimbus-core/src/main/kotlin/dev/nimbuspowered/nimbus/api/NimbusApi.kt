@@ -281,7 +281,7 @@ class NimbusApi(
                 proxySyncRoutes(proxySyncManager, eventBus)
                 groupRoutes(registry, groupManager, groupsDir, eventBus)
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
-                controllerInfoRoutes(startedAt, apiUpdateChecker)
+                controllerInfoRoutes(startedAt, apiUpdateChecker, config, registry, groupManager, serviceManager.dedicatedServiceManager)
                 maintenanceRoutes(proxySyncManager, eventBus)
                 metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt)
                 // Command proxy routes (for Bridge dynamic commands)

@@ -6,6 +6,8 @@ import dev.nimbuspowered.nimbus.api.apiError
 import dev.nimbuspowered.nimbus.event.EventBus
 import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.group.GroupManager
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
+import dev.nimbuspowered.nimbus.service.ServiceMemoryResolver
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import dev.nimbuspowered.nimbus.service.ServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceState
@@ -23,6 +25,7 @@ fun Route.serviceRoutes(
     groupManager: GroupManager,
     eventBus: EventBus
 ) {
+    val dedicatedServiceManager: DedicatedServiceManager? = serviceManager.dedicatedServiceManager
     route("/api/services") {
 
         // GET /api/services — List all services
@@ -53,7 +56,7 @@ fun Route.serviceRoutes(
                 services = services.filter { it.customState.equals(customStateParam, ignoreCase = true) }
             }
 
-            val responses = services.map { it.toResponse() }
+            val responses = services.map { it.toResponse(groupManager, dedicatedServiceManager) }
             call.respond(ServiceListResponse(responses, responses.size))
         }
 
@@ -68,19 +71,24 @@ fun Route.serviceRoutes(
                 readyServices.sumOf { it.tps } / readyServices.size
             } else 0.0
 
-            val totalUsedMb = allServices.sumOf { it.memoryUsedMb }
-            val totalMaxMb = allServices.sumOf { it.memoryMaxMb }
+            // Resolve real memory for each service (reads /proc, falls back to config)
+            val memPerService = allServices.associateWith {
+                ServiceMemoryResolver.resolve(it, groupManager, dedicatedServiceManager)
+            }
+            val totalUsedMb = memPerService.values.sumOf { it.usedMb }
+            val totalMaxMb = memPerService.values.sumOf { it.maxMb }
             val memPct = if (totalMaxMb > 0) totalUsedMb.toDouble() / totalMaxMb * 100 else 0.0
 
             val entries = allServices.sortedBy { it.name }.map { svc ->
                 val uptimeSec = svc.startedAt?.let { Duration.between(it, Instant.now()).seconds }
+                val (used, max) = memPerService[svc]?.let { it.usedMb to it.maxMb } ?: (0L to 0L)
                 ServiceHealthEntry(
                     name = svc.name,
                     groupName = svc.groupName,
                     state = svc.state.name,
                     tps = svc.tps,
-                    memoryUsedMb = svc.memoryUsedMb,
-                    memoryMaxMb = svc.memoryMaxMb,
+                    memoryUsedMb = used,
+                    memoryMaxMb = max,
                     healthy = svc.healthy,
                     restartCount = svc.restartCount,
                     uptimeSeconds = uptimeSec
@@ -105,7 +113,7 @@ fun Route.serviceRoutes(
             val name = call.parameters["name"]!!
             val service = registry.get(name)
                 ?: return@get call.respond(HttpStatusCode.NotFound, apiError("Service '$name' not found", ApiErrors.SERVICE_NOT_FOUND))
-            call.respond(service.toResponse())
+            call.respond(service.toResponse(groupManager, dedicatedServiceManager))
         }
 
         // POST /api/services/{name}/start — Start a new instance of a group
@@ -198,14 +206,16 @@ fun Route.serviceRoutes(
             call.respond(CustomStateResponse(name, service.customState))
         }
 
-        // PUT /api/services/{name}/health — Report TPS + memory (used by SDK on backend servers)
+        // PUT /api/services/{name}/health — Report TPS (used by SDK on backend servers).
+        // Memory fields in the request are accepted but ignored — the controller now
+        // reads resident process memory from /proc for accuracy and consistency.
         put("{name}/health") {
             val name = call.parameters["name"]!!
             val service = registry.get(name)
                 ?: return@put call.respond(HttpStatusCode.NotFound, apiError("Service '$name' not found", ApiErrors.SERVICE_NOT_FOUND))
 
             val request = call.receive<ReportHealthRequest>()
-            service.updateHealth(request.tps, request.memoryUsedMb, request.memoryMaxMb)
+            service.updateTps(request.tps)
 
             call.respond(HealthReportResponse(name, service.healthy))
         }
@@ -303,7 +313,10 @@ private fun tailFile(file: java.io.File, lines: Int): List<String> {
     }
 }
 
-private fun dev.nimbuspowered.nimbus.service.Service.toResponse(): ServiceResponse {
+private fun dev.nimbuspowered.nimbus.service.Service.toResponse(
+    groupManager: GroupManager,
+    dedicatedServiceManager: DedicatedServiceManager?
+): ServiceResponse {
     val uptime = if (startedAt != null) {
         val duration = Duration.between(startedAt, Instant.now())
         val hours = duration.toHours()
@@ -311,6 +324,8 @@ private fun dev.nimbuspowered.nimbus.service.Service.toResponse(): ServiceRespon
         val seconds = duration.toSecondsPart()
         "${hours}h ${minutes}m ${seconds}s"
     } else null
+
+    val mem = ServiceMemoryResolver.resolve(this, groupManager, dedicatedServiceManager)
 
     return ServiceResponse(
         name = name,
@@ -330,8 +345,8 @@ private fun dev.nimbuspowered.nimbus.service.Service.toResponse(): ServiceRespon
         proxyEnabled = proxyEnabled,
         bedrockPort = bedrockPort,
         tps = tps,
-        memoryUsedMb = memoryUsedMb,
-        memoryMaxMb = memoryMaxMb,
+        memoryUsedMb = mem.usedMb,
+        memoryMaxMb = mem.maxMb,
         healthy = healthy
     )
 }

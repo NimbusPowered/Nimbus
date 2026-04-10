@@ -229,5 +229,7 @@ data class ServiceHeartbeat(
     val port: Int,
     val pid: Long,
     val playerCount: Int,
-    val customState: String? = null
+    val customState: String? = null,
+    /** Resident set size of the service process in MB, read from /proc on the agent. */
+    val memoryUsedMb: Long = 0
 )

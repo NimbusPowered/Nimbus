@@ -137,12 +137,13 @@ public class NimbusClient implements AutoCloseable {
 
     // ── Health Reporting ────────────────────────────────────────────────
 
-    /** Report TPS and memory usage for a service (called periodically by SDK). */
-    public CompletableFuture<Void> reportHealth(String serviceName, double tps, long memoryUsedMb, long memoryMaxMb) {
+    /**
+     * Report TPS for a service (called periodically by SDK).
+     * Memory is read by the controller directly from the OS — no need to report it here.
+     */
+    public CompletableFuture<Void> reportHealth(String serviceName, double tps) {
         JsonObject body = new JsonObject();
         body.addProperty("tps", tps);
-        body.addProperty("memoryUsedMb", memoryUsedMb);
-        body.addProperty("memoryMaxMb", memoryMaxMb);
         return put("/api/services/" + encode(serviceName) + "/health", body).thenApply(r -> null);
     }
 

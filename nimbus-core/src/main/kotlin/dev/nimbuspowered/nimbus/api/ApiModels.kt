@@ -167,9 +167,17 @@ data class ControllerInfoResponse(
     val version: String,
     val startedAt: String,
     val uptimeSeconds: Long,
+    // Controller JVM heap (the Nimbus process itself — informational)
     val jvmMemoryUsedMb: Long,
     val jvmMemoryMaxMb: Long,
     val jvmMemoryAllocatedMb: Long,
+    // Configured max memory budget for all services (from nimbus.toml controller.max_memory)
+    val servicesMaxMemoryMb: Long,
+    // Sum of configured memory for currently running services
+    val servicesAllocatedMemoryMb: Long,
+    // Sum of actual process RSS for currently running services (best effort; Linux only)
+    val servicesUsedMemoryMb: Long,
+    val runningServices: Int,
     val updateAvailable: Boolean,
     val latestVersion: String? = null,
     val updateType: String? = null,
@@ -324,8 +332,10 @@ data class ReportPlayerCountRequest(
 @Serializable
 data class ReportHealthRequest(
     val tps: Double,
-    val memoryUsedMb: Long,
-    val memoryMaxMb: Long
+    // memoryUsedMb / memoryMaxMb are accepted for backwards compatibility with
+    // older SDK versions but ignored — memory is now read from /proc by the controller.
+    val memoryUsedMb: Long = 0,
+    val memoryMaxMb: Long = 0
 )
 
 @Serializable

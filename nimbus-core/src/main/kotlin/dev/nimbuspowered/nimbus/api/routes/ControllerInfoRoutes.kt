@@ -6,6 +6,13 @@ import dev.nimbuspowered.nimbus.api.ChangelogEntry
 import dev.nimbuspowered.nimbus.api.ChangelogResponse
 import dev.nimbuspowered.nimbus.api.ControllerInfoResponse
 import dev.nimbuspowered.nimbus.api.apiError
+import dev.nimbuspowered.nimbus.cluster.NodeConnection
+import dev.nimbuspowered.nimbus.config.NimbusConfig
+import dev.nimbuspowered.nimbus.group.GroupManager
+import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
+import dev.nimbuspowered.nimbus.service.ServiceMemoryResolver
+import dev.nimbuspowered.nimbus.service.ServiceRegistry
+import dev.nimbuspowered.nimbus.service.ServiceState
 import dev.nimbuspowered.nimbus.update.UpdateChecker
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -33,7 +40,11 @@ private var changelogCacheAt: Long = 0
 
 fun Route.controllerInfoRoutes(
     startedAt: Instant,
-    updateChecker: UpdateChecker?
+    updateChecker: UpdateChecker?,
+    config: NimbusConfig,
+    registry: ServiceRegistry,
+    groupManager: GroupManager,
+    dedicatedServiceManager: DedicatedServiceManager?
 ) {
     val httpClient = HttpClient(CIO)
 
@@ -46,6 +57,20 @@ fun Route.controllerInfoRoutes(
             val allocatedHeap = runtime.totalMemory()
             val freeHeap = runtime.freeMemory()
             val usedHeap = allocatedHeap - freeHeap
+
+            // Services memory budget
+            val servicesMaxMb = NodeConnection.parseMemoryMb(config.controller.maxMemory)
+            val runningStates = setOf(
+                ServiceState.PREPARING, ServiceState.PREPARED, ServiceState.STARTING,
+                ServiceState.READY, ServiceState.DRAINING, ServiceState.STOPPING
+            )
+            val runningServices = registry.getAll().filter { it.state in runningStates }
+
+            val resolved = runningServices.associateWith {
+                ServiceMemoryResolver.resolve(it, groupManager, dedicatedServiceManager)
+            }
+            val allocatedMb = resolved.values.sumOf { it.maxMb }
+            val usedMb = resolved.values.sumOf { it.usedMb }
 
             // Update check (non-blocking: skip if no checker or if anything fails)
             var updateAvailable = false
@@ -74,6 +99,10 @@ fun Route.controllerInfoRoutes(
                     jvmMemoryUsedMb = usedHeap / (1024 * 1024),
                     jvmMemoryMaxMb = maxHeap / (1024 * 1024),
                     jvmMemoryAllocatedMb = allocatedHeap / (1024 * 1024),
+                    servicesMaxMemoryMb = servicesMaxMb,
+                    servicesAllocatedMemoryMb = allocatedMb,
+                    servicesUsedMemoryMb = usedMb,
+                    runningServices = runningServices.size,
                     updateAvailable = updateAvailable,
                     latestVersion = latestVersion,
                     updateType = updateType,
