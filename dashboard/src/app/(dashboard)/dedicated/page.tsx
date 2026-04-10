@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
   SelectGroup,
+  SelectLabel,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,7 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Plus,
@@ -49,12 +50,15 @@ import {
   Play,
   Square,
   RotateCw,
+  Package,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 
 interface DedicatedService {
   name: string;
-  directory: string; // read-only, auto-derived from paths.dedicated + name
+  directory: string;
   port: number;
   software: string;
   version: string;
@@ -75,18 +79,38 @@ interface DedicatedListResponse {
   total: number;
 }
 
-const SOFTWARE_OPTIONS = [
-  "PAPER",
-  "PURPUR",
-  "FOLIA",
-  "PUFFERFISH",
-  "LEAF",
-  "VELOCITY",
-  "FORGE",
-  "NEOFORGE",
-  "FABRIC",
-  "CUSTOM",
-];
+interface SoftwareInfo {
+  name: string;
+  needsModloaderVersion: boolean;
+  needsCustomJar: boolean;
+  isProxy: boolean;
+}
+
+interface VersionListResponse {
+  software: string;
+  stable: string[];
+  snapshots: string[];
+  latest: string | null;
+}
+
+interface ModpackImportResponse {
+  success: boolean;
+  message: string;
+  groupName: string;
+  filesDownloaded: number;
+  filesFailed: number;
+}
+
+interface ModpackInfo {
+  name: string;
+  version: string;
+  mcVersion: string;
+  modloader: string;
+  modloaderVersion: string;
+  totalFiles: number;
+  serverFiles: number;
+  source: string;
+}
 
 function stateBadgeVariant(state: string | null): "default" | "secondary" | "destructive" | "outline" {
   if (!state) return "outline";
@@ -102,14 +126,22 @@ export default function DedicatedPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
+  const [softwareList, setSoftwareList] = useState<SoftwareInfo[]>([]);
   const [newName, setNewName] = useState("");
   const [newPort, setNewPort] = useState(25570);
   const [newSoftware, setNewSoftware] = useState("PAPER");
-  const [newVersion, setNewVersion] = useState("1.21.4");
+  const [newVersion, setNewVersion] = useState("");
   const [newMemory, setNewMemory] = useState("2G");
   const [newProxyEnabled, setNewProxyEnabled] = useState(true);
   const [newRestartOnCrash, setNewRestartOnCrash] = useState(true);
+  const [versions, setVersions] = useState<VersionListResponse | null>(null);
+  const [modloaderVersions, setModloaderVersions] = useState<VersionListResponse | null>(null);
+  const [newModloaderVersion, setNewModloaderVersion] = useState("");
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [loadingModloader, setLoadingModloader] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const selectedSoftware = softwareList.find((s) => s.name === newSoftware);
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -132,14 +164,61 @@ export default function DedicatedPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch software list when dialog opens
+  useEffect(() => {
+    if (!createOpen) return;
+    apiFetch<{ software: SoftwareInfo[] }>("/api/software")
+      .then((data) => setSoftwareList(data.software))
+      .catch(() => {});
+  }, [createOpen]);
+
+  // Fetch versions when software changes
+  useEffect(() => {
+    if (!createOpen || newSoftware === "CUSTOM") {
+      setVersions(null);
+      return;
+    }
+    setLoadingVersions(true);
+    setNewVersion("");
+    apiFetch<VersionListResponse>(`/api/software/${newSoftware}/versions`)
+      .then((data) => {
+        setVersions(data);
+        if (data.latest) setNewVersion(data.latest);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingVersions(false));
+  }, [newSoftware, createOpen]);
+
+  // Fetch modloader versions when MC version changes (for Forge/NeoForge/Fabric)
+  useEffect(() => {
+    if (!selectedSoftware?.needsModloaderVersion || !newVersion) {
+      setModloaderVersions(null);
+      return;
+    }
+    setLoadingModloader(true);
+    setNewModloaderVersion("");
+    apiFetch<VersionListResponse>(
+      `/api/software/${newSoftware}/modloader-versions?mcVersion=${newVersion}`
+    )
+      .then((data) => {
+        setModloaderVersions(data);
+        if (data.latest) setNewModloaderVersion(data.latest);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingModloader(false));
+  }, [newSoftware, newVersion, selectedSoftware?.needsModloaderVersion]);
+
   function resetCreateForm() {
     setNewName("");
     setNewPort(25570);
     setNewSoftware("PAPER");
-    setNewVersion("1.21.4");
+    setNewVersion("");
     setNewMemory("2G");
     setNewProxyEnabled(true);
     setNewRestartOnCrash(true);
+    setVersions(null);
+    setModloaderVersions(null);
+    setNewModloaderVersion("");
   }
 
   async function createService() {
@@ -200,6 +279,127 @@ export default function DedicatedPage() {
     }
   }
 
+  // Modpack import state
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMode, setImportMode] = useState<"source" | "upload">("source");
+  const [importSource, setImportSource] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importServiceName, setImportServiceName] = useState("");
+  const [importPort, setImportPort] = useState(25580);
+  const [importMemory, setImportMemory] = useState("4G");
+  const [importProxyEnabled, setImportProxyEnabled] = useState(true);
+  const [resolving, setResolving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
+  const [importInfo, setImportInfo] = useState<ModpackInfo | null>(null);
+
+  function resetImportState() {
+    setImportSource("");
+    setImportFile(null);
+    setImportServiceName("");
+    setImportPort(25580);
+    setImportMemory("4G");
+    setImportProxyEnabled(true);
+    setImportProgress("");
+    setImportMode("source");
+    setImportInfo(null);
+  }
+
+  async function resolveModpack() {
+    if (!importSource.trim()) return;
+    setResolving(true);
+    setImportInfo(null);
+    try {
+      const info = await apiFetch<ModpackInfo>("/api/modpacks/resolve", {
+        method: "POST",
+        body: JSON.stringify({ source: importSource.trim() }),
+      });
+      setImportInfo(info);
+      if (!importServiceName) {
+        setImportServiceName(info.name.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20) || "modpack");
+      }
+      if (info.source === "SERVER_PACK") setImportMemory("4G");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not resolve modpack");
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    const name = file.name
+      .replace(/\.zip$|\.mrpack$/i, "")
+      .replace(/[-_]?[Ss]erver[Ff]iles[-_]?/g, "")
+      .replace(/[-_]?[Ss]erver[-_]?[Pp]ack[-_]?/g, "")
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .slice(0, 20) || "modpack";
+    if (!importServiceName) setImportServiceName(name);
+  }
+
+  async function importModpack() {
+    if (!importServiceName.trim()) return;
+    setImporting(true);
+    setImportProgress("Importing...");
+    try {
+      if (importMode === "upload" && importFile) {
+        setImportProgress(`Uploading ${importFile.name}...`);
+        const params = new URLSearchParams({
+          name: importServiceName.trim(),
+          port: String(importPort),
+          memory: importMemory,
+          proxyEnabled: String(importProxyEnabled),
+          fileName: importFile.name,
+        });
+        const result = await apiUpload<ModpackImportResponse>(
+          `/api/dedicated/modpack/upload?${params.toString()}`,
+          importFile,
+          (uploaded, total) => {
+            const pct = Math.round((uploaded / total) * 100);
+            setImportProgress(`Uploading ${importFile.name}... ${pct}%`);
+          }
+        );
+        if (result.filesFailed > 0) {
+          toast.warning(`Imported with ${result.filesFailed} failed downloads`);
+        } else {
+          toast.success(result.message);
+        }
+      } else {
+        setImportProgress("Downloading and installing...");
+        const result = await apiFetch<ModpackImportResponse>("/api/dedicated/modpack/import", {
+          method: "POST",
+          body: JSON.stringify({
+            source: importSource.trim(),
+            name: importServiceName.trim(),
+            port: importPort,
+            memory: importMemory,
+            proxyEnabled: importProxyEnabled,
+          }),
+        });
+        if (result.filesFailed > 0) {
+          toast.warning(`Imported with ${result.filesFailed} failed downloads`);
+        } else {
+          toast.success(result.message);
+        }
+      }
+      setImportOpen(false);
+      resetImportState();
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+      setImportProgress("");
+    }
+  }
+
+  const canImport = importServiceName.trim() && (
+    (importMode === "source" && importSource.trim()) ||
+    (importMode === "upload" && importFile)
+  );
+
   if (loading) return <Skeleton className="h-96 rounded-xl" />;
 
   return (
@@ -212,131 +412,406 @@ export default function DedicatedPage() {
               Standalone servers with fixed ports and user-managed directories
             </p>
           </div>
-          <Dialog
-            open={createOpen}
-            onOpenChange={(open) => {
-              setCreateOpen(open);
-              if (!open) resetCreateForm();
-            }}
-          >
-            <DialogTrigger
-              render={
-                <Button>
-                  <Plus className="mr-1 size-4" /> New Dedicated
-                </Button>
-              }
-            />
-            <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create Dedicated Service</DialogTitle>
-                <DialogDescription>
-                  A dedicated service points to an existing server directory with a fixed
-                  name and port. No templates, no scaling.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <Field>
-                  <FieldLabel>Name</FieldLabel>
-                  <Input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. sandbox"
-                  />
-                  <FieldDescription>
-                    Unique identifier. The service directory will be auto-created at{" "}
-                    <code className="font-mono text-xs">dedicated/{newName || "<name>"}/</code>.
-                  </FieldDescription>
-                </Field>
+          <div className="flex items-center gap-2">
+            {/* Import Modpack Dialog */}
+            <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) resetImportState(); }}>
+              <DialogTrigger
+                render={
+                  <Button variant="outline">
+                    <Package className="mr-1 size-4" /> Import Modpack
+                  </Button>
+                }
+              />
+              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Import Modpack as Dedicated Service</DialogTitle>
+                  <DialogDescription>
+                    Import from Modrinth, CurseForge, or upload a server pack ZIP.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  {/* Mode toggle */}
+                  <div className="flex gap-2">
+                    <Button
+                      variant={importMode === "source" ? "default" : "outline"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setImportMode("source")}
+                    >
+                      <Package className="mr-1 size-3.5" /> Modrinth / CurseForge
+                    </Button>
+                    <Button
+                      variant={importMode === "upload" ? "default" : "outline"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setImportMode("upload")}
+                    >
+                      <Upload className="mr-1 size-3.5" /> Upload Server Pack
+                    </Button>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                  {importMode === "source" ? (
+                    <Field>
+                      <FieldLabel>Modpack Source</FieldLabel>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={importSource}
+                          onChange={(e) => setImportSource(e.target.value)}
+                          placeholder="Slug, URL, or curseforge:slug"
+                          onKeyDown={(e) => e.key === "Enter" && resolveModpack()}
+                        />
+                        <Button variant="outline" onClick={resolveModpack} disabled={resolving || !importSource.trim()}>
+                          {resolving ? <Loader2 className="size-4 animate-spin" /> : "Resolve"}
+                        </Button>
+                      </div>
+                      <FieldDescription>
+                        e.g. &quot;adrenaserver&quot;, a Modrinth/CurseForge URL, or &quot;curseforge:all-the-mods-10&quot;
+                      </FieldDescription>
+                    </Field>
+                  ) : (
+                    <Field>
+                      <FieldLabel>Server Pack File</FieldLabel>
+                      <div
+                        className="relative flex flex-col items-center justify-center rounded-md border-2 border-dashed p-6 transition-colors hover:border-primary/50 cursor-pointer"
+                        onClick={() => document.getElementById("dedicated-modpack-file-input")?.click()}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const file = e.dataTransfer.files[0];
+                          if (file && (file.name.endsWith(".zip") || file.name.endsWith(".mrpack"))) {
+                            setImportFile(file);
+                            const name = file.name
+                              .replace(/\.zip$|\.mrpack$/i, "")
+                              .replace(/[-_]?[Ss]erver[Ff]iles[-_]?/g, "")
+                              .replace(/[-_]?[Ss]erver[-_]?[Pp]ack[-_]?/g, "")
+                              .replace(/[^a-zA-Z0-9_-]/g, "")
+                              .slice(0, 20) || "modpack";
+                            if (!importServiceName) setImportServiceName(name);
+                          } else {
+                            toast.error("Please drop a .zip or .mrpack file");
+                          }
+                        }}
+                      >
+                        <input
+                          id="dedicated-modpack-file-input"
+                          type="file"
+                          accept=".zip,.mrpack"
+                          className="hidden"
+                          onChange={handleFileSelect}
+                        />
+                        {importFile ? (
+                          <>
+                            <Package className="size-8 text-primary mb-2" />
+                            <p className="text-sm font-medium">{importFile.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {(importFile.size / 1024 / 1024).toFixed(1)} MB
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="size-8 text-muted-foreground/50 mb-2" />
+                            <p className="text-sm text-muted-foreground">
+                              Drop a server pack ZIP or .mrpack here
+                            </p>
+                            <p className="text-xs text-muted-foreground/70 mt-1">
+                              or click to browse
+                            </p>
+                          </>
+                        )}
+                      </div>
+                      <FieldDescription>
+                        Upload a CurseForge server pack ZIP (e.g. ServerFiles-6.6.zip) or .mrpack file
+                      </FieldDescription>
+                    </Field>
+                  )}
+
+                  {importInfo && (
+                    <div className="rounded-md border p-3 space-y-1 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{importInfo.name}</span>
+                        {importInfo.version && <Badge variant="outline">v{importInfo.version}</Badge>}
+                        <Badge variant="secondary">
+                          {importInfo.source === "SERVER_PACK"
+                            ? "Server Pack"
+                            : importInfo.source === "CURSEFORGE_API"
+                            ? "CurseForge"
+                            : "Modrinth"}
+                        </Badge>
+                      </div>
+                      <div className="text-muted-foreground">
+                        {importInfo.modloader} {importInfo.modloaderVersion} / MC {importInfo.mcVersion}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {importInfo.serverFiles} server mods
+                        {importInfo.totalFiles !== importInfo.serverFiles
+                          ? ` (${importInfo.totalFiles} total)`
+                          : ""}
+                      </div>
+                    </div>
+                  )}
+
                   <Field>
-                    <FieldLabel>Port</FieldLabel>
+                    <FieldLabel>Service Name</FieldLabel>
                     <Input
-                      type="number"
-                      min={1}
-                      max={65535}
-                      value={newPort}
-                      onChange={(e) => setNewPort(Number(e.target.value))}
+                      value={importServiceName}
+                      onChange={(e) => setImportServiceName(e.target.value)}
+                      placeholder="e.g. ATM10"
                     />
+                    <FieldDescription>
+                      Unique identifier. The service directory will be auto-created at{" "}
+                      <code className="font-mono text-xs">dedicated/{importServiceName || "<name>"}/</code>.
+                    </FieldDescription>
                   </Field>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field>
+                      <FieldLabel>Port</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={importPort}
+                        onChange={(e) => setImportPort(Number(e.target.value))}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Memory</FieldLabel>
+                      <Input
+                        value={importMemory}
+                        onChange={(e) => setImportMemory(e.target.value)}
+                        placeholder="4G"
+                      />
+                    </Field>
+                  </div>
+
                   <Field>
-                    <FieldLabel>Memory</FieldLabel>
-                    <Input
-                      value={newMemory}
-                      onChange={(e) => setNewMemory(e.target.value)}
-                      placeholder="2G"
-                    />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FieldLabel>Proxy Enabled</FieldLabel>
+                        <FieldDescription>
+                          Register with Velocity proxy and patch forwarding config.
+                        </FieldDescription>
+                      </div>
+                      <Switch
+                        checked={importProxyEnabled}
+                        onCheckedChange={setImportProxyEnabled}
+                      />
+                    </div>
                   </Field>
                 </div>
+                <DialogFooter>
+                  {importProgress && (
+                    <div className="flex items-center gap-2 mr-auto text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      {importProgress}
+                    </div>
+                  )}
+                  <Button onClick={importModpack} disabled={importing || !canImport}>
+                    {importing ? "Importing..." : importMode === "upload" ? "Upload & Import" : "Import"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
-                <div className="grid grid-cols-2 gap-3">
+            {/* Create Dedicated Dialog */}
+            <Dialog
+              open={createOpen}
+              onOpenChange={(open) => {
+                setCreateOpen(open);
+                if (!open) resetCreateForm();
+              }}
+            >
+              <DialogTrigger
+                render={
+                  <Button>
+                    <Plus className="mr-1 size-4" /> New Dedicated
+                  </Button>
+                }
+              />
+              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Create Dedicated Service</DialogTitle>
+                  <DialogDescription>
+                    A dedicated service points to an existing server directory with a fixed
+                    name and port. No templates, no scaling.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
                   <Field>
-                    <FieldLabel>Software</FieldLabel>
+                    <FieldLabel>Name</FieldLabel>
+                    <Input
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="e.g. sandbox"
+                    />
+                    <FieldDescription>
+                      Unique identifier. The service directory will be auto-created at{" "}
+                      <code className="font-mono text-xs">dedicated/{newName || "<name>"}/</code>.
+                    </FieldDescription>
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field>
+                      <FieldLabel>Port</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={newPort}
+                        onChange={(e) => setNewPort(Number(e.target.value))}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Memory</FieldLabel>
+                      <Input
+                        value={newMemory}
+                        onChange={(e) => setNewMemory(e.target.value)}
+                        placeholder="2G"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field>
+                    <FieldLabel>Server Software</FieldLabel>
                     <Select value={newSoftware} onValueChange={(v) => v && setNewSoftware(v)}>
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          {SOFTWARE_OPTIONS.map((sw) => (
-                            <SelectItem key={sw} value={sw}>
-                              {sw}
-                            </SelectItem>
-                          ))}
+                          {softwareList.length > 0
+                            ? softwareList.map((sw) => (
+                                <SelectItem key={sw.name} value={sw.name}>
+                                  {sw.name}{sw.isProxy ? " (Proxy)" : ""}
+                                </SelectItem>
+                              ))
+                            : ["PAPER","VELOCITY","PURPUR","FOLIA","FORGE","NEOFORGE","FABRIC","PUFFERFISH","LEAF","CUSTOM"].map((sw) => (
+                                <SelectItem key={sw} value={sw}>{sw}</SelectItem>
+                              ))
+                          }
                         </SelectGroup>
                       </SelectContent>
                     </Select>
                   </Field>
+
                   <Field>
-                    <FieldLabel>Version</FieldLabel>
-                    <Input
-                      value={newVersion}
-                      onChange={(e) => setNewVersion(e.target.value)}
-                      placeholder="1.21.4"
-                    />
+                    <FieldLabel>
+                      Version{" "}
+                      {loadingVersions && (
+                        <Loader2 className="inline size-3 animate-spin ml-1" />
+                      )}
+                    </FieldLabel>
+                    {versions && versions.stable.length > 0 ? (
+                      <Select value={newVersion} onValueChange={(v) => v && setNewVersion(v)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel>Stable</SelectLabel>
+                            {versions.stable.map((v) => (
+                              <SelectItem key={v} value={v}>
+                                {v}{v === versions.latest ? " (latest)" : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          {versions.snapshots.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel>Snapshots</SelectLabel>
+                              {versions.snapshots.map((v) => (
+                                <SelectItem key={v} value={v}>{v}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={newVersion}
+                        onChange={(e) => setNewVersion(e.target.value)}
+                        placeholder="e.g. 1.21.4"
+                      />
+                    )}
+                  </Field>
+
+                  {selectedSoftware?.needsModloaderVersion && (
+                    <Field>
+                      <FieldLabel>
+                        Modloader Version{" "}
+                        {loadingModloader && (
+                          <Loader2 className="inline size-3 animate-spin ml-1" />
+                        )}
+                      </FieldLabel>
+                      {modloaderVersions && modloaderVersions.stable.length > 0 ? (
+                        <Select value={newModloaderVersion} onValueChange={(v) => v && setNewModloaderVersion(v)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {modloaderVersions.stable.map((v) => (
+                                <SelectItem key={v} value={v}>
+                                  {v}{v === modloaderVersions.latest ? " (latest)" : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={newModloaderVersion}
+                          onChange={(e) => setNewModloaderVersion(e.target.value)}
+                          placeholder="Modloader version"
+                        />
+                      )}
+                      <FieldDescription>
+                        Leave empty for latest version
+                      </FieldDescription>
+                    </Field>
+                  )}
+
+                  <Field>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FieldLabel>Proxy Enabled</FieldLabel>
+                        <FieldDescription>
+                          Register with Velocity proxy and patch forwarding config.
+                        </FieldDescription>
+                      </div>
+                      <Switch
+                        checked={newProxyEnabled}
+                        onCheckedChange={setNewProxyEnabled}
+                      />
+                    </div>
+                  </Field>
+
+                  <Field>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FieldLabel>Restart on Crash</FieldLabel>
+                        <FieldDescription>
+                          Automatically restart if the process exits unexpectedly.
+                        </FieldDescription>
+                      </div>
+                      <Switch
+                        checked={newRestartOnCrash}
+                        onCheckedChange={setNewRestartOnCrash}
+                      />
+                    </div>
                   </Field>
                 </div>
-
-                <Field>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <FieldLabel>Proxy Enabled</FieldLabel>
-                      <FieldDescription>
-                        Register with Velocity proxy and patch forwarding config.
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      checked={newProxyEnabled}
-                      onCheckedChange={setNewProxyEnabled}
-                    />
-                  </div>
-                </Field>
-
-                <Field>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <FieldLabel>Restart on Crash</FieldLabel>
-                      <FieldDescription>
-                        Automatically restart if the process exits unexpectedly.
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      checked={newRestartOnCrash}
-                      onCheckedChange={setNewRestartOnCrash}
-                    />
-                  </div>
-                </Field>
-              </div>
-              <DialogFooter>
-                <Button
-                  onClick={createService}
-                  disabled={creating || !newName.trim()}
-                >
-                  {creating ? "Creating..." : "Create"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button
+                    onClick={createService}
+                    disabled={creating || !newName.trim() || !newVersion}
+                  >
+                    {creating ? "Creating..." : "Create"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {services.length === 0 ? (

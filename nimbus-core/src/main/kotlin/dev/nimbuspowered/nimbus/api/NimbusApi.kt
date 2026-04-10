@@ -303,7 +303,8 @@ class NimbusApi(
                     auditRoutes(databaseManager)
                 }
                 if (dedicatedServiceManager != null && dedicatedDir != null) {
-                    dedicatedRoutes(registry, dedicatedServiceManager, serviceManager, groupManager, eventBus, dedicatedDir)
+                    dedicatedRoutes(registry, dedicatedServiceManager, serviceManager, groupManager, eventBus, dedicatedDir,
+                        softwareResolver, templatesDir, config.curseforge)
                 }
                 tokenRoutes(jwtTokenManager)
                 if (softwareResolver != null) {

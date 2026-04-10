@@ -3,6 +3,7 @@ package dev.nimbuspowered.nimbus.service
 import com.akuleshov7.ktoml.Toml
 import com.akuleshov7.ktoml.TomlOutputConfig
 import dev.nimbuspowered.nimbus.config.DedicatedServiceConfig
+import dev.nimbuspowered.nimbus.config.ServerSoftware
 import kotlinx.serialization.encodeToString
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
@@ -25,11 +26,19 @@ class DedicatedServiceManager(
     fun getServiceDirectory(name: String): Path = servicesBaseDir.resolve(name).toAbsolutePath()
 
     /** Creates the service directory if it does not exist. Returns the absolute path. */
-    fun ensureServiceDirectory(name: String): Path {
+    fun ensureServiceDirectory(name: String, software: ServerSoftware? = null): Path {
         val dir = getServiceDirectory(name)
         if (!dir.exists()) {
             dir.createDirectories()
             logger.info("Created dedicated service directory '{}'", dir)
+        }
+        // Auto-accept EULA for game servers (never for Velocity proxies)
+        if (software != null && software != ServerSoftware.VELOCITY) {
+            val eulaFile = dir.resolve("eula.txt")
+            if (!eulaFile.exists()) {
+                eulaFile.writeText("eula=true\n")
+                logger.info("Wrote eula.txt to '{}'", dir)
+            }
         }
         return dir
     }

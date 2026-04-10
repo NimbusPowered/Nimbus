@@ -362,7 +362,7 @@ class ServiceFactory(
             return null
         }
 
-        val workDir = manager.ensureServiceDirectory(serviceName)
+        val workDir = manager.ensureServiceDirectory(serviceName, software)
 
         if (!portAllocator.reserveIfAvailable(port)) {
             logger.error("Cannot start dedicated service '{}': port {} is already in use", serviceName, port)
@@ -375,15 +375,6 @@ class ServiceFactory(
             logger.error("Cannot start dedicated service '{}': server JAR could not be prepared", serviceName)
             portAllocator.release(port)
             return null
-        }
-
-        // Auto-accept EULA for non-proxy servers
-        if (software != ServerSoftware.VELOCITY) {
-            val eulaFile = workDir.resolve("eula.txt")
-            if (!eulaFile.exists()) {
-                eulaFile.writeText("eula=true\n")
-                logger.info("Created eula.txt for dedicated service '{}'", serviceName)
-            }
         }
 
         val service = Service(

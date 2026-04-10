@@ -3,6 +3,7 @@ package dev.nimbuspowered.nimbus.api.routes
 import dev.nimbuspowered.nimbus.api.*
 import dev.nimbuspowered.nimbus.api.ApiErrors
 import dev.nimbuspowered.nimbus.api.apiError
+import dev.nimbuspowered.nimbus.config.CurseForgeConfig
 import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.DedicatedServiceConfig
 import dev.nimbuspowered.nimbus.config.JvmConfig
@@ -14,10 +15,15 @@ import dev.nimbuspowered.nimbus.service.DedicatedServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceManager
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
 import dev.nimbuspowered.nimbus.service.ServiceState
+import dev.nimbuspowered.nimbus.template.ModpackInstaller
+import dev.nimbuspowered.nimbus.template.SoftwareResolver
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -30,7 +36,10 @@ fun Route.dedicatedRoutes(
     serviceManager: ServiceManager,
     groupManager: GroupManager,
     eventBus: EventBus,
-    dedicatedDir: Path
+    dedicatedDir: Path,
+    softwareResolver: SoftwareResolver? = null,
+    templatesDir: Path? = null,
+    curseForgeConfig: CurseForgeConfig = CurseForgeConfig()
 ) {
     route("/api/dedicated") {
 
@@ -89,7 +98,7 @@ fun Route.dedicatedRoutes(
             )
 
             // Auto-create the managed service directory under paths.dedicated/<name>/
-            dedicatedServiceManager.ensureServiceDirectory(request.name)
+            dedicatedServiceManager.ensureServiceDirectory(request.name, software)
             dedicatedServiceManager.writeTOML(config)
             dedicatedServiceManager.addConfig(config)
 
@@ -217,8 +226,279 @@ fun Route.dedicatedRoutes(
                 call.respond(HttpStatusCode.InternalServerError, apiError("Failed to restart dedicated service '$name'", ApiErrors.SERVICE_RESTART_FAILED))
             }
         }
+
+        // Modpack import routes — only available if softwareResolver + templatesDir are provided
+        if (softwareResolver != null && templatesDir != null) {
+            val installer = ModpackInstaller(HttpClient(CIO), curseForgeConfig.apiKey)
+            val maxUploadBytes = 2L * 1024 * 1024 * 1024 // 2 GB
+
+            route("modpack") {
+
+                // POST /api/dedicated/modpack/import — Import modpack from Modrinth/CurseForge URL or slug
+                // Body: { source, name, port, memory, proxyEnabled }
+                post("import") {
+                    val request = call.receive<DedicatedModpackImportRequest>()
+
+                    if (request.name.isBlank() || !request.name.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
+                        return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid name", ApiErrors.VALIDATION_FAILED))
+                    }
+                    if (dedicatedServiceManager.getConfig(request.name) != null) {
+                        return@post call.respond(HttpStatusCode.Conflict, apiError("Dedicated service '${request.name}' already exists", ApiErrors.DEDICATED_ALREADY_EXISTS))
+                    }
+                    if (request.port < 1 || request.port > 65535) {
+                        return@post call.respond(HttpStatusCode.BadRequest, apiError("Port must be between 1 and 65535", ApiErrors.VALIDATION_FAILED))
+                    }
+
+                    val downloadDir = templatesDir.resolve(".modpack-cache")
+                    Files.createDirectories(downloadDir)
+
+                    val resolvedPath = installer.resolve(request.source, downloadDir)
+                        ?: return@post call.respond(HttpStatusCode.NotFound, apiError("Could not resolve modpack '${request.source}'", ApiErrors.MODPACK_NOT_FOUND))
+
+                    val serviceDir = dedicatedServiceManager.ensureServiceDirectory(request.name)
+
+                    if (installer.isServerPack(resolvedPath)) {
+                        val info = installer.getServerPackInfo(resolvedPath)
+                        if (info == null) {
+                            return@post call.respond(HttpStatusCode.BadRequest, apiError("Could not analyze server pack", ApiErrors.MODPACK_INVALID))
+                        }
+                        installer.extractServerPack(resolvedPath, serviceDir)
+                        softwareResolver.ensureJarAvailable(info.modloader, info.mcVersion, serviceDir, info.modloaderVersion)
+                        when (info.modloader) {
+                            ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(serviceDir, info.mcVersion)
+                            ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(info.modloader, info.mcVersion, serviceDir)
+                            else -> {}
+                        }
+                        serviceDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+
+                        val config = DedicatedServiceConfig(
+                            dedicated = DedicatedDefinition(
+                                name = request.name,
+                                port = request.port,
+                                software = info.modloader,
+                                version = info.mcVersion,
+                                jarName = "",
+                                readyPattern = "",
+                                javaPath = "",
+                                proxyEnabled = request.proxyEnabled,
+                                memory = request.memory,
+                                restartOnCrash = true,
+                                maxRestarts = 5,
+                                jvm = JvmConfig()
+                            )
+                        )
+                        dedicatedServiceManager.writeTOML(config)
+                        dedicatedServiceManager.addConfig(config)
+                        eventBus.emit(NimbusEvent.DedicatedCreated(request.name))
+
+                        return@post call.respond(HttpStatusCode.Created, ModpackImportResponse(
+                            success = true,
+                            message = "Server pack imported as dedicated service '${request.name}' (${info.modloader.name} ${info.modloaderVersion}, MC ${info.mcVersion})",
+                            groupName = request.name,
+                            filesDownloaded = info.serverFiles,
+                            filesFailed = 0
+                        ))
+                    }
+
+                    // Modrinth .mrpack
+                    val index = installer.parseIndex(resolvedPath)
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid .mrpack file", ApiErrors.MODPACK_INVALID))
+
+                    val info = installer.getInfo(index)
+                    softwareResolver.ensureJarAvailable(info.modloader, info.mcVersion, serviceDir, info.modloaderVersion)
+                    val result = installer.installFiles(index, serviceDir) { _, _, _ -> }
+                    installer.extractOverrides(resolvedPath, serviceDir)
+                    when (info.modloader) {
+                        ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(serviceDir, info.mcVersion)
+                        ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(info.modloader, info.mcVersion, serviceDir)
+                        else -> {}
+                    }
+                    serviceDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+
+                    val config = DedicatedServiceConfig(
+                        dedicated = DedicatedDefinition(
+                            name = request.name,
+                            port = request.port,
+                            software = info.modloader,
+                            version = info.mcVersion,
+                            jarName = "",
+                            readyPattern = "",
+                            javaPath = "",
+                            proxyEnabled = request.proxyEnabled,
+                            memory = request.memory,
+                            restartOnCrash = true,
+                            maxRestarts = 5,
+                            jvm = JvmConfig()
+                        )
+                    )
+                    dedicatedServiceManager.writeTOML(config)
+                    dedicatedServiceManager.addConfig(config)
+                    eventBus.emit(NimbusEvent.DedicatedCreated(request.name))
+
+                    call.respond(HttpStatusCode.Created, ModpackImportResponse(
+                        success = result.success,
+                        message = if (result.success) "Modpack '${info.name}' imported as dedicated service '${request.name}'"
+                                 else "Import completed with ${result.filesFailed} failed downloads",
+                        groupName = request.name,
+                        filesDownloaded = result.filesDownloaded,
+                        filesFailed = result.filesFailed
+                    ))
+                }
+
+                // POST /api/dedicated/modpack/upload?name=X&port=P&memory=M&proxyEnabled=true&fileName=X
+                // Body: raw ZIP / .mrpack stream
+                post("upload") {
+                    val name = call.request.queryParameters["name"] ?: ""
+                    val port = call.request.queryParameters["port"]?.toIntOrNull() ?: 0
+                    val memory = call.request.queryParameters["memory"] ?: "4G"
+                    val proxyEnabled = call.request.queryParameters["proxyEnabled"]?.toBooleanStrictOrNull() ?: true
+                    val fileName = call.request.queryParameters["fileName"] ?: "upload.zip"
+
+                    if (name.isBlank() || !name.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
+                        return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid name", ApiErrors.VALIDATION_FAILED))
+                    }
+                    if (dedicatedServiceManager.getConfig(name) != null) {
+                        return@post call.respond(HttpStatusCode.Conflict, apiError("Dedicated service '$name' already exists", ApiErrors.DEDICATED_ALREADY_EXISTS))
+                    }
+                    if (port < 1 || port > 65535) {
+                        return@post call.respond(HttpStatusCode.BadRequest, apiError("Port must be between 1 and 65535", ApiErrors.VALIDATION_FAILED))
+                    }
+
+                    val uploadDir = templatesDir.resolve(".modpack-uploads")
+                    Files.createDirectories(uploadDir)
+                    val uploadedZip = uploadDir.resolve(fileName)
+
+                    try {
+                        call.receiveStream().use { input ->
+                            java.io.FileOutputStream(uploadedZip.toFile()).use { output ->
+                                val buf = ByteArray(65536)
+                                var totalWritten = 0L
+                                var read: Int
+                                while (input.read(buf).also { read = it } != -1) {
+                                    output.write(buf, 0, read)
+                                    totalWritten += read
+                                    if (totalWritten > maxUploadBytes) {
+                                        output.close()
+                                        Files.deleteIfExists(uploadedZip)
+                                        return@post call.respond(HttpStatusCode.PayloadTooLarge,
+                                            apiError("File too large (max ${maxUploadBytes / 1024 / 1024}MB)", ApiErrors.PAYLOAD_TOO_LARGE))
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Files.deleteIfExists(uploadedZip)
+                        return@post call.respond(HttpStatusCode.InternalServerError,
+                            apiError("Upload failed: ${e.message}", ApiErrors.MODPACK_UPLOAD_FAILED))
+                    }
+
+                    val serviceDir = dedicatedServiceManager.ensureServiceDirectory(name)
+
+                    if (installer.isServerPack(uploadedZip)) {
+                        val info = installer.getServerPackInfo(uploadedZip)
+                        if (info == null) {
+                            Files.deleteIfExists(uploadedZip)
+                            return@post call.respond(HttpStatusCode.BadRequest, apiError("Could not analyze server pack", ApiErrors.MODPACK_INVALID))
+                        }
+                        installer.extractServerPack(uploadedZip, serviceDir)
+                        softwareResolver.ensureJarAvailable(info.modloader, info.mcVersion, serviceDir, info.modloaderVersion)
+                        when (info.modloader) {
+                            ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(serviceDir, info.mcVersion)
+                            ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(info.modloader, info.mcVersion, serviceDir)
+                            else -> {}
+                        }
+                        serviceDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+
+                        val config = DedicatedServiceConfig(
+                            dedicated = DedicatedDefinition(
+                                name = name,
+                                port = port,
+                                software = info.modloader,
+                                version = info.mcVersion,
+                                jarName = "",
+                                readyPattern = "",
+                                javaPath = "",
+                                proxyEnabled = proxyEnabled,
+                                memory = memory,
+                                restartOnCrash = true,
+                                maxRestarts = 5,
+                                jvm = JvmConfig()
+                            )
+                        )
+                        dedicatedServiceManager.writeTOML(config)
+                        dedicatedServiceManager.addConfig(config)
+                        eventBus.emit(NimbusEvent.DedicatedCreated(name))
+
+                        Files.deleteIfExists(uploadedZip)
+                        return@post call.respond(HttpStatusCode.Created, ModpackImportResponse(
+                            success = true,
+                            message = "Server pack uploaded and imported as dedicated service '$name' (${info.modloader.name} ${info.modloaderVersion}, MC ${info.mcVersion})",
+                            groupName = name,
+                            filesDownloaded = info.serverFiles,
+                            filesFailed = 0
+                        ))
+                    }
+
+                    // .mrpack or unrecognized
+                    val index = installer.parseIndex(uploadedZip)
+                    if (index == null) {
+                        Files.deleteIfExists(uploadedZip)
+                        return@post call.respond(HttpStatusCode.BadRequest, apiError("Uploaded file is not a valid server pack ZIP or .mrpack", ApiErrors.MODPACK_INVALID))
+                    }
+                    val info = installer.getInfo(index)
+                    softwareResolver.ensureJarAvailable(info.modloader, info.mcVersion, serviceDir, info.modloaderVersion)
+                    val result = installer.installFiles(index, serviceDir) { _, _, _ -> }
+                    installer.extractOverrides(uploadedZip, serviceDir)
+                    when (info.modloader) {
+                        ServerSoftware.FABRIC -> softwareResolver.ensureFabricProxyMod(serviceDir, info.mcVersion)
+                        ServerSoftware.FORGE, ServerSoftware.NEOFORGE -> softwareResolver.ensureForwardingMod(info.modloader, info.mcVersion, serviceDir)
+                        else -> {}
+                    }
+                    serviceDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+
+                    val config = DedicatedServiceConfig(
+                        dedicated = DedicatedDefinition(
+                            name = name,
+                            port = port,
+                            software = info.modloader,
+                            version = info.mcVersion,
+                            jarName = "",
+                            readyPattern = "",
+                            javaPath = "",
+                            proxyEnabled = proxyEnabled,
+                            memory = memory,
+                            restartOnCrash = true,
+                            maxRestarts = 5,
+                            jvm = JvmConfig()
+                        )
+                    )
+                    dedicatedServiceManager.writeTOML(config)
+                    dedicatedServiceManager.addConfig(config)
+                    eventBus.emit(NimbusEvent.DedicatedCreated(name))
+
+                    Files.deleteIfExists(uploadedZip)
+                    call.respond(HttpStatusCode.Created, ModpackImportResponse(
+                        success = result.success,
+                        message = if (result.success) "Modpack '${info.name}' uploaded and imported as dedicated service '$name'"
+                                 else "Import completed with ${result.filesFailed} failed downloads",
+                        groupName = name,
+                        filesDownloaded = result.filesDownloaded,
+                        filesFailed = result.filesFailed
+                    ))
+                }
+            }
+        }
     }
 }
+
+@kotlinx.serialization.Serializable
+data class DedicatedModpackImportRequest(
+    val source: String,
+    val name: String,
+    val port: Int,
+    val memory: String = "4G",
+    val proxyEnabled: Boolean = true
+)
 
 private fun validateDedicatedRequest(request: CreateDedicatedRequest): List<String> {
     val errors = mutableListOf<String>()

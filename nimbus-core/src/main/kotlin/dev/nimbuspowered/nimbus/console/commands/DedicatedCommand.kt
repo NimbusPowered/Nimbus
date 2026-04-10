@@ -349,7 +349,7 @@ class DedicatedCommand(
                     proxyEnabled = proxyEnabled
                 )
             )
-            val createdDir = dedicatedServiceManager.ensureServiceDirectory(name)
+            val createdDir = dedicatedServiceManager.ensureServiceDirectory(name, software)
             dedicatedServiceManager.writeTOML(config)
             dedicatedServiceManager.addConfig(config)
             eventBus.emit(NimbusEvent.DedicatedCreated(name))
