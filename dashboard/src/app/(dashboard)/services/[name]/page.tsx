@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useServiceMetrics } from "@/lib/metrics";
-import { Play, Square, RotateCw, Send, ArrowLeft, RefreshCw } from "@/lib/icons";
+import { Play, Square, RotateCw, Send, ArrowLeft } from "@/lib/icons";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
@@ -27,7 +27,6 @@ import { MemoryBar } from "@/components/memory-bar";
 import { Server, Plug, Users } from "@/lib/icons";
 
 interface SyncHealth {
-  inFlight: boolean;
   lastPushAt: string | null;
   lastPushBytes: number;
   lastPushFiles: number;
@@ -130,15 +129,6 @@ export default function ServiceDetailPage({
     }
   }
 
-  async function triggerSync() {
-    try {
-      await apiFetch(`/api/services/${name}/sync/trigger`, { method: "POST" });
-      toast.success("Sync trigger sent");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync trigger failed");
-    }
-  }
-
   if (loading) return <Skeleton className="h-96 rounded-xl" />;
   if (!service)
     return <p className="text-muted-foreground">Service not found</p>;
@@ -172,18 +162,6 @@ export default function ServiceDetailPage({
             <Button variant="outline" onClick={() => serviceAction("restart")}>
               <RotateCw className="mr-1 size-4" /> Restart
             </Button>
-            {service.sync &&
-              service.nodeId &&
-              service.nodeId !== "local" && (
-                <Button
-                  variant="outline"
-                  onClick={triggerSync}
-                  disabled={service.sync.inFlight}
-                >
-                  <RefreshCw className="mr-1 size-4" />
-                  {service.sync.inFlight ? "Syncing…" : "Sync now"}
-                </Button>
-              )}
             <Button variant="destructive" onClick={() => serviceAction("stop")}>
               <Square className="mr-1 size-4" /> Stop
             </Button>

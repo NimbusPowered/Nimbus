@@ -5,6 +5,7 @@ import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.cluster.RemoteServiceHandle
 import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.GroupDefinition
+import dev.nimbuspowered.nimbus.config.GroupType
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.config.ServerSoftware
 import dev.nimbuspowered.nimbus.module.ModuleContextImpl
@@ -278,29 +279,6 @@ class ServiceManager(
     }
 
     /**
-     * Tells the agent hosting [serviceName] to push the service's state to the
-     * controller's canonical store immediately. Used by operators for checkpoint
-     * moments (before a planned migration, after a major in-game event) and by
-     * the SDK plugin's `triggerStateSync()` helper.
-     *
-     * Returns true if the TRIGGER_SYNC message was sent, false if the service isn't
-     * on a remote node or the node is unreachable.
-     */
-    suspend fun triggerSync(serviceName: String): Boolean {
-        val service = registry.get(serviceName) ?: return false
-        if (service.nodeId == "local") return false
-        val node = nodeManager?.getNode(service.nodeId) ?: return false
-        if (!node.isConnected) return false
-        return try {
-            node.send(dev.nimbuspowered.nimbus.protocol.ClusterMessage.TriggerSync(serviceName))
-            true
-        } catch (e: Exception) {
-            logger.error("Failed to send TRIGGER_SYNC for '{}' to node '{}': {}", serviceName, service.nodeId, e.message)
-            false
-        }
-    }
-
-    /**
      * One-shot placement: start a service on a specific node regardless of the
      * group's configured placement.node. Used by [migrateService].
      */
@@ -453,27 +431,11 @@ class ServiceManager(
             javaVersion = javaResolver.requiredJavaVersion(groupConfig.version, groupConfig.software),
             bedrockPort = service.bedrockPort ?: 0,
             bedrockEnabled = config.bedrock.enabled && groupConfig.software == dev.nimbuspowered.nimbus.config.ServerSoftware.VELOCITY,
-            syncEnabled = groupConfig.sync.enabled,
-            syncExcludes = groupConfig.sync.excludes,
-            snapshotInterval = groupConfig.sync.snapshotInterval,
-            snapshotFlushCommand = resolveSnapshotFlushCommand(groupConfig.sync.snapshotFlushCommand, groupConfig.software),
-            snapshotFlushWaitMs = groupConfig.sync.snapshotFlushWaitMs
+            // sync is only meaningful for STATIC groups — ConfigLoader warns on any
+            // misconfigured non-static group and we force-disable it here.
+            syncEnabled = groupConfig.sync.enabled && groupConfig.type == GroupType.STATIC,
+            syncExcludes = groupConfig.sync.excludes
         )
-    }
-
-    /**
-     * Resolves the effective flush command for a snapshot. If the user didn't specify one,
-     * pick a sensible default based on the server software.
-     */
-    private fun resolveSnapshotFlushCommand(configured: String, software: ServerSoftware): String {
-        if (configured.isNotBlank()) return configured
-        return when (software) {
-            ServerSoftware.VELOCITY -> ""
-            // Paper-family (Paper, Purpur, Folia, Pufferfish, Leaf), Forge, NeoForge, Fabric
-            // all accept "save-all flush". CUSTOM defaults to the safer plain "save-all".
-            ServerSoftware.CUSTOM -> "save-all"
-            else -> "save-all flush"
-        }
     }
 
     /**
@@ -520,10 +482,7 @@ class ServiceManager(
             bedrockEnabled = false,
             syncEnabled = true,                      // dedicated ALWAYS uses sync for remote placement
             syncExcludes = dedicated.sync.excludes,
-            isDedicated = true,
-            snapshotInterval = dedicated.sync.snapshotInterval,
-            snapshotFlushCommand = resolveSnapshotFlushCommand(dedicated.sync.snapshotFlushCommand, dedicated.software),
-            snapshotFlushWaitMs = dedicated.sync.snapshotFlushWaitMs
+            isDedicated = true
         )
     }
 

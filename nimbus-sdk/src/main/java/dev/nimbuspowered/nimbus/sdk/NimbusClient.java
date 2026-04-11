@@ -86,16 +86,6 @@ public class NimbusClient implements AutoCloseable {
         return post("/api/services/" + encode(serviceName) + "/restart", null).thenApply(r -> null);
     }
 
-    /**
-     * Trigger an immediate state sync push from the agent hosting the service back to
-     * the controller's canonical store. Only valid for sync-enabled services running
-     * on a remote agent node. Use this to checkpoint after major in-game events
-     * (e.g. round end, admin save) instead of waiting for the next periodic snapshot.
-     */
-    public CompletableFuture<Void> triggerStateSync(String serviceName) {
-        return post("/api/services/" + encode(serviceName) + "/sync/trigger", null).thenApply(r -> null);
-    }
-
     /** Execute a command on a service. */
     public CompletableFuture<Void> executeCommand(String serviceName, String command) {
         JsonObject body = new JsonObject();

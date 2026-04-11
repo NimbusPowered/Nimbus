@@ -133,19 +133,6 @@ public class NimbusSelfService {
         return client.reportHealth(serviceName, tps);
     }
 
-    // ── State Sync ────────────────────────────────────────────────────
-
-    /**
-     * Trigger an immediate state sync push from this service's agent back to the
-     * controller's canonical store, without stopping the service. Only effective if
-     * this service is running on a remote node with sync enabled. Use to checkpoint
-     * after major events (e.g. round end) instead of waiting for the next periodic
-     * snapshot.
-     */
-    public CompletableFuture<Void> triggerStateSync() {
-        return client.triggerStateSync(serviceName);
-    }
-
     // ── Info ──────────────────────────────────────────────────────────
 
     /**

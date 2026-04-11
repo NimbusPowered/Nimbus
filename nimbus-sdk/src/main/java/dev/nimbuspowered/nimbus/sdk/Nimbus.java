@@ -163,19 +163,6 @@ public final class Nimbus {
         return self.reportPlayerCount(playerCount);
     }
 
-    // ── State Sync ────────────────────────────────────────────────────
-
-    /**
-     * Trigger an immediate state sync push from this service's agent back to the
-     * controller's canonical store. Use after major in-game events (round end,
-     * admin save, etc.) to checkpoint world state without waiting for the next
-     * periodic snapshot. No-op if the service runs locally or has sync disabled.
-     */
-    public static CompletableFuture<Void> triggerStateSync() {
-        requireSelf();
-        return self.triggerStateSync();
-    }
-
     // ── Health ────────────────────────────────────────────────────────
 
     /**

@@ -54,35 +54,18 @@ sealed class ClusterMessage {
         val javaVersion: Int = 0,
         val bedrockPort: Int = 0,
         val bedrockEnabled: Boolean = false,
-        /** When true, agent pulls canonical state from controller before start and pushes back on stop. */
+        /** When true, agent pulls canonical state from controller before start and pushes back on graceful stop. */
         val syncEnabled: Boolean = false,
         /** rsync-style exclude globs applied to both pull and push. Files matching these are never synced. */
         val syncExcludes: List<String> = emptyList(),
-        /** Dedicated service (single-instance, persistent data, no template). Always implies sync. */
-        val isDedicated: Boolean = false,
-        /** Seconds between periodic snapshots; 0 = only push on graceful stop. */
-        val snapshotInterval: Long = 0,
-        /** Console command sent to service's stdin before a periodic snapshot (e.g. "save-all flush"). Empty = skip. */
-        val snapshotFlushCommand: String = "",
-        /** Milliseconds to wait after sending flush command before scanning the filesystem. */
-        val snapshotFlushWaitMs: Long = 3000
+        /** Dedicated service (single-instance, persistent data, no template). */
+        val isDedicated: Boolean = false
     ) : ClusterMessage()
 
     @Serializable @SerialName("STOP_SERVICE")
     data class StopService(
         val serviceName: String,
         val timeoutSeconds: Int = 30
-    ) : ClusterMessage()
-
-    /**
-     * Asks the agent to push the current service state to the controller's canonical
-     * store right now, without stopping the service. Sent by the controller in response
-     * to a manual sync-trigger API call (e.g., before a planned migration, or from an
-     * SDK plugin that wants to checkpoint after a major in-game event).
-     */
-    @Serializable @SerialName("TRIGGER_SYNC")
-    data class TriggerSync(
-        val serviceName: String
     ) : ClusterMessage()
 
     @Serializable @SerialName("SEND_COMMAND")

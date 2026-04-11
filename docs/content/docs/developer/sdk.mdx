@@ -87,9 +87,6 @@ Nimbus.message("Lobby-1", "game_ended", Map.of("winner", "Steve"));
 Nimbus.setTabName(player.getUniqueId(), "<red>[RED] {player}");
 Nimbus.clearTabName(player.getUniqueId());
 
-// Manual state sync checkpoint (sync-enabled services on remote nodes)
-Nimbus.triggerStateSync(); // pushes this service's world state to the controller now
-
 // Direct access
 NimbusClient client = Nimbus.client();
 ServiceCache cache = Nimbus.cache();

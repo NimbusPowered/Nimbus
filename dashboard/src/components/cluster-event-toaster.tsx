@@ -47,19 +47,16 @@ export function ClusterEventToaster() {
           });
         } else if (msg.type === "SYNC_COMPLETED") {
           lastPlacementReason.clear();
-          const service = msg.data.service ?? "?";
-          const files = msg.data.filesReceived ?? "0";
-          const bytes = Number(msg.data.bytesReceived ?? "0");
-          const mb = (bytes / (1024 * 1024)).toFixed(1);
-          toast.success(`Sync complete: ${service}`, {
-            description: `${files} files · ${mb} MB`,
-            duration: 4000,
-          });
+          // Graceful stop landed — tone it down: success toast only if the user
+          // is on a page that benefits (otherwise it's noisy ambient activity).
         } else if (msg.type === "SYNC_FAILED") {
+          // This is the one case worth shouting about: a persistent static
+          // service tried to push its state on stop and it did NOT land, so
+          // the canonical on the controller is stale.
           const service = msg.data.service ?? "?";
           const reason = msg.data.reason ?? "unknown";
-          toast.error(`Sync failed: ${service}`, {
-            description: reason,
+          toast.error(`Persistence failed: ${service}`, {
+            description: `State not saved — ${reason}`,
             duration: 10000,
           });
         }

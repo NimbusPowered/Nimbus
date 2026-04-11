@@ -41,7 +41,7 @@ interface TopologyService {
   groupName: string;
   state: string;
   nodeId: string;
-  sync?: { inFlight: boolean } | null;
+  sync?: { lastPushAt: string | null } | null;
 }
 
 interface ServiceListResponse {

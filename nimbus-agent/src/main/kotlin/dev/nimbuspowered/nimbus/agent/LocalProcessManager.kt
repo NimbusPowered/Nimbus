@@ -26,8 +26,6 @@ class LocalProcessManager(
     private val handles = ConcurrentHashMap<String, LocalProcessHandle>()
     private val workDirs = ConcurrentHashMap<String, Path>()
     private val staticServices = ConcurrentHashMap.newKeySet<String>()
-    /** Background snapshot loop coroutines keyed by service name. Cancelled on stop. */
-    private val snapshotJobs = ConcurrentHashMap<String, Job>()
 
     fun runningCount(): Int = handles.count { it.value.isAlive() }
 
@@ -143,18 +141,8 @@ class LocalProcessManager(
                 startedAtEpochMs = System.currentTimeMillis(),
                 syncEnabled = msg.syncEnabled,
                 syncExcludes = msg.syncExcludes,
-                snapshotInterval = msg.snapshotInterval,
-                snapshotFlushCommand = msg.snapshotFlushCommand,
-                snapshotFlushWaitMs = msg.snapshotFlushWaitMs,
                 isDedicated = msg.isDedicated
             ))
-
-            // Launch the periodic snapshot loop if enabled. Runs until the handle
-            // reports dead (service exited) or the agent shuts down.
-            if (msg.syncEnabled && msg.snapshotInterval > 0 && stateSyncClient != null) {
-                launchSnapshotLoop(msg.serviceName, workDir, msg.syncExcludes,
-                    msg.snapshotInterval, msg.snapshotFlushCommand, msg.snapshotFlushWaitMs)
-            }
 
             logger.info("Started service '{}' on port {}", msg.serviceName, msg.port)
             true
@@ -166,8 +154,6 @@ class LocalProcessManager(
 
     suspend fun stopService(serviceName: String, timeoutSeconds: Int) {
         val handle = handles[serviceName] ?: return
-        // Cancel the periodic snapshot loop before we push the final state
-        snapshotJobs.remove(serviceName)?.cancel()
         handle.stopGracefully(timeoutSeconds.seconds)
         handle.destroy()
 
@@ -295,8 +281,6 @@ class LocalProcessManager(
     }
 
     fun cleanup(serviceName: String, isStatic: Boolean) {
-        // Cancel the periodic snapshot loop before final push
-        snapshotJobs.remove(serviceName)?.cancel()
         // State sync push: fires on clean exit (player typed /stop, process died normally).
         // We push BEFORE removing state because we need the workDir + syncExcludes.
         pushStateIfEnabled(serviceName)
@@ -315,102 +299,6 @@ class LocalProcessManager(
         } else {
             // For static/sync services we keep the workDir as a cache for next start
             workDirs.remove(serviceName)
-        }
-    }
-
-    /**
-     * Starts the periodic snapshot loop for [serviceName]. Fires every [intervalSeconds]:
-     *   1. Send [flushCommand] to the service's stdin (if non-empty) — e.g. "save-all flush"
-     *   2. Wait [flushWaitMs] for the server to finish flushing chunks
-     *   3. Call [StateSyncClient.push] to sync the delta to controller canonical
-     *
-     * The loop exits when the service handle dies (isAlive == false) or the agent
-     * shuts down. Errors during individual snapshots are logged but don't stop the
-     * loop — next tick will retry. Uses the same per-service lock as graceful stop,
-     * so no two pushes run concurrently for the same service.
-     */
-    private fun launchSnapshotLoop(
-        serviceName: String,
-        workDir: Path,
-        excludes: List<String>,
-        intervalSeconds: Long,
-        flushCommand: String,
-        flushWaitMs: Long
-    ) {
-        snapshotJobs[serviceName]?.cancel()
-        snapshotJobs[serviceName] = scope.launch {
-            logger.info("Snapshot loop '{}' starting (interval={}s, flush={})",
-                serviceName, intervalSeconds, flushCommand.ifBlank { "(none)" })
-            while (true) {
-                try {
-                    delay(intervalSeconds * 1000)
-                    val handle = handles[serviceName]
-                    if (handle == null || !handle.isAlive()) {
-                        logger.info("Snapshot loop '{}' exiting: service is no longer running", serviceName)
-                        break
-                    }
-
-                    // Flush phase: tell the server to write everything to disk
-                    if (flushCommand.isNotBlank()) {
-                        try {
-                            handle.sendCommand(flushCommand)
-                            delay(flushWaitMs)
-                        } catch (e: Exception) {
-                            logger.warn("Snapshot '{}' flush command failed: {} — continuing anyway", serviceName, e.message)
-                        }
-                    }
-
-                    // Push phase: snapshot the current on-disk state
-                    if (stateSyncClient == null) continue
-                    try {
-                        logger.info("Periodic snapshot '{}' → push", serviceName)
-                        stateSyncClient.push(serviceName, workDir, excludes)
-                    } catch (e: Exception) {
-                        logger.error("Periodic snapshot '{}' push failed: {}", serviceName, e.message)
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    logger.error("Snapshot loop '{}' unexpected error: {}", serviceName, e.message, e)
-                }
-            }
-            snapshotJobs.remove(serviceName)
-        }
-    }
-
-    /**
-     * Public entry point for on-demand sync triggered by the controller (via TriggerSync
-     * cluster message) or the SDK plugin. Runs the same push flow as periodic snapshots
-     * — optional stdin flush command, wait, then push.
-     */
-    fun triggerManualSync(serviceName: String) {
-        val persisted = stateStore.load().services.firstOrNull { it.serviceName == serviceName }
-        if (persisted == null) {
-            logger.warn("Manual sync '{}' skipped: service not found in state store", serviceName)
-            return
-        }
-        if (!persisted.syncEnabled || stateSyncClient == null) {
-            logger.warn("Manual sync '{}' skipped: sync not enabled for this service", serviceName)
-            return
-        }
-        val handle = handles[serviceName]
-        if (handle == null || !handle.isAlive()) {
-            logger.warn("Manual sync '{}' skipped: service is not running", serviceName)
-            return
-        }
-        scope.launch {
-            try {
-                if (persisted.snapshotFlushCommand.isNotBlank()) {
-                    handle.sendCommand(persisted.snapshotFlushCommand)
-                    delay(persisted.snapshotFlushWaitMs)
-                }
-                logger.info("Manual sync '{}' → push", serviceName)
-                val workDir = workDirs[serviceName] ?: Path.of(persisted.workDir)
-                stateSyncClient.push(serviceName, workDir, persisted.syncExcludes)
-                logger.info("Manual sync '{}' complete", serviceName)
-            } catch (e: Exception) {
-                logger.error("Manual sync '{}' failed: {}", serviceName, e.message, e)
-            }
         }
     }
 
@@ -474,15 +362,6 @@ class LocalProcessManager(
                     pid = persisted.pid
                 ))
                 logger.info("Recovered service '{}' (PID {})", persisted.serviceName, persisted.pid)
-
-                // Resume the periodic snapshot loop if this service had one configured.
-                // Without this, a restarted agent would silently stop snapshotting.
-                if (persisted.syncEnabled && persisted.snapshotInterval > 0 && stateSyncClient != null) {
-                    launchSnapshotLoop(
-                        persisted.serviceName, workDir, persisted.syncExcludes,
-                        persisted.snapshotInterval, persisted.snapshotFlushCommand, persisted.snapshotFlushWaitMs
-                    )
-                }
             } else {
                 logger.info("Service '{}' (PID {}) is no longer alive — removing from state",
                     persisted.serviceName, persisted.pid)

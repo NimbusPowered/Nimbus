@@ -47,14 +47,12 @@ import {
   RotateCw,
   Plus,
   Server,
-  RefreshCw,
 } from "@/lib/icons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { MemoryBar } from "@/components/memory-bar";
 
 interface SyncHealth {
-  inFlight: boolean;
   lastPushAt: string | null;
   lastPushBytes: number;
   lastPushFiles: number;
@@ -139,16 +137,6 @@ export default function ServicesPage() {
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
-    }
-  }
-
-  async function triggerSync(name: string) {
-    try {
-      await apiFetch(`/api/services/${name}/sync/trigger`, { method: "POST" });
-      toast.success(`Sync trigger sent to ${name}`);
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync trigger failed");
     }
   }
 
@@ -255,16 +243,12 @@ export default function ServicesPage() {
                             variant="outline"
                             title={
                               s.sync.lastPushAt
-                                ? `Last push ${new Date(s.sync.lastPushAt).toLocaleString()} · ${formatBytes(s.sync.lastPushBytes)} · ${s.sync.lastPushFiles} files · canonical ${formatBytes(s.sync.canonicalSizeBytes)}`
-                                : `Canonical ${formatBytes(s.sync.canonicalSizeBytes)} · no push yet`
+                                ? `Last saved ${new Date(s.sync.lastPushAt).toLocaleString()} · canonical ${formatBytes(s.sync.canonicalSizeBytes)} (${s.sync.lastPushFiles} files)`
+                                : `Canonical ${formatBytes(s.sync.canonicalSizeBytes)} · not yet pushed`
                             }
-                            className={
-                              s.sync.inFlight
-                                ? "border-blue-500/50 text-blue-600 dark:text-blue-400"
-                                : "border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
-                            }
+                            className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
                           >
-                            {s.sync.inFlight ? "Syncing…" : "Sync"}
+                            Persistent
                           </Badge>
                         )}
                       </div>
@@ -325,15 +309,6 @@ export default function ServicesPage() {
                             <Square className="mr-2 size-4" />
                             Stop
                           </DropdownMenuItem>
-                          {s.sync && s.nodeId && s.nodeId !== "local" && (
-                            <DropdownMenuItem
-                              onClick={() => triggerSync(s.name)}
-                              disabled={s.sync.inFlight}
-                            >
-                              <RefreshCw className="mr-2 size-4" />
-                              Sync now
-                            </DropdownMenuItem>
-                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

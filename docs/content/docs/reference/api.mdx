@@ -422,28 +422,6 @@ Use `"target": "local"` or omit the target entirely to move a service back to th
 
 ---
 
-### POST /api/services/{'{'}name{'}'}/sync/trigger
-
-Trigger an immediate state sync push from the agent hosting a sync-enabled service back to the controller's canonical store, without stopping the service. Use this to checkpoint after major in-game events (round end, admin save) instead of waiting for the next periodic snapshot. The agent will run the configured `snapshot_flush_command` first (e.g. `save-all flush`), wait `snapshot_flush_wait_ms`, then push the delta.
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Sync trigger sent to node 'worker-2' for service 'BedWars-1'"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Trigger sent (push runs asynchronously) |
-| 400 | Service is local — sync only applies to services on remote agent nodes |
-| 404 | Service not found |
-| 503 | Target node is offline |
-
-The SDK exposes this via `Nimbus.triggerStateSync()` (self) and `NimbusClient.triggerStateSync(serviceName)` (remote).
-
----
-
 ### POST /api/services/{'{'}name{'}'}/exec
 
 Execute a command on a service's stdin.
