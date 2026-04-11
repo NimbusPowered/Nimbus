@@ -50,15 +50,21 @@ class Service(
 
     @Synchronized
     fun transitionTo(newState: ServiceState): Boolean {
+        // Idempotent: the same state is a silent no-op. The agent and the local
+        // tracker both emit state-changed events for the same transition, and we
+        // used to log a warning every time the second one arrived.
+        if (newState == _state) return true
+
         val allowed = when (_state) {
-            ServiceState.PREPARING -> setOf(ServiceState.PREPARED, ServiceState.STARTING, ServiceState.STOPPED)
+            ServiceState.PREPARING -> setOf(ServiceState.PREPARED, ServiceState.STARTING, ServiceState.STOPPED, ServiceState.CRASHED)
             ServiceState.PREPARED -> setOf(ServiceState.STARTING, ServiceState.STOPPED)
             ServiceState.STARTING -> setOf(ServiceState.READY, ServiceState.CRASHED, ServiceState.STOPPED)
-            ServiceState.READY -> setOf(ServiceState.DRAINING, ServiceState.STOPPING, ServiceState.CRASHED)
-            ServiceState.DRAINING -> setOf(ServiceState.STOPPING, ServiceState.CRASHED)
-            ServiceState.STOPPING -> setOf(ServiceState.STOPPED)
+            // READY can jump straight to STOPPED on a clean remote exit (no DRAINING phase).
+            ServiceState.READY -> setOf(ServiceState.DRAINING, ServiceState.STOPPING, ServiceState.STOPPED, ServiceState.CRASHED)
+            ServiceState.DRAINING -> setOf(ServiceState.STOPPING, ServiceState.STOPPED, ServiceState.CRASHED)
+            ServiceState.STOPPING -> setOf(ServiceState.STOPPED, ServiceState.CRASHED)
             ServiceState.STOPPED -> emptySet()
-            ServiceState.CRASHED -> setOf(ServiceState.PREPARING)
+            ServiceState.CRASHED -> setOf(ServiceState.PREPARING, ServiceState.STOPPED)
         }
         if (newState !in allowed) {
             logger.warn("Invalid state transition for '{}': {} -> {}", name, _state, newState)

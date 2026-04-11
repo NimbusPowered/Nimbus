@@ -237,19 +237,58 @@ class LocalProcessManager(
         }
     }
 
-    /** Reads resident set size for a process on Linux via /proc. Returns 0 on failure. */
+    private val agentIsWindows by lazy {
+        System.getProperty("os.name")?.lowercase()?.contains("windows") == true
+    }
+
+    /**
+     * Resident set size (RSS) for a process, in MB.
+     *
+     *  - Linux / WSL: reads `/proc/<pid>/status` (VmRSS field).
+     *  - Windows: shells out to `tasklist /FI "PID eq <pid>" /FO CSV /NH`.
+     *  - Other OSes: returns 0.
+     *
+     * Same two-path implementation as the controller's ProcessMemoryReader —
+     * the agent module can't depend on core so it's duplicated here.
+     */
     private fun readRssMb(pid: Long): Long {
-        val statusFile = java.nio.file.Paths.get("/proc/$pid/status")
-        if (!java.nio.file.Files.exists(statusFile)) return 0
-        return try {
-            var rssKb = 0L
-            java.nio.file.Files.lines(statusFile).use { lines ->
-                lines.filter { it.startsWith("VmRSS:") }.findFirst().ifPresent { line ->
-                    val parsed = line.substringAfter("VmRSS:").trim().removeSuffix("kB").trim().toLongOrNull()
-                    if (parsed != null) rssKb = parsed
+        if (pid <= 0) return 0
+        val procStatus = java.nio.file.Paths.get("/proc/$pid/status")
+        if (java.nio.file.Files.exists(procStatus)) {
+            return try {
+                var rssKb = 0L
+                java.nio.file.Files.lines(procStatus).use { lines ->
+                    lines.filter { it.startsWith("VmRSS:") }.findFirst().ifPresent { line ->
+                        val parsed = line.substringAfter("VmRSS:").trim().removeSuffix("kB").trim().toLongOrNull()
+                        if (parsed != null) rssKb = parsed
+                    }
                 }
+                rssKb / 1024
+            } catch (_: Exception) {
+                0
             }
-            rssKb / 1024
+        }
+        if (agentIsWindows) return readRssMbFromTasklist(pid)
+        return 0
+    }
+
+    private fun readRssMbFromTasklist(pid: Long): Long {
+        return try {
+            val process = ProcessBuilder("tasklist", "/FI", "PID eq $pid", "/FO", "CSV", "/NH")
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText().trim()
+            if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                return 0
+            }
+            if (output.isEmpty() || output.startsWith("INFO")) return 0
+            // CSV format: "java.exe","12345","Console","1","1,234,567 K"
+            val fields = output.split(Regex(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)"))
+                .map { it.trim().removePrefix("\"").removeSuffix("\"") }
+            val memField = fields.lastOrNull() ?: return 0
+            val kb = memField.removeSuffix("K").trim().replace(",", "").replace(".", "").toLongOrNull() ?: return 0
+            kb / 1024
         } catch (_: Exception) {
             0
         }
