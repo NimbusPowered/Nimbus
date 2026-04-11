@@ -63,7 +63,10 @@ class Service(
             ServiceState.READY -> setOf(ServiceState.DRAINING, ServiceState.STOPPING, ServiceState.STOPPED, ServiceState.CRASHED)
             ServiceState.DRAINING -> setOf(ServiceState.STOPPING, ServiceState.STOPPED, ServiceState.CRASHED)
             ServiceState.STOPPING -> setOf(ServiceState.STOPPED, ServiceState.CRASHED)
-            ServiceState.STOPPED -> emptySet()
+            // STOPPED is terminal in principle but the ready-timeout handler may
+            // also fire on a service that has already been marked STOPPED — treat
+            // CRASHED as an allowed relabel rather than a state error.
+            ServiceState.STOPPED -> setOf(ServiceState.CRASHED)
             ServiceState.CRASHED -> setOf(ServiceState.PREPARING, ServiceState.STOPPED)
         }
         if (newState !in allowed) {
