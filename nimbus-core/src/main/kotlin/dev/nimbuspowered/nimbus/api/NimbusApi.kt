@@ -4,6 +4,7 @@ import dev.nimbuspowered.nimbus.NimbusVersion
 import dev.nimbuspowered.nimbus.api.auth.ApiScope
 import dev.nimbuspowered.nimbus.api.auth.JwtTokenManager
 import dev.nimbuspowered.nimbus.api.routes.*
+import dev.nimbuspowered.nimbus.cluster.ClusterServer
 import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.config.ApiConfig
 import dev.nimbuspowered.nimbus.config.NimbusConfig
@@ -52,6 +53,7 @@ class NimbusApi(
     private val groupsDir: Path,
     private val configPath: Path,
     private val nodeManager: NodeManager? = null,
+    private val clusterServer: ClusterServer? = null,
     private val loadBalancer: TcpLoadBalancer? = null,
     private val templatesDir: Path = baseDir.resolve("templates"),
     private val stressTestManager: dev.nimbuspowered.nimbus.stress.StressTestManager? = null,
@@ -333,6 +335,10 @@ class NimbusApi(
             val serviceToken = if (token.isNotBlank()) deriveServiceToken(token) else ""
             eventRoutes(eventBus, registry, serviceManager, token, serviceToken)
             templateRoutes(templatesDir, config.cluster.token)
+
+            // Cluster bootstrap: public cert material gated by cluster token.
+            // Must be outside auth blocks because agents call this before they trust TLS.
+            clusterBootstrapRoutes(config.cluster, clusterServer)
 
             // Remote CLI console routes (WebSocket + REST, master token only)
             if (dispatcher != null) {

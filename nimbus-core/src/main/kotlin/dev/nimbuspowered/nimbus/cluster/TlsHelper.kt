@@ -39,7 +39,12 @@ object TlsHelper {
      * Ensures a keystore exists at [path]. If not, generates a self-signed certificate.
      * Returns a pair of (KeyStore, password).
      */
-    fun ensureKeyStore(path: Path, configuredPassword: String, bind: String): Pair<KeyStore, String> {
+    fun ensureKeyStore(
+        path: Path,
+        configuredPassword: String,
+        bind: String,
+        extraSans: List<String> = emptyList()
+    ): Pair<KeyStore, String> {
         if (path.exists()) {
             val password = configuredPassword.ifBlank { DEFAULT_PASSWORD }
             val ks = loadKeyStore(path, password)
@@ -52,16 +57,34 @@ object TlsHelper {
 
         val password = configuredPassword.ifBlank { DEFAULT_PASSWORD }
 
+        val ipRegex = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+        val extraDomains = extraSans.filter { !ipRegex.matches(it) }
+        val extraIps = extraSans.filter { ipRegex.matches(it) }
+
         val keyStore = buildKeyStore {
             certificate(DEFAULT_ALIAS) {
                 this.password = password
                 daysValid = 3650 // 10 years
                 keySizeInBits = 4096
                 subject = X500Principal("CN=nimbus-cluster, O=Nimbus, L=Cloud")
-                domains = listOf("localhost")
+                domains = buildList {
+                    add("localhost")
+                    // Add the local machine's hostname as a DNS SAN so agents can
+                    // connect by hostname without hostname-verification failures.
+                    try {
+                        val localHost = InetAddress.getLocalHost().hostName
+                        if (localHost.isNotBlank() && localHost != "localhost" && !ipRegex.matches(localHost)) {
+                            add(localHost)
+                        }
+                    } catch (_: Exception) {}
+                    if (bind != "0.0.0.0" && bind != "127.0.0.1" && bind != "localhost" && !ipRegex.matches(bind)) {
+                        add(bind)
+                    }
+                    extraDomains.forEach { add(it) }
+                }
                 ipAddresses = buildList {
                     add(InetAddress.getByName("127.0.0.1"))
-                    if (bind != "127.0.0.1" && bind != "localhost") {
+                    if (bind != "127.0.0.1" && bind != "localhost" && bind != "0.0.0.0") {
                         try {
                             add(InetAddress.getByName(bind))
                         } catch (_: Exception) {}
@@ -69,6 +92,9 @@ object TlsHelper {
                     try {
                         add(InetAddress.getLocalHost())
                     } catch (_: Exception) {}
+                    extraIps.forEach {
+                        try { add(InetAddress.getByName(it)) } catch (_: Exception) {}
+                    }
                 }
             }
         }
@@ -88,15 +114,62 @@ object TlsHelper {
      */
     private fun logCertificateFingerprint(keyStore: KeyStore) {
         try {
-            val alias = keyStore.aliases().nextElement()
-            val cert = keyStore.getCertificate(alias) as? X509Certificate ?: return
-            val sha256 = MessageDigest.getInstance("SHA-256")
-            val fingerprint = sha256.digest(cert.encoded)
-                .joinToString(":") { "%02X".format(it) }
-            logger.info("Cluster TLS certificate fingerprint (SHA-256): {}", fingerprint)
-            logger.info("Certificate valid until: {}", cert.notAfter)
+            val info = getCertInfo(keyStore) ?: return
+            logger.info("Cluster TLS certificate fingerprint (SHA-256): {}", info.fingerprint)
+            logger.info("Certificate valid until: {}", info.validUntil)
         } catch (e: Exception) {
             logger.debug("Could not read certificate fingerprint: {}", e.message)
         }
     }
+
+    /**
+     * Extracts fingerprint + PEM + SANs + validity from the keystore's leaf certificate.
+     * Returns null if the keystore has no usable certificate.
+     */
+    fun getCertInfo(keyStore: KeyStore): CertInfo? {
+        val alias = keyStore.aliases().toList().firstOrNull() ?: return null
+        val cert = keyStore.getCertificate(alias) as? X509Certificate ?: return null
+
+        val sha256 = MessageDigest.getInstance("SHA-256")
+        val fingerprint = sha256.digest(cert.encoded)
+            .joinToString(":") { "%02X".format(it) }
+
+        val pem = buildString {
+            append("-----BEGIN CERTIFICATE-----\n")
+            val encoder = java.util.Base64.getEncoder()
+            val b64 = encoder.encodeToString(cert.encoded)
+            // wrap at 64 chars/line per PEM convention
+            b64.chunked(64).forEach { append(it).append('\n') }
+            append("-----END CERTIFICATE-----\n")
+        }
+
+        val sans: List<String> = try {
+            cert.subjectAlternativeNames?.mapNotNull { entry ->
+                // entry is a list: [type, value]. type 2 = DNS name, type 7 = IP address.
+                val type = entry?.getOrNull(0) as? Int
+                val value = entry?.getOrNull(1)?.toString()
+                when (type) {
+                    2 -> "DNS:$value"
+                    7 -> "IP:$value"
+                    else -> value
+                }
+            } ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        return CertInfo(
+            fingerprint = fingerprint,
+            pemEncoded = pem,
+            validUntil = cert.notAfter.toInstant().toString(),
+            sans = sans
+        )
+    }
+
+    data class CertInfo(
+        val fingerprint: String,
+        val pemEncoded: String,
+        val validUntil: String,
+        val sans: List<String>
+    )
 }

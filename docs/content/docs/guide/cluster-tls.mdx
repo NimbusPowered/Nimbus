@@ -1,0 +1,146 @@
+---
+title: Cluster TLS & Security
+description: How Nimbus secures agent-to-controller traffic with TLS fingerprint pinning, why self-signed certs are fine, and how to rotate or customize the cluster cert.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Nimbus cluster mode uses a **dedicated TLS-encrypted WebSocket** between the controller and each agent. This page explains the trust model, how to set it up, and how to rotate the certificate.
+
+## Threat Model
+
+The cluster channel carries:
+
+- The **cluster token** (shared secret for agent authentication)
+- Service start/stop commands and configuration
+- File transfers (templates, server JARs, config patches)
+- Live stdout and state updates from agent-managed processes
+
+An attacker on the network between controller and agent could — if the channel were unencrypted or unauthenticated — inject service commands, steal the cluster token, or replace template files with malicious ones. TLS with certificate pinning prevents this.
+
+**What's protected:** confidentiality + integrity + authentication of the agent ↔ controller channel.
+**What's not:** the cluster token itself must be distributed securely (don't paste it into public chat). The bootstrap endpoint delivers the cert over plain HTTP, gated by the cluster token — if the token leaks, an attacker can fetch the cert material, but cert material is public by design.
+
+## Why Self-Signed Certs Are Fine
+
+A common misconception: "self-signed = insecure." That's wrong. Self-signed certs encrypt just as well as CA-issued ones. The only thing they lack is **automatic trust** via a well-known Certificate Authority.
+
+Nimbus solves this with **fingerprint pinning**: the agent is configured with the SHA-256 fingerprint of exactly one controller cert, and refuses to connect to anything else. This is:
+
+- ✅ **Immune to MITM** — an attacker would need the controller's private key, which never leaves `config/cluster.jks`.
+- ✅ **Immune to CA compromise** — no public CA is trusted, so a rogue CA can't issue a cert for your controller.
+- ✅ **Zero ops** — no renewal schedule, no Let's Encrypt ACME dance, no 90-day churn.
+
+This is the same trust model SSH uses when you accept a host key on first connection.
+
+## Trust-On-First-Use Flow
+
+1. Controller starts → `TlsHelper.ensureKeyStore` generates `config/cluster.jks` (RSA-4096, self-signed, 10-year validity) if it doesn't already exist.
+2. User runs `cluster bootstrap-url` on the controller → gets the REST URL and cluster token.
+3. User starts the agent for the first time → `SetupWizard` prompts for those two values.
+4. Agent calls `GET http://<controller>:8080/api/cluster/bootstrap` with `Authorization: Bearer <cluster-token>`.
+5. Controller responds with `{ fingerprint, certPem, wsUrl, validUntil, sans }`.
+6. Agent displays the fingerprint + expiry → user confirms with `Y`.
+7. Wizard saves `trusted_fingerprint` and `controller` (the `wsUrl` from the response) into `agent.toml`.
+8. Agent connects to the controller via `wss://`. The pinned trust manager validates the server's leaf certificate SHA-256 against the stored fingerprint. No CA chain, no hostname verification — the fingerprint is the only trust anchor.
+
+<Callout type="info">
+The bootstrap endpoint lives on the plaintext REST API port (default 8080). This is intentional: if it required TLS, the agent would need to trust the cert *before* it knows what to trust — chicken-and-egg. The cluster token is what gates access.
+</Callout>
+
+## Cert Rotation
+
+When you want to rotate the controller cert (new hostname, old one expired, compromise suspicion):
+
+```text title="On the controller"
+cluster cert regenerate
+# confirm the warning prompt
+# restart Nimbus — a fresh self-signed cert is generated
+```
+
+On every agent:
+
+```bash title="On each agent node"
+java -jar nimbus-agent.jar --setup
+# re-run the wizard, confirm the new fingerprint
+```
+
+That's it. The agent's old `trusted_fingerprint` is overwritten, and the next `wss://` connection validates against the new cert.
+
+<Callout title="Why manual re-trust?" type="info">
+Automatic re-trust would defeat the entire point of pinning — an attacker who can MITM the bootstrap request could substitute their own cert. Requiring a human confirmation on each agent is the whole security benefit.
+</Callout>
+
+## Advanced: Custom CA / Existing Certs
+
+If you already have a CA-issued cert (e.g., from an internal PKI or Let's Encrypt on a private domain), you can use it instead of the auto-generated self-signed one:
+
+**Option 1 — provide the keystore:**
+
+```toml title="config/nimbus.toml"
+[cluster]
+tls_enabled = true
+keystore_path = "/etc/nimbus/controller.p12"
+keystore_password = "..."
+```
+
+On the agent, configure a JKS/PKCS12 truststore that contains the CA cert:
+
+```toml title="agent.toml"
+[agent]
+trusted_fingerprint = ""               # leave empty to use truststore instead
+truststore_path = "/etc/nimbus/ca-trust.jks"
+truststore_password = "..."
+```
+
+**Precedence on the agent side:** `trusted_fingerprint` > `truststore_path` > system CAs > `tls_verify = false` (trust all).
+
+**Option 2 — add SANs to the auto-generated cert:**
+
+If you want to keep the auto-generated cert but have the agent connect via a hostname that isn't `127.0.0.1` or the local hostname, add the extra SANs to `nimbus.toml` **before** the first start (the cert is only generated if `config/cluster.jks` doesn't exist yet):
+
+```toml title="config/nimbus.toml"
+[cluster]
+extra_sans = ["controller.example.com", "10.0.0.5"]
+```
+
+If the file already exists, delete it (`cluster cert regenerate`) and restart. Strings that look like dotted IPv4 are added as IP SANs; everything else becomes a DNS SAN.
+
+## Public Host for Bootstrap URL
+
+When the controller is behind NAT or has multiple interfaces, the `wsUrl` returned by `/api/cluster/bootstrap` may point to the wrong address. Override it explicitly:
+
+```toml title="config/nimbus.toml"
+[cluster]
+public_host = "controller.example.com"
+```
+
+The bootstrap endpoint will then return `wss://controller.example.com:8443/cluster` regardless of what `bind` is set to.
+
+## Dev Escape Hatch
+
+For local-only testing (e.g., both controller and agent on the same dev machine), you can skip trust entirely:
+
+```toml title="agent.toml"
+tls_verify = false
+```
+
+<Callout type="warn">
+**Never** use `tls_verify = false` on a production agent. It disables all certificate validation and makes the connection trivially MITM-able. The only reason to use it is local debugging.
+</Callout>
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `TLS handshake failed: not an SSL/TLS record` in controller log | Agent is using `ws://` against the TLS port | Set `controller = "wss://..."` in agent.toml |
+| `unable to find valid certification path` on agent | No trust material configured | Run `--setup` to pin the fingerprint |
+| `Controller cert fingerprint mismatch` | Cert was rotated | Run `--setup` on each agent to re-pin |
+| `0.0.0.0` in connect URL | User put a bind address as connect address | Use the real hostname/IP or `127.0.0.1` for local |
+| `No subject alternative names matching ...` (truststore mode only) | Cert SAN list doesn't include your hostname | Add to `extra_sans`, regenerate cert |
+
+## Related
+
+- [Multi-Node Setup](/docs/guide/multi-node) — cluster mode overview
+- [nimbus.toml — cluster](/docs/config/nimbus-toml#cluster) — all TLS config options
+- [Agent config](/docs/developer/agent) — agent.toml reference including all TLS fields

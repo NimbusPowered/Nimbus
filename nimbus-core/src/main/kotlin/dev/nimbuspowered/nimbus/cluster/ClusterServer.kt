@@ -31,6 +31,10 @@ class ClusterServer(
 
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
 
+    @Volatile
+    var certInfo: TlsHelper.CertInfo? = null
+        private set
+
     val isRunning: Boolean get() = server != null
 
     fun start() {
@@ -61,13 +65,14 @@ class ClusterServer(
 
         val password = resolveKeystorePassword()
         val (keyStore, effectivePassword) = try {
-            TlsHelper.ensureKeyStore(keystorePath, password, config.bind)
+            TlsHelper.ensureKeyStore(keystorePath, password, config.bind, config.extraSans)
         } catch (e: Exception) {
             logger.error("Failed to load/generate keystore at '{}': {}", keystorePath, e.message)
             return
         }
 
         val alias = keyStore.aliases().nextElement()
+        certInfo = TlsHelper.getCertInfo(keyStore)
 
         try {
             server = embeddedServer(Netty, configure = {
@@ -131,6 +136,7 @@ class ClusterServer(
     fun stop() {
         server?.stop(1000, 5000)
         server = null
+        certInfo = null
         logger.info("Cluster WebSocket server stopped")
     }
 }

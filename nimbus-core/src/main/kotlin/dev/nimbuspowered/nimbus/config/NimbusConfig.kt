@@ -164,6 +164,10 @@ data class ClusterConfig(
     val keystorePath: String = "",
     @SerialName("keystore_password")
     val keystorePassword: String = "",
+    @SerialName("extra_sans")
+    val extraSans: List<String> = emptyList(),
+    @SerialName("public_host")
+    val publicHost: String = "",
     @SerialName("reconciliation_delay")
     val reconciliationDelay: Long = 10000
 )

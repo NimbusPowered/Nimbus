@@ -18,7 +18,7 @@ fun main(args: Array<String>) = runBlocking {
 
     // Load or create config
     val config: AgentConfig = run {
-        val loaded = if (configPath.exists()) {
+        val loaded = if (configPath.exists() && !cliArgs.forceSetup) {
             AgentConfigLoader.load(configPath)
         } else if (cliArgs.controller != null && cliArgs.token != null) {
             // CLI args provided — skip wizard
@@ -67,7 +67,8 @@ data class CliArgs(
     val token: String? = null,
     val nodeName: String? = null,
     val maxMemory: String? = null,
-    val maxServices: Int? = null
+    val maxServices: Int? = null,
+    val forceSetup: Boolean = false
 )
 
 fun parseCliArgs(args: Array<String>): CliArgs {
@@ -76,6 +77,7 @@ fun parseCliArgs(args: Array<String>): CliArgs {
     var nodeName: String? = null
     var maxMemory: String? = null
     var maxServices: Int? = null
+    var forceSetup = false
 
     var i = 0
     while (i < args.size) {
@@ -85,10 +87,11 @@ fun parseCliArgs(args: Array<String>): CliArgs {
             "--name" -> { nodeName = args.getOrNull(i + 1); i += 2 }
             "--max-memory" -> { maxMemory = args.getOrNull(i + 1); i += 2 }
             "--max-services" -> { maxServices = args.getOrNull(i + 1)?.toIntOrNull(); i += 2 }
+            "--setup" -> { forceSetup = true; i++ }
             else -> i++
         }
     }
-    return CliArgs(controller, token, nodeName, maxMemory, maxServices)
+    return CliArgs(controller, token, nodeName, maxMemory, maxServices, forceSetup)
 }
 
 fun autoDetectMemory(): String {
