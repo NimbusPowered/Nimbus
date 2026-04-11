@@ -105,7 +105,8 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ├── setup/                 # First-run interactive SetupWizard
 ├── stress/                # StressTestManager (simulated player load testing)
 ├── template/              # TemplateManager, ConfigPatcher, SoftwareResolver (auto-download), ServiceDeployer (deploy-back), ModScanner (mod ID extraction)
-├── cluster/               # RemoteFileProxy (remote file proxy for agent nodes)
+├── cluster/               # ClusterServer (TLS WS), ClusterWebSocketHandler, NodeManager, NodeConnection, RemoteServiceHandle, RemoteFileProxy, TlsHelper (keystore + fingerprint), placement strategies
+├── service/StateSyncManager  # Canonical state store for services with [group.sync] or [dedicated.sync] — atomic manifest-based push/pull with staging + hardlink optimization
 ├── update/                # UpdateChecker (GitHub Releases auto-updater)
 └── velocity/              # VelocityConfigGen (auto-manage proxy server list, modded client config)
 # Note: permissions, display code now lives in their respective module JARs
@@ -168,7 +169,11 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - Audit logging: `AuditCollector` subscribes to EventBus, batch-writes to `audit_log` table; `audit` console command + `GET /api/audit` endpoint
 - CLI session tracking: `CliSessionTracker` records Remote CLI connections in `cli_sessions` table; `sessions` console command (active/history); `CliSessionConnected`/`CliSessionDisconnected` events displayed in local console
 - Event actor tracking: `NimbusEvent.actor` field identifies trigger source (`system`, `console`, `api:admin`, `api:service`)
-- Cluster TLS: Netty engine with native `sslConnector`; auto-generates self-signed keystore at `config/cluster.jks` if none configured; agents connect via `wss://` with configurable trust (`tls_verify`, `truststore_path`)
+- Cluster TLS: Netty engine with native `sslConnector`; auto-generates self-signed keystore at `config/cluster.jks` if none configured; agents connect via `wss://` with configurable trust (`trusted_fingerprint`, `tls_verify`, `truststore_path`)
+- Cluster bootstrap: `GET /api/cluster/bootstrap` (REST API port, gated by cluster token) returns fingerprint + PEM + wsUrl so the agent setup wizard can pin the cert on first connect. Console commands: `cluster cert` / `cluster cert regenerate` / `cluster bootstrap-url`
+- Placement pinning: `[group.placement] node = "worker-1"` or `[dedicated.placement] node = "..."`; `fallback` = `wait` (default, refuse start) / `local` (UNSAFE for stateful) / `fail` (error)
+- State sync: `[group.sync] enabled = true` (or `[dedicated.sync]`) makes a service float across nodes. Controller stores canonical in `services/state/<name>/` (groups) or `dedicated/<name>/` (dedicated). Agent pulls delta via manifest comparison on start, pushes delta on graceful stop. Atomic staging + per-service lock. Data-loss model: graceful stop = zero loss, unplanned crash = loss since last push. `extra_sans` / `public_host` in `[cluster]` for cert SAN and bootstrap URL overrides
+- Service name stability: `ServiceFactory.prepare` reuses the lowest-numbered CRASHED/STOPPED slot instead of advancing to fresh numbers, so Lobby-1 stays Lobby-1 across crash-respawn cycles (important for sync canonical state keyed by name)
 - Modules loaded from `modules/*.jar` via ServiceLoader + URLClassLoader
 - Module lifecycle: init() → enable() → disable()
 - Modules register commands, routes, plugin deployments, event formatters, and migrations via ModuleContext
@@ -207,7 +212,7 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 ## API (v0.2)
 
 - Bearer token auth (`Authorization: Bearer <token>`), auto-generated if not configured
-- REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/audit` (admin-only audit log), `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module), `/api/players/*` (player module), `/api/console/complete` (tab completion for Remote CLI), `/api/modpacks/*` (modpack import, CurseForge, server pack upload), `/api/plugins/*` (plugin search/install), `/api/software/*` (server software versions)
+- REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/audit` (admin-only audit log), `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module), `/api/players/*` (player module), `/api/console/complete` (tab completion for Remote CLI), `/api/modpacks/*` (modpack import, CurseForge, server pack upload), `/api/plugins/*` (plugin search/install), `/api/software/*` (server software versions), `/api/cluster/bootstrap` (cert material for agent setup wizard, gated by cluster token), `/api/services/{name}/state/{manifest,file,sync}` (state sync pull/push for `[group.sync]` services, served on the TLS cluster port, gated by cluster token)
 - Proxy events: `POST /api/proxy/events` — generic proxy event reporting (player connect/disconnect/switch)
 - Player module: `/api/players/online`, `/api/players/history/{uuid}`, `/api/players/info/{uuid}`, `/api/players/stats`
 - WebSocket: `/api/events` (live events), `/api/services/{name}/console` (bidirectional), `/api/console/stream` (Remote CLI: multiplexed command execution, events, screen sessions) — auth via `Authorization` header or `?token=` query param

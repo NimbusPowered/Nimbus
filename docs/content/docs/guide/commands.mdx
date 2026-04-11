@@ -865,7 +865,7 @@ These commands manage multi-node cluster mode. The `cluster` command works regar
 
 Manage cluster mode and load balancer settings from the console without editing config files. Changes are saved to `nimbus.toml` and take effect after restart.
 
-**Syntax:** `cluster <status|enable|disable|token> [subcommand] [args]`
+**Syntax:** `cluster <status|enable|disable|token|cert|bootstrap-url> [subcommand] [args]`
 
 | Subcommand | Description |
 |---|---|
@@ -874,8 +874,13 @@ Manage cluster mode and load balancer settings from the console without editing 
 | `cluster disable` | Disable cluster mode |
 | `cluster token` | Show the current cluster auth token (partially masked) |
 | `cluster token regenerate` | Generate a new cluster token (update all agents!) |
+| `cluster cert` | Show the SHA-256 fingerprint, expiry, and SANs of the current TLS cert |
+| `cluster cert regenerate` | Delete `config/cluster.jks` so a fresh self-signed cert is generated on next restart. **All agents will need to re-run `--setup` to re-pin the new fingerprint.** |
+| `cluster bootstrap-url` | Print the REST URL and cluster token, formatted for copy-paste into the agent setup wizard |
 
-**Tab completion:** `status`, `enable`, `disable`, `token` → `regenerate`.
+**Tab completion:** `status`, `enable`, `disable`, `token` → `regenerate`, `cert` → `regenerate`, `bootstrap-url`.
+
+See [Cluster TLS & Security](/docs/guide/cluster-tls) for the trust-on-first-use flow and cert rotation instructions.
 
 ---
 

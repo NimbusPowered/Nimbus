@@ -2234,6 +2234,108 @@ a1b2c3d4e5f6...
 
 ---
 
+## Cluster Bootstrap
+
+Returns the controller's TLS certificate material so an agent can pin it SSH-style before its first `wss://` connection. Served on **plaintext HTTP** on the REST API port (default 8080) — without this the agent would need to trust the controller cert before it can fetch it, creating a chicken-and-egg problem. Gated by the **cluster token** (not the REST API token) because this is the same secret used to authenticate agents. Cert material is public-key, not secret.
+
+### GET /api/cluster/bootstrap
+
+**Auth:** `Authorization: Bearer <cluster-token>`
+
+```json title="200 Response"
+{
+  "fingerprint": "AA:BB:CC:DD:...",
+  "certPem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n",
+  "wsUrl": "wss://controller.example:8443/cluster",
+  "validUntil": "2036-04-08T10:00:33Z",
+  "sans": ["DNS:localhost", "DNS:controller.example", "IP:127.0.0.1"]
+}
+```
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Cert material returned |
+| 401 | Missing or invalid cluster token |
+| 503 | Cluster mode not enabled, or cluster server not running |
+
+---
+
+## Service State Sync
+
+Endpoints used by the agent to pull canonical service state from the controller on start and push it back on graceful stop (the `[group.sync]` / `[dedicated.sync]` feature). All three are served on the **TLS cluster port** (default 8443) and gated by the **cluster token** as a query parameter, matching the template download pattern.
+
+### GET /api/services/{'{'}name{'}'}/state/manifest
+
+Returns a manifest of the controller's canonical copy for [name]. The agent uses this to compute which files to pull or push.
+
+**Query params:** `?token=<cluster-token>`
+
+```json title="200 Response"
+{
+  "files": {
+    "eula.txt": { "sha256": "ee27072e...", "size": 10 },
+    "plugins/nimbus-sdk.jar": { "sha256": "87280580...", "size": 73275 },
+    "libraries/com/mojang/logging/1.6.11/logging-1.6.11.jar": { "sha256": "5d803eb7...", "size": 20706 }
+  }
+}
+```
+
+Returns an **empty manifest** (not 404) if no canonical state exists yet — the agent treats this as "first start, fall back to template".
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Manifest returned (possibly empty) |
+| 401 | Invalid cluster token |
+
+---
+
+### GET /api/services/{'{'}name{'}'}/state/file/{'{'}path...{'}'}
+
+Streams the raw bytes of a single file in the canonical copy. Used by the agent's pull path for each file that differs from its local cache.
+
+**Query params:** `?token=<cluster-token>`
+
+**Response:** `application/octet-stream` — raw file bytes.
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | File streamed |
+| 400 | Path contains `..` or is invalid |
+| 401 | Invalid cluster token |
+| 404 | File not found in canonical |
+
+---
+
+### POST /api/services/{'{'}name{'}'}/state/sync
+
+Atomic upload of the service's current state. The agent sends a JSON manifest of its target state plus binary parts for every file that differs from the controller's current manifest. The controller stages the upload, validates hashes, and atomically renames staging → canonical on success.
+
+**Query params:** `?token=<cluster-token>`
+
+**Request body:** `multipart/form-data`
+- `manifest` (JSON) — the full [StateManifest] describing what the canonical should look like after sync.
+- `file:<relpath>` (binary, one per file to upload) — bytes of each changed file. The relative path is encoded in the part name.
+
+Max body size: 10 GB. Only one sync may be in progress per service at a time — concurrent pushes are rejected with 409.
+
+```json title="200 Response"
+{
+  "success": true,
+  "filesReceived": 12,
+  "bytesReceived": 4521678,
+  "filesInManifest": 122
+}
+```
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Sync committed |
+| 401 | Invalid cluster token |
+| 409 | Another sync for this service is already in progress |
+| 500 | Sync failed (hash mismatch, IO error, etc.) — staging rolled back |
+
+---
+
 ## Remote CLI
 
 Endpoints used by the [Remote CLI](/docs/guide/remote-cli) (`nimbus-cli`) for tab completion. Command execution and streaming happen over the [WebSocket console stream](./websocket#cli-console-stream).

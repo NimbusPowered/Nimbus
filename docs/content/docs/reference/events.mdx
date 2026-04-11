@@ -281,6 +281,28 @@ Emitted when the scaling engine stops an idle instance.
 
 ---
 
+### PLACEMENT_BLOCKED
+
+Emitted when a service cannot be scheduled because its placement constraints can't be satisfied — typically a `[group.placement] node = "..."` pin to a node that is currently offline, or a `[group.sync] enabled = true` service that needs an agent node but no node is available. Deduped per `(group, reason)` so scaling retry loops don't spam this event.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `group` | string | Group name |
+| `reason` | string | Why the placement failed (e.g., `"pinned node 'worker-1' offline — waiting for node to reconnect"`) |
+
+```json title="PLACEMENT_BLOCKED"
+{
+  "type": "PLACEMENT_BLOCKED",
+  "timestamp": "2025-01-15T15:00:00.000Z",
+  "data": {
+    "group": "Lobby",
+    "reason": "sync service needs an agent node, none available"
+  }
+}
+```
+
+---
+
 ## Player Events
 
 ### PLAYER_CONNECTED
