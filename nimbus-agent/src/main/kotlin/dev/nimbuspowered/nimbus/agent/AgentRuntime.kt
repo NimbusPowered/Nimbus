@@ -310,6 +310,10 @@ class AgentRuntime(
                 }
             }
 
+            is ClusterMessage.TriggerSync -> {
+                processManager.triggerManualSync(msg.serviceName)
+            }
+
             is ClusterMessage.SendCommand -> {
                 scope.launch {
                     val success = processManager.sendCommand(msg.serviceName, msg.command)

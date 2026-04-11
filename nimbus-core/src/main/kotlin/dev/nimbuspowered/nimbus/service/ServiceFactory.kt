@@ -24,6 +24,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 import kotlin.io.path.Path
+import kotlinx.coroutines.sync.withLock
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -50,6 +51,15 @@ class ServiceFactory(
     private val logger = LoggerFactory.getLogger(ServiceFactory::class.java)
     private val configPatcher = ConfigPatcher()
     private val performanceOptimizer = PerformanceOptimizer()
+
+    /**
+     * Serializes slot allocation across concurrent [prepare] calls. Without this, two
+     * simultaneous scale-ups could both see `Lobby-1` in CRASHED state and one would
+     * reuse the slot while the other allocates a fresh `Lobby-2`, breaking name
+     * stability. Held only during name resolution + placeholder registration — the
+     * expensive prepare work happens outside the critical section.
+     */
+    private val slotAllocationMutex = kotlinx.coroutines.sync.Mutex()
 
     private companion object {
         val MODDED_SOFTWARE = setOf(ServerSoftware.FORGE, ServerSoftware.NEOFORGE, ServerSoftware.FABRIC)
@@ -88,52 +98,72 @@ class ServiceFactory(
 
         val software = group.config.group.software
 
-        // Reuse the slot of the lowest-numbered terminal-state service (CRASHED/STOPPED)
-        // instead of advancing to a fresh number. Keeps service names stable across
-        // crash-restart cycles, which matters for sync services (canonical state is
-        // keyed by service name).
-        val reusable = registry.getByGroup(groupName)
-            .filter { it.state == ServiceState.CRASHED || it.state == ServiceState.STOPPED }
-            .minByOrNull { it.name.substringAfterLast('-').toIntOrNull() ?: Int.MAX_VALUE }
-
-        val serviceName: String
-        if (reusable != null) {
-            logger.info("Reusing service slot '{}' (was {})", reusable.name, reusable.state)
-            registry.unregister(reusable.name)
-            serviceName = reusable.name
-        } else {
-            // No reusable slot — allocate the lowest fresh instance number
-            val existing = registry.getByGroup(groupName).map { it.name }.toSet()
-            var instanceNumber = 1
-            while ("$groupName-$instanceNumber" in existing) instanceNumber++
-            serviceName = "$groupName-$instanceNumber"
-        }
-
+        // Atomic slot allocation: reuse the lowest-numbered terminal slot if one exists,
+        // else allocate a fresh number. The lock prevents two concurrent prepare() calls
+        // (scaling engine + migration, or two overlapping scale-ups) from both picking
+        // the same name or both reusing the same slot.
+        val isStatic = group.isStatic
         val port = if (software == ServerSoftware.VELOCITY) {
             portAllocator.allocateProxyPort()
         } else {
             portAllocator.allocateBackendPort()
         }
-
         val templatesDir = Path(config.paths.templates)
         val servicesDir = Path(config.paths.services)
-        val isStatic = group.isStatic
 
-        val workingDirectory = if (isStatic) {
-            servicesDir.resolve("static").resolve(serviceName)
-        } else {
-            val shortUuid = UUID.randomUUID().toString().replace("-", "").take(8)
-            servicesDir.resolve("temp").resolve("${serviceName}_$shortUuid")
+        val allocation = slotAllocationMutex.withLock {
+            // Atomic max-instances check inside the lock (registry.countByGroup counts
+            // active + terminal, but we exclude terminal since those will be reused).
+            val active = registry.getByGroup(groupName)
+                .count { it.state != ServiceState.CRASHED && it.state != ServiceState.STOPPED }
+            if (active >= group.maxInstances) {
+                logger.warn("Cannot start service: group '{}' reached max instances ({}/{})",
+                    groupName, active, group.maxInstances)
+                null
+            } else {
+                val reusable = registry.getByGroup(groupName)
+                    .filter { it.state == ServiceState.CRASHED || it.state == ServiceState.STOPPED }
+                    .minByOrNull { it.name.substringAfterLast('-').toIntOrNull() ?: Int.MAX_VALUE }
+
+                val name: String
+                if (reusable != null) {
+                    logger.info("Reusing service slot '{}' (was {})", reusable.name, reusable.state)
+                    registry.unregister(reusable.name)
+                    name = reusable.name
+                } else {
+                    // No reusable slot — allocate the lowest fresh instance number
+                    val existing = registry.getByGroup(groupName).map { it.name }.toSet()
+                    var instanceNumber = 1
+                    while ("$groupName-$instanceNumber" in existing) instanceNumber++
+                    name = "$groupName-$instanceNumber"
+                }
+
+                val workingDirectory = if (isStatic) {
+                    servicesDir.resolve("static").resolve(name)
+                } else {
+                    val shortUuid = UUID.randomUUID().toString().replace("-", "").take(8)
+                    servicesDir.resolve("temp").resolve("${name}_$shortUuid")
+                }
+
+                val svc = Service(
+                    name = name,
+                    groupName = groupName,
+                    port = port,
+                    initialState = ServiceState.PREPARING,
+                    workingDirectory = workingDirectory,
+                    isStatic = isStatic
+                )
+                // Register immediately inside the lock so the next concurrent prepare()
+                // sees this slot as taken and picks a different one.
+                registry.register(svc)
+                name to svc
+            }
         }
-
-        val service = Service(
-            name = serviceName,
-            groupName = groupName,
-            port = port,
-            initialState = ServiceState.PREPARING,
-            workingDirectory = workingDirectory,
-            isStatic = isStatic
-        )
+        if (allocation == null) {
+            portAllocator.release(port)
+            return null
+        }
+        val (serviceName, service) = allocation
 
         // Ensure template directories exist and JAR is available (auto-download/install if missing)
         val resolvedTemplates = group.config.group.resolvedTemplates
@@ -188,18 +218,14 @@ class ServiceFactory(
             initializeVelocityTemplate(templateDir, jarName)
         }
 
-        // Atomic check-and-register to prevent exceeding max instances under concurrent starts
-        if (!registry.registerIfUnderLimit(service, group.maxInstances)) {
-            logger.warn("Cannot start service: group '{}' reached max instances (concurrent start race avoided)", groupName)
-            portAllocator.release(port)
-            return null
-        }
+        // Registration already done inside the slot-allocation lock above — nothing
+        // else to do here. Concurrent callers that lost the race were rejected there.
         logger.info("Preparing service '{}' on port {}", serviceName, port)
 
         return try {
             val workDir = templateManager.prepareServiceFromStack(
                 templateNames = resolvedTemplates,
-                targetDir = workingDirectory,
+                targetDir = service.workingDirectory,
                 templatesDir = templatesDir,
                 preserveExisting = isStatic
             )

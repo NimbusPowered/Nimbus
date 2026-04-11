@@ -74,6 +74,17 @@ sealed class ClusterMessage {
         val timeoutSeconds: Int = 30
     ) : ClusterMessage()
 
+    /**
+     * Asks the agent to push the current service state to the controller's canonical
+     * store right now, without stopping the service. Sent by the controller in response
+     * to a manual sync-trigger API call (e.g., before a planned migration, or from an
+     * SDK plugin that wants to checkpoint after a major in-game event).
+     */
+    @Serializable @SerialName("TRIGGER_SYNC")
+    data class TriggerSync(
+        val serviceName: String
+    ) : ClusterMessage()
+
     @Serializable @SerialName("SEND_COMMAND")
     data class SendCommand(
         val serviceName: String,

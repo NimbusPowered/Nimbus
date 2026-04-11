@@ -422,6 +422,28 @@ Use `"target": "local"` or omit the target entirely to move a service back to th
 
 ---
 
+### POST /api/services/{'{'}name{'}'}/sync/trigger
+
+Trigger an immediate state sync push from the agent hosting a sync-enabled service back to the controller's canonical store, without stopping the service. Use this to checkpoint after major in-game events (round end, admin save) instead of waiting for the next periodic snapshot. The agent will run the configured `snapshot_flush_command` first (e.g. `save-all flush`), wait `snapshot_flush_wait_ms`, then push the delta.
+
+```json title="Response"
+{
+  "success": true,
+  "message": "Sync trigger sent to node 'worker-2' for service 'BedWars-1'"
+}
+```
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Trigger sent (push runs asynchronously) |
+| 400 | Service is local — sync only applies to services on remote agent nodes |
+| 404 | Service not found |
+| 503 | Target node is offline |
+
+The SDK exposes this via `Nimbus.triggerStateSync()` (self) and `NimbusClient.triggerStateSync(serviceName)` (remote).
+
+---
+
 ### POST /api/services/{'{'}name{'}'}/exec
 
 Execute a command on a service's stdin.
@@ -2000,7 +2022,24 @@ nimbus_services_total 5
 # HELP nimbus_players_total Total players across all services
 # TYPE nimbus_players_total gauge
 nimbus_players_total 36
+# HELP nimbus_sync_canonical_size_bytes Canonical state size on disk per sync-enabled service
+# TYPE nimbus_sync_canonical_size_bytes gauge
+nimbus_sync_canonical_size_bytes{service="BedWars-1"} 104857600
+# HELP nimbus_sync_last_push_bytes Bytes received in the most recent push (delta size)
+# TYPE nimbus_sync_last_push_bytes gauge
+nimbus_sync_last_push_bytes{service="BedWars-1"} 2097152
+# HELP nimbus_sync_last_push_files Files received in the most recent push
+# TYPE nimbus_sync_last_push_files gauge
+nimbus_sync_last_push_files{service="BedWars-1"} 14
+# HELP nimbus_sync_last_push_timestamp Unix timestamp of the most recent successful push
+# TYPE nimbus_sync_last_push_timestamp gauge
+nimbus_sync_last_push_timestamp{service="BedWars-1"} 1744387200
+# HELP nimbus_sync_in_flight 1 if a sync push is currently in progress, 0 otherwise
+# TYPE nimbus_sync_in_flight gauge
+nimbus_sync_in_flight{service="BedWars-1"} 0
 ```
+
+Sync metrics are only exported for services with `[group.sync]` (or `[dedicated.sync]`) enabled, after at least one push has landed.
 
 | Status Code | Description |
 |-------------|-------------|

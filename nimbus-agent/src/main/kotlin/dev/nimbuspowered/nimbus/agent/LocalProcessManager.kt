@@ -340,6 +340,42 @@ class LocalProcessManager(
     }
 
     /**
+     * Public entry point for on-demand sync triggered by the controller (via TriggerSync
+     * cluster message) or the SDK plugin. Runs the same push flow as periodic snapshots
+     * — optional stdin flush command, wait, then push.
+     */
+    fun triggerManualSync(serviceName: String) {
+        val persisted = stateStore.load().services.firstOrNull { it.serviceName == serviceName }
+        if (persisted == null) {
+            logger.warn("Manual sync '{}' skipped: service not found in state store", serviceName)
+            return
+        }
+        if (!persisted.syncEnabled || stateSyncClient == null) {
+            logger.warn("Manual sync '{}' skipped: sync not enabled for this service", serviceName)
+            return
+        }
+        val handle = handles[serviceName]
+        if (handle == null || !handle.isAlive()) {
+            logger.warn("Manual sync '{}' skipped: service is not running", serviceName)
+            return
+        }
+        scope.launch {
+            try {
+                if (persisted.snapshotFlushCommand.isNotBlank()) {
+                    handle.sendCommand(persisted.snapshotFlushCommand)
+                    delay(persisted.snapshotFlushWaitMs)
+                }
+                logger.info("Manual sync '{}' → push", serviceName)
+                val workDir = workDirs[serviceName] ?: Path.of(persisted.workDir)
+                stateSyncClient.push(serviceName, workDir, persisted.syncExcludes)
+                logger.info("Manual sync '{}' complete", serviceName)
+            } catch (e: Exception) {
+                logger.error("Manual sync '{}' failed: {}", serviceName, e.message, e)
+            }
+        }
+    }
+
+    /**
      * Pushes the current workdir back to the controller's canonical store if sync is
      * enabled for this service. Called from both explicit stop and clean-exit paths.
      * Errors are logged but don't throw — the caller shouldn't care whether push

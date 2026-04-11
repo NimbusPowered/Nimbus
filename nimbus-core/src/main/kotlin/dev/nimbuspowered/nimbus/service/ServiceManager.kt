@@ -278,6 +278,29 @@ class ServiceManager(
     }
 
     /**
+     * Tells the agent hosting [serviceName] to push the service's state to the
+     * controller's canonical store immediately. Used by operators for checkpoint
+     * moments (before a planned migration, after a major in-game event) and by
+     * the SDK plugin's `triggerStateSync()` helper.
+     *
+     * Returns true if the TRIGGER_SYNC message was sent, false if the service isn't
+     * on a remote node or the node is unreachable.
+     */
+    suspend fun triggerSync(serviceName: String): Boolean {
+        val service = registry.get(serviceName) ?: return false
+        if (service.nodeId == "local") return false
+        val node = nodeManager?.getNode(service.nodeId) ?: return false
+        if (!node.isConnected) return false
+        return try {
+            node.send(dev.nimbuspowered.nimbus.protocol.ClusterMessage.TriggerSync(serviceName))
+            true
+        } catch (e: Exception) {
+            logger.error("Failed to send TRIGGER_SYNC for '{}' to node '{}': {}", serviceName, service.nodeId, e.message)
+            false
+        }
+    }
+
+    /**
      * One-shot placement: start a service on a specific node regardless of the
      * group's configured placement.node. Used by [migrateService].
      */

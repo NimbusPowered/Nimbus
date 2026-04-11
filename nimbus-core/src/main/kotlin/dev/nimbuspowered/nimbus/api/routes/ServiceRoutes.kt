@@ -209,6 +209,22 @@ fun Route.serviceRoutes(
             }
         }
 
+        // POST /api/services/{name}/sync/trigger — Force a state sync push now
+        post("{name}/sync/trigger") {
+            val name = call.parameters["name"]!!
+            val service = registry.get(name)
+                ?: return@post call.respond(HttpStatusCode.NotFound, apiError("Service '$name' not found", ApiErrors.SERVICE_NOT_FOUND))
+            if (service.nodeId == "local") {
+                return@post call.respond(HttpStatusCode.BadRequest, apiError("Service '$name' is local — state sync only applies to services on remote nodes", ApiErrors.INVALID_INPUT))
+            }
+            val sent = serviceManager.triggerSync(name)
+            if (sent) {
+                call.respond(ApiMessage(true, "Sync trigger sent to node '${service.nodeId}' for service '$name'"))
+            } else {
+                call.respond(HttpStatusCode.InternalServerError, apiError("Failed to send sync trigger for '$name'", ApiErrors.INTERNAL_ERROR))
+            }
+        }
+
         // POST /api/services/{name}/migrate — Move a service to a different node
         post("{name}/migrate") {
             val name = call.parameters["name"]!!
