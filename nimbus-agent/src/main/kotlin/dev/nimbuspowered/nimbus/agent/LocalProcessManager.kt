@@ -16,7 +16,8 @@ class LocalProcessManager(
     private val baseDir: Path,
     private val scope: CoroutineScope,
     private val javaResolver: JavaResolver,
-    private val stateStore: AgentStateStore
+    private val stateStore: AgentStateStore,
+    private val stateSyncClient: StateSyncClient? = null
 ) {
     private val logger = LoggerFactory.getLogger(LocalProcessManager::class.java)
     private val handles = ConcurrentHashMap<String, LocalProcessHandle>()
@@ -31,21 +32,40 @@ class LocalProcessManager(
             val servicesDir = baseDir.resolve("services")
             val resolvedTemplates = msg.templateNames.ifEmpty { listOf(msg.templateName) }
 
-            val workDir = if (msg.isStatic) {
-                servicesDir.resolve("static").resolve(msg.serviceName)
-            } else {
-                val uuid = UUID.randomUUID().toString().replace("-", "").take(8)
-                servicesDir.resolve("temp").resolve("${msg.serviceName}_$uuid")
+            // Sync-enabled services live in services/sync/<name>/ — preserved across
+            // restarts like static services, but additionally pulled from controller
+            // on each start and pushed back on each graceful stop.
+            val workDir = when {
+                msg.syncEnabled -> servicesDir.resolve("sync").resolve(msg.serviceName)
+                msg.isStatic -> servicesDir.resolve("static").resolve(msg.serviceName)
+                else -> {
+                    val uuid = UUID.randomUUID().toString().replace("-", "").take(8)
+                    servicesDir.resolve("temp").resolve("${msg.serviceName}_$uuid")
+                }
             }
             workDir.createDirectories()
 
-            // Copy template stack to work dir (first = base, rest = overlays)
-            val primaryDir = templatesDir.resolve(resolvedTemplates.first())
-            copyTemplate(primaryDir, workDir, msg.isStatic)
-            for (tmpl in resolvedTemplates.drop(1)) {
-                val overlayDir = templatesDir.resolve(tmpl)
-                if (overlayDir.exists()) {
-                    copyTemplate(overlayDir, workDir, preserveExisting = false)
+            // State sync pull: if enabled, try to pull canonical state first.
+            // If controller has no canonical yet (first start), fall back to template copy.
+            val pulledFromCanonical = if (msg.syncEnabled && stateSyncClient != null) {
+                try {
+                    stateSyncClient.pull(msg.serviceName, workDir, msg.syncExcludes)
+                } catch (e: Exception) {
+                    logger.error("State sync pull failed for '{}': {} — falling back to template", msg.serviceName, e.message)
+                    false
+                }
+            } else false
+
+            // Copy template stack if we didn't pull from canonical.
+            // For sync services, this only runs on first start ever.
+            if (!pulledFromCanonical) {
+                val primaryDir = templatesDir.resolve(resolvedTemplates.first())
+                copyTemplate(primaryDir, workDir, preserveExisting = msg.isStatic || msg.syncEnabled)
+                for (tmpl in resolvedTemplates.drop(1)) {
+                    val overlayDir = templatesDir.resolve(tmpl)
+                    if (overlayDir.exists()) {
+                        copyTemplate(overlayDir, workDir, preserveExisting = false)
+                    }
                 }
             }
 
@@ -89,7 +109,8 @@ class LocalProcessManager(
             workDirs[msg.serviceName] = workDir
             if (msg.isStatic) staticServices.add(msg.serviceName)
 
-            // Persist state for crash recovery
+            // Persist state for crash recovery (includes sync metadata so reconnected
+            // agents know to push on stop even across restarts)
             stateStore.addService(PersistedService(
                 serviceName = msg.serviceName,
                 groupName = msg.groupName,
@@ -100,7 +121,9 @@ class LocalProcessManager(
                 templateName = msg.templateName,
                 software = msg.software,
                 memory = msg.memory,
-                startedAtEpochMs = System.currentTimeMillis()
+                startedAtEpochMs = System.currentTimeMillis(),
+                syncEnabled = msg.syncEnabled,
+                syncExcludes = msg.syncExcludes
             ))
 
             logger.info("Started service '{}' on port {}", msg.serviceName, msg.port)
@@ -115,6 +138,10 @@ class LocalProcessManager(
         val handle = handles[serviceName] ?: return
         handle.stopGracefully(timeoutSeconds.seconds)
         handle.destroy()
+
+        // State sync push before we forget the service's metadata
+        pushStateIfEnabled(serviceName)
+
         handles.remove(serviceName)
         stateStore.removeService(serviceName)
     }
@@ -140,6 +167,27 @@ class LocalProcessManager(
         return staticServices.mapNotNull { name ->
             workDirs[name]?.let { name to it }
         }.toMap()
+    }
+
+    /**
+     * Returns all currently-running services with enough metadata for the controller
+     * to rebuild its registry after a restart. Pulled from the persisted state store
+     * (for groupName / port) joined with the live [handles] map (for liveness / pid).
+     *
+     * Called from the runtime after every (re)authentication with the controller.
+     */
+    fun getRunningServices(): List<RecoveredService> {
+        val persisted = stateStore.load().services.associateBy { it.serviceName }
+        return handles.mapNotNull { (name, handle) ->
+            if (!handle.isAlive()) return@mapNotNull null
+            val meta = persisted[name] ?: return@mapNotNull null
+            RecoveredService(
+                serviceName = name,
+                groupName = meta.groupName,
+                port = meta.port,
+                pid = handle.pid() ?: meta.pid
+            )
+        }
     }
 
     fun getServiceHeartbeats(): List<ServiceHeartbeat> {
@@ -176,6 +224,10 @@ class LocalProcessManager(
     }
 
     fun cleanup(serviceName: String, isStatic: Boolean) {
+        // State sync push: fires on clean exit (player typed /stop, process died normally).
+        // We push BEFORE removing state because we need the workDir + syncExcludes.
+        pushStateIfEnabled(serviceName)
+
         handles.remove(serviceName)
         stateStore.removeService(serviceName)
         if (!isStatic) {
@@ -187,6 +239,33 @@ class LocalProcessManager(
                     logger.warn("Failed to clean up work dir: {}", e.message)
                 }
             }
+        } else {
+            // For static/sync services we keep the workDir as a cache for next start
+            workDirs.remove(serviceName)
+        }
+    }
+
+    /**
+     * Pushes the current workdir back to the controller's canonical store if sync is
+     * enabled for this service. Called from both explicit stop and clean-exit paths.
+     * Errors are logged but don't throw — the caller shouldn't care whether push
+     * succeeded.
+     */
+    private fun pushStateIfEnabled(serviceName: String) {
+        val persisted = stateStore.load().services.firstOrNull { it.serviceName == serviceName } ?: return
+        if (!persisted.syncEnabled || stateSyncClient == null) return
+        val workDir = workDirs[serviceName] ?: java.nio.file.Path.of(persisted.workDir)
+        if (!workDir.exists()) {
+            logger.warn("State sync push '{}' skipped: workDir does not exist", serviceName)
+            return
+        }
+        try {
+            logger.info("State sync push '{}' to controller...", serviceName)
+            stateSyncClient.push(serviceName, workDir, persisted.syncExcludes)
+            logger.info("State sync push '{}' complete", serviceName)
+        } catch (e: Exception) {
+            logger.error("State sync push '{}' FAILED: {} — canonical copy is STALE on controller",
+                serviceName, e.message, e)
         }
     }
 

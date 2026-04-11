@@ -1,5 +1,6 @@
 package dev.nimbuspowered.nimbus.console.commands
 
+import dev.nimbuspowered.nimbus.cluster.ClusterServer
 import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.console.Command
@@ -15,11 +16,12 @@ class ClusterCommand(
     private val config: NimbusConfig,
     private val configPath: Path,
     private val nodeManager: NodeManager?,
-    private val registry: ServiceRegistry
+    private val registry: ServiceRegistry,
+    private val clusterServer: ClusterServer? = null
 ) : Command {
     override val name = "cluster"
     override val description = "Manage cluster mode (multi-node)"
-    override val usage = "cluster <status|enable|disable|token> [args]"
+    override val usage = "cluster <status|enable|disable|token|cert|bootstrap-url> [args]"
 
     override suspend fun execute(args: List<String>, output: CommandOutput): Boolean {
         if (args.isEmpty() || args[0].lowercase() == "status") {
@@ -86,6 +88,15 @@ class ClusterCommand(
                     }
                 }
             }
+            "cert" -> {
+                val certArgs = args.drop(1)
+                if (certArgs.isNotEmpty() && certArgs[0].lowercase() == "regenerate") {
+                    handleCertRegenerate(output)
+                } else {
+                    handleCertShow(output)
+                }
+            }
+            "bootstrap-url", "bootstrap" -> handleBootstrapUrl(output)
             else -> {
                 output.info("Unknown subcommand: ${args[0]}")
                 output.text("")
@@ -95,6 +106,9 @@ class ClusterCommand(
                 output.text(ConsoleFormatter.commandEntry("cluster disable", "Disable cluster mode", padWidth = 30))
                 output.text(ConsoleFormatter.commandEntry("cluster token", "Show auth token", padWidth = 30))
                 output.text(ConsoleFormatter.commandEntry("cluster token regenerate", "Generate a new auth token", padWidth = 30))
+                output.text(ConsoleFormatter.commandEntry("cluster cert", "Show TLS cert fingerprint + SANs", padWidth = 30))
+                output.text(ConsoleFormatter.commandEntry("cluster cert regenerate", "Delete cluster.jks (re-trust required)", padWidth = 30))
+                output.text(ConsoleFormatter.commandEntry("cluster bootstrap-url", "Print agent setup URL + token", padWidth = 30))
             }
         }
         return true
@@ -119,6 +133,80 @@ class ClusterCommand(
         } else {
             output.text(ConsoleFormatter.field("Status", ConsoleFormatter.enabledDisabled(false)))
             output.info("Use 'cluster enable' to activate")
+        }
+    }
+
+    private fun handleCertShow(output: CommandOutput) {
+        if (!config.cluster.enabled) {
+            output.info("Cluster mode is not enabled.")
+            return
+        }
+        val info = clusterServer?.certInfo
+        if (info == null) {
+            output.info("Cluster server is not running (TLS may be disabled or failed to start).")
+            return
+        }
+        output.header("Cluster TLS Certificate")
+        output.text(ConsoleFormatter.field("Fingerprint", info.fingerprint))
+        output.text(ConsoleFormatter.field("Valid Until", info.validUntil))
+        if (info.sans.isNotEmpty()) {
+            output.text(ConsoleFormatter.field("SANs", info.sans.joinToString(", ")))
+        }
+        output.info("Agents pin this fingerprint via 'trusted_fingerprint' in agent.toml")
+        output.info("(the setup wizard does this automatically via /api/cluster/bootstrap).")
+    }
+
+    private fun handleCertRegenerate(output: CommandOutput) {
+        if (!config.cluster.enabled) {
+            output.info("Cluster mode is not enabled.")
+            return
+        }
+        val keystorePath = if (config.cluster.keystorePath.isNotBlank()) {
+            Path.of(config.cluster.keystorePath)
+        } else {
+            Path.of("config", "cluster.jks")
+        }
+        if (!java.nio.file.Files.exists(keystorePath)) {
+            output.info("No keystore found at $keystorePath — a fresh one will be generated on next start.")
+            return
+        }
+        output.info("Regenerating the cluster certificate.")
+        output.info("All agents will need to re-run their setup wizard to re-trust the new cert.")
+        try {
+            java.nio.file.Files.delete(keystorePath)
+            output.success("Deleted $keystorePath")
+            output.info("Restart Nimbus to generate a new certificate.")
+        } catch (e: Exception) {
+            output.error("Failed to delete keystore: ${e.message}")
+        }
+    }
+
+    private fun handleBootstrapUrl(output: CommandOutput) {
+        if (!config.cluster.enabled) {
+            output.info("Cluster mode is not enabled. Run 'cluster enable' first.")
+            return
+        }
+        if (config.cluster.token.isBlank()) {
+            output.info("No cluster token configured. Run 'cluster enable' or 'cluster token regenerate'.")
+            return
+        }
+
+        val apiHost = when {
+            config.api.bind.isBlank() -> "127.0.0.1"
+            config.api.bind == "0.0.0.0" -> {
+                try { java.net.InetAddress.getLocalHost().hostName } catch (_: Exception) { "127.0.0.1" }
+            }
+            else -> config.api.bind
+        }
+        val url = "http://$apiHost:${config.api.port}"
+
+        output.header("Agent Bootstrap")
+        output.text(ConsoleFormatter.field("REST URL", ConsoleFormatter.CYAN + url + ConsoleFormatter.RESET))
+        output.text(ConsoleFormatter.field("Token", ConsoleFormatter.CYAN + config.cluster.token + ConsoleFormatter.RESET))
+        output.text("")
+        output.info("Paste these into the agent setup wizard (java -jar nimbus-agent.jar).")
+        if (config.api.bind == "0.0.0.0") {
+            output.info("Note: api.bind is 0.0.0.0 — if agents connect remotely, replace the host with the public IP.")
         }
     }
 

@@ -25,7 +25,9 @@ data class PersistedService(
     val templateName: String,
     val software: String,
     val memory: String,
-    val startedAtEpochMs: Long
+    val startedAtEpochMs: Long,
+    val syncEnabled: Boolean = false,
+    val syncExcludes: List<String> = emptyList()
 )
 
 @Serializable

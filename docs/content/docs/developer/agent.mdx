@@ -85,24 +85,35 @@ java -jar nimbus-agent/build/libs/nimbus-agent-<version>-all.jar
 
 # Run with CLI args (skip wizard)
 java -jar nimbus-agent-<version>-all.jar \
-  --controller ws://10.0.0.1:8443/cluster \
+  --controller wss://10.0.0.1:8443/cluster \
   --token your-cluster-token \
   --name worker-1 \
   --max-memory 16G \
   --max-services 20
+
+# Force the setup wizard even when agent.toml exists
+java -jar nimbus-agent-<version>-all.jar --setup
 ```
 
 ## Configuration
 
-The agent is configured via `agent.toml` in the working directory:
+The agent is configured via `agent.toml` in the working directory. On first run, the setup wizard calls the controller's `/api/cluster/bootstrap` endpoint to fetch the TLS fingerprint and fills this file in for you.
 
 ```toml title="agent.toml"
 [agent]
-controller = "ws://127.0.0.1:8443/cluster"
+controller = "wss://127.0.0.1:8443/cluster"
 token = "your-cluster-token"
 node_name = "worker-1"
 max_memory = "8G"
 max_services = 10
+
+# TLS: pinned controller cert fingerprint (set by the wizard, preferred).
+trusted_fingerprint = "AA:BB:CC:DD:EE:FF:..."
+# tls_verify = false only for local dev (MITM-vulnerable).
+tls_verify = true
+# Advanced: supply a JKS/PKCS12 truststore for CA-issued certs.
+truststore_path = ""
+truststore_password = ""
 
 # Optional: specify paths to Java installations.
 # Leave empty for auto-detection / auto-download from Adoptium.
@@ -114,13 +125,21 @@ java_21 = ""
 
 | Key | Default | Description |
 |---|---|---|
-| `controller` | `ws://127.0.0.1:8443/cluster` | Controller WebSocket URL |
+| `controller` | `wss://127.0.0.1:8443/cluster` | Controller WebSocket URL |
 | `token` | (required) | Cluster auth token (matches controller config) |
 | `node_name` | hostname | Display name for this node |
 | `max_memory` | auto-detected | Maximum memory this node can allocate to services |
 | `max_services` | auto-detected | Maximum concurrent services on this node |
+| `trusted_fingerprint` | `""` | SHA-256 fingerprint of the controller's TLS cert. Takes precedence over truststore and system CAs. Set by the setup wizard. |
+| `tls_verify` | `true` | If `false`, accept any cert (DEV ONLY). Ignored when `trusted_fingerprint` is set. |
+| `truststore_path` | `""` | Path to a JKS/PKCS12 truststore (advanced, for CA-issued certs). |
+| `truststore_password` | `""` | Password for the truststore. |
+
+**TLS trust precedence:** `trusted_fingerprint` → `truststore_path` → system CAs → `tls_verify = false` (trust all).
 
 Memory and max services are auto-detected from the system if not specified (total RAM minus 2 GB for OS, one service per GB).
+
+See [Cluster TLS & Security](/docs/guide/cluster-tls) for the full trust model, cert rotation flow, and troubleshooting.
 
 ## Next steps
 

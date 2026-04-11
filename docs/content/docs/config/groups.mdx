@@ -129,6 +129,114 @@ Instance lifecycle management.
 
 ---
 
+## `[group.placement]`
+
+Controls where services in this group run in a multi-node cluster. Ignored when cluster mode is disabled.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `node` | String | `""` | Placement target: `""` = any available node (default scheduler), `"local"` = controller only, `"<node_name>"` = pin to a specific agent node. |
+| `fallback` | String | `"wait"` | What happens when the pinned node is offline. `"wait"` = refuse to start until the node is back; `"local"` = start on the controller instead (UNSAFE for stateful groups — data diverges); `"fail"` = log an error and skip. |
+
+**Pinning stateful groups to a node.** You can assign a STATIC group (e.g. Lobby, Survival) to a specific agent by setting `node = "worker-1"`. The service's data directory lives on the agent's filesystem under `services/static/<name>/` and is preserved across restarts by the agent's existing static-workdir handling.
+
+<Callout type="warn">
+For pinned stateful services, **keep the default `fallback = "wait"`**. Setting `fallback = "local"` causes Nimbus to start a second copy of the service on the controller if the pinned agent is offline, which creates divergent data on two hosts. Automated recovery is a separate (not-yet-implemented) migration flow.
+</Callout>
+
+**Initial data seeding.** The first time a pinned static service starts on an agent, the agent downloads the group template and creates a fresh workdir. If you want to seed the workdir with existing data (e.g., an existing world), copy the data into `services/static/<name>/` on the agent **before** the first start — Nimbus will not overwrite files that already exist.
+
+```toml title="config/groups/lobby.toml"
+[group]
+name = "Lobby"
+type = "STATIC"
+template = "lobby"
+software = "PAPER"
+version = "1.21.4"
+
+[group.placement]
+node = "worker-1"     # pin to this agent
+fallback = "wait"     # don't fall back to controller (data integrity)
+```
+
+---
+
+## `[group.sync]`
+
+State sync policy for stateful services that should **float between nodes** while keeping the canonical copy of their working directory on the controller. Enables multi-node deployment of services like Lobbies and Survival worlds without manually distributing data.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `false` | When true, the controller stores the service's canonical working directory under `services/state/<name>/`. On every start, the agent pulls (only changed files). On every graceful stop, the agent pushes changes back. |
+| `excludes` | `List<String>` | see below | rsync-style glob patterns. Matched files are neither uploaded nor deleted during reconcile. |
+
+**Default excludes:**
+```toml
+excludes = ["logs/", "cache/", "crash-reports/", "*.tmp", "*.lock", "*.pid", "session.lock"]
+```
+
+### How it works
+
+1. **On start** (remote node): agent fetches controller's manifest, compares against its local cached copy, downloads only the files that changed (or everything on the first start), reconciles local state to match canonical.
+2. **While running**: data lives on the agent's filesystem. Controller doesn't interfere — MC process writes normally.
+3. **On graceful stop**: agent computes delta between its current state and controller's manifest, uploads only the changed files in one multipart request, controller atomically commits staging → canonical.
+4. **On crash** (not graceful): **no push happens**. Controller's canonical copy stays at the last successful push. Any changes since then are lost on the dead node.
+
+### Data loss model
+
+| Scenario | What you keep | What you lose |
+|---|---|---|
+| Planned restart (via `service stop`, `scaling down`, config reload) | Everything up to the stop moment | Nothing |
+| Node failure / crash / kill | Everything up to the last graceful stop | Runtime changes since the last stop |
+| Network blip during push | Controller stays at pre-push state (atomic staging) | Current session's changes (until next successful push) |
+
+<Callout type="warn">
+Unplanned crashes lose data since the last graceful stop. If your use case can't tolerate any data loss, use **pinning** (`[group.placement] node = "<id>"`) instead — data stays on the assigned agent, no loss, but also no automatic migration.
+</Callout>
+
+### Sync vs. Pin
+
+| Aspect | `sync.enabled = true` | `placement.node = "<id>"` |
+|---|---|---|
+| Data location | Controller (canonical) + node (cache) | Node only |
+| Service mobility | Moves freely across nodes | Stuck to one node |
+| Crash loss window | Since last graceful stop | Zero (data stays on the same disk) |
+| Controller restart | Safe (canonical preserved) | Safe (data on node) |
+| Permanent node loss | Auto-recovers on any other node | Requires manual recovery |
+| Bandwidth | Delta upload on every stop | None |
+
+Setting both is a configuration error — sync wins and a warning is logged.
+
+### Example
+
+```toml title="config/groups/lobby.toml"
+[group]
+name = "Lobby"
+type = "STATIC"
+template = "lobby"
+software = "PAPER"
+version = "1.21.4"
+
+[group.sync]
+enabled = true
+excludes = [
+    "logs/",
+    "cache/",
+    "crash-reports/",
+    "plugins/.paper-remapped/",
+    "*.tmp",
+    "session.lock"
+]
+```
+
+### Bandwidth optimization
+
+Sync is **incremental**: the agent's first step is fetching the controller's manifest (a JSON list of `path → sha256`), comparing against its local copy, and only downloading or uploading files that actually differ. For a 5 GB world where only a few chunks changed during the last session, push transfers only the changed `.mca` files — typically tens of MB.
+
+The first start ever (or after `nimbus cluster state reset <name>`) is a full transfer because there's nothing to compare against.
+
+---
+
 ## `[group.jvm]`
 
 JVM and performance optimization settings.

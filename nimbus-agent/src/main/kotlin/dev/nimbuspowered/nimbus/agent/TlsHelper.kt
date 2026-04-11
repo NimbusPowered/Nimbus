@@ -1,13 +1,92 @@
 package dev.nimbuspowered.nimbus.agent
 
+import io.ktor.client.engine.cio.*
+import org.slf4j.LoggerFactory
 import java.io.FileInputStream
 import java.nio.file.Path
 import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 object TlsHelper {
+
+    /**
+     * Resolves the TrustManager that should be used for all HTTPS/WSS connections
+     * from the agent to the controller. Precedence:
+     *   trusted_fingerprint > truststore > system CAs (null) > trust-all (when tls_verify=false).
+     *
+     * Returning null means "use the JDK default truststore".
+     */
+    fun resolveTrustManager(agent: AgentDefinition): X509TrustManager? {
+        val log = LoggerFactory.getLogger(TlsHelper::class.java)
+        return when {
+            agent.trustedFingerprint.isNotBlank() -> {
+                log.debug("Using pinned fingerprint trust manager")
+                pinnedTrustManager(agent.trustedFingerprint)
+            }
+            agent.truststorePath.isNotBlank() -> {
+                log.debug("Using custom truststore at {}", agent.truststorePath)
+                trustManagerFor(loadTrustStore(agent.truststorePath, agent.truststorePassword))
+            }
+            !agent.tlsVerify -> {
+                log.warn("TLS verification disabled — accepting all certificates (DEV ONLY, MITM-vulnerable)")
+                trustAllManager()
+            }
+            else -> null
+        }
+    }
+
+
+    private val logger = LoggerFactory.getLogger(TlsHelper::class.java)
+
+    /**
+     * Computes the SHA-256 fingerprint of a certificate as uppercase hex with colons
+     * (e.g. "AA:BB:CC:..."). Matches the format logged by the controller.
+     */
+    fun fingerprintOf(cert: X509Certificate): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(cert.encoded).joinToString(":") { "%02X".format(it) }
+    }
+
+    /**
+     * Returns a TrustManager that trusts only certificates whose SHA-256 fingerprint
+     * matches [expectedFingerprint]. Skips hostname verification and CA path validation
+     * entirely — fingerprint pinning is the sole trust anchor.
+     *
+     * Logs the actually-seen fingerprint on every check (succeed or fail) so users can
+     * copy it into agent.toml when setting up trust.
+     */
+    fun pinnedTrustManager(expectedFingerprint: String): X509TrustManager {
+        val normalizedExpected = expectedFingerprint.trim().uppercase()
+        return object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server presented no certificate chain")
+                }
+                val leaf = chain[0]
+                val actual = fingerprintOf(leaf).uppercase()
+                logger.info("Server certificate fingerprint: {}", actual)
+                if (actual != normalizedExpected) {
+                    logger.error("Fingerprint mismatch!")
+                    logger.error("  Expected: {}", normalizedExpected)
+                    logger.error("  Got:      {}", actual)
+                    logger.error("  If the controller cert was rotated, re-run the agent setup wizard:")
+                    logger.error("    java -jar nimbus-agent.jar --setup")
+                    throw CertificateException(
+                        "Controller cert fingerprint mismatch — expected $normalizedExpected but got $actual"
+                    )
+                }
+            }
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+    }
+
 
     /**
      * Loads a trust store from disk, or returns null to use the system default.

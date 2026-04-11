@@ -43,6 +43,7 @@ class NimbusConsole(
     private val api: NimbusApi? = null,
     private val proxySyncManager: dev.nimbuspowered.nimbus.proxy.ProxySyncManager? = null,
     private val nodeManager: NodeManager? = null,
+    private val clusterServer: dev.nimbuspowered.nimbus.cluster.ClusterServer? = null,
     private val loadBalancer: TcpLoadBalancer? = null,
     private val configPath: Path? = null,
     private val stressTestManager: StressTestManager? = null,
@@ -135,7 +136,7 @@ class NimbusConsole(
         }
         if (configPath != null) {
             dispatcher.register(LbCommand(config, configPath, loadBalancer, registry, groupManager))
-            dispatcher.register(ClusterCommand(config, configPath, nodeManager, registry))
+            dispatcher.register(ClusterCommand(config, configPath, nodeManager, registry, clusterServer))
         }
         if (stressTestManager != null) {
             dispatcher.register(StressCommand(stressTestManager, registry, groupManager))

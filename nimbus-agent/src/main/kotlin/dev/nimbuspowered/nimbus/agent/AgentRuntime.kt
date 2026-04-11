@@ -21,26 +21,38 @@ class AgentRuntime(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val javaResolver = JavaResolver(config.java.toMap(), baseDir)
     private val stateStore = AgentStateStore(baseDir)
-    private val processManager = LocalProcessManager(baseDir, scope, javaResolver, stateStore)
+    private val trustManager = TlsHelper.resolveTrustManager(config.agent).also { tm ->
+        when {
+            config.agent.trustedFingerprint.isNotBlank() ->
+                logger.info("TLS: pinning controller cert by SHA-256 fingerprint ({}...)",
+                    config.agent.trustedFingerprint.take(23))
+            config.agent.truststorePath.isNotBlank() ->
+                logger.info("TLS: using custom truststore at {}", config.agent.truststorePath)
+            tm == null -> logger.info("TLS: using system default truststore")
+        }
+    }
+    private val controllerRestBaseUrl: String =
+        config.agent.controller.replace("ws://", "http://").replace("wss://", "https://").removeSuffix("/cluster")
     private val templateDownloader = TemplateDownloader(
         baseDir.resolve("templates"),
-        config.agent.controller.replace("ws://", "http://").replace("wss://", "https://").removeSuffix("/cluster"),
-        config.agent.token
+        controllerRestBaseUrl,
+        config.agent.token,
+        trustManager
     )
-    private val client = HttpClient(CIO) {
-        install(WebSockets)
-        engine {
-            https {
-                if (!config.agent.tlsVerify) {
-                    // Dev mode: trust all certificates (self-signed)
-                    trustManager = TlsHelper.trustAllManager()
-                    logger.warn("TLS verification disabled — accepting all certificates (dev only)")
-                } else if (config.agent.truststorePath.isNotBlank()) {
-                    // Custom trust store
-                    val ts = TlsHelper.loadTrustStore(config.agent.truststorePath, config.agent.truststorePassword)
-                    trustManager = TlsHelper.trustManagerFor(ts)
+    private val stateSyncClient = StateSyncClient(
+        controllerRestBaseUrl,
+        config.agent.token,
+        trustManager
+    )
+    private val processManager = LocalProcessManager(baseDir, scope, javaResolver, stateStore, stateSyncClient)
+    private val client = run {
+        val tm = trustManager
+        HttpClient(CIO) {
+            install(WebSockets)
+            engine {
+                https {
+                    if (tm != null) this.trustManager = tm
                 }
-                // else: use system default trust store
             }
         }
     }
@@ -50,6 +62,12 @@ class AgentRuntime(
     private var recoveredServices: List<LocalProcessManager.RecoveredService> = emptyList()
 
     suspend fun start() {
+        // Validate TLS config before doing anything expensive
+        if (!validateTlsConfig()) {
+            running = false
+            return
+        }
+
         // Ensure directories
         val templatesDir = baseDir.resolve("templates")
         val servicesDir = baseDir.resolve("services")
@@ -72,13 +90,54 @@ class AgentRuntime(
         }
 
         // Connection loop with reconnection
+        var consecutiveSslFailures = 0
         while (running) {
+            var wasSslFailure = false
             try {
                 connectAndRun()
+                consecutiveSslFailures = 0
+            } catch (e: javax.net.ssl.SSLHandshakeException) {
+                wasSslFailure = true
+                consecutiveSslFailures++
+                logger.error("TLS handshake failed: {}", e.message)
+                logger.error("  The controller cert was not trusted.")
+                logger.error("  If this is a cert rotation, re-run setup: java -jar nimbus-agent.jar --setup")
+                logger.error("  If the wrong fingerprint is pinned, edit agent.toml and clear 'trusted_fingerprint'.")
+            } catch (e: java.security.cert.CertificateException) {
+                wasSslFailure = true
+                consecutiveSslFailures++
+                logger.error("Certificate validation failed: {}", e.message)
+                logger.error("  Re-run setup if the controller cert was rotated: java -jar nimbus-agent.jar --setup")
+            } catch (e: java.net.ConnectException) {
+                val url = config.agent.controller
+                logger.error("Connection refused: {}", e.message ?: url)
+                if ("0.0.0.0" in url) {
+                    logger.error("  Hint: '0.0.0.0' is a bind address, not a connect address.")
+                    logger.error("        Change 'controller' in agent.toml to the controller's real IP or hostname.")
+                } else {
+                    logger.error("  Hint: Is the controller running? Is the port open in the firewall?")
+                }
+            } catch (e: java.net.UnknownHostException) {
+                logger.error("Cannot resolve host in controller URL: {}", e.message)
+                logger.error("  Hint: Check that the hostname is correct and DNS is working.")
             } catch (e: Exception) {
-                logger.error("Connection lost: {}. Reconnecting in 5s...", e.message)
+                logger.error("Connection lost: {}", e.message ?: e::class.simpleName)
             }
-            if (running) delay(5000)
+
+            if (!running) break
+
+            val delayMs = when {
+                // SSL errors don't fix themselves — slow down and eventually give up.
+                consecutiveSslFailures >= 5 -> {
+                    logger.error("Too many consecutive TLS failures — aborting agent.")
+                    running = false
+                    break
+                }
+                wasSslFailure -> 30_000L
+                else -> 5_000L
+            }
+            logger.info("Reconnecting in {}s...", delayMs / 1000)
+            delay(delayMs)
         }
     }
 
@@ -115,9 +174,15 @@ class AgentRuntime(
             }
             logger.info("Authenticated with controller as '{}'", config.agent.nodeName)
 
-            // Notify controller about recovered services
-            if (recoveredServices.isNotEmpty()) {
-                for (svc in recoveredServices) {
+            // Full service sync: on every (re)auth, tell the controller exactly which
+            // services are alive on this node. Covers three cases in one code path:
+            //   1. Fresh agent startup with recovered services from state store.
+            //   2. Reconnect to the same controller after a transient WS drop.
+            //   3. Reconnect after controller restart — controller has lost its in-memory
+            //      registry and needs the agent to re-seed it.
+            val running = processManager.getRunningServices()
+            if (running.isNotEmpty()) {
+                for (svc in running) {
                     send(Frame.Text(clusterJson.encodeToString(ClusterMessage.serializer(),
                         ClusterMessage.ServiceStateChanged(
                             serviceName = svc.serviceName,
@@ -128,9 +193,9 @@ class AgentRuntime(
                         )
                     )))
                 }
-                logger.info("Notified controller about {} recovered service(s)", recoveredServices.size)
-                recoveredServices = emptyList()
+                logger.info("Synced {} running service(s) with controller", running.size)
             }
+            recoveredServices = emptyList()
 
             // Message loop
             for (frame in incoming) {
@@ -288,6 +353,27 @@ class AgentRuntime(
                 logger.warn("Unhandled message type: {}", msg::class.simpleName)
             }
         }
+    }
+
+    private fun validateTlsConfig(): Boolean {
+        val url = config.agent.controller
+        if (!url.startsWith("wss://")) return true // plaintext ws:// — nothing to validate
+
+        val hasFingerprint = config.agent.trustedFingerprint.isNotBlank()
+        val hasTruststore = config.agent.truststorePath.isNotBlank()
+        val skipVerify = !config.agent.tlsVerify
+
+        if (!hasFingerprint && !hasTruststore && !skipVerify) {
+            logger.error("No TLS trust material configured for wss:// controller connection.")
+            logger.error("  The agent does not know which cert to trust, so connection would fail silently.")
+            logger.error("  Options (pick one):")
+            logger.error("    1. Run the setup wizard to pin the controller fingerprint:")
+            logger.error("         java -jar nimbus-agent.jar --setup")
+            logger.error("    2. Or set truststore_path/truststore_password in agent.toml")
+            logger.error("    3. Or set tls_verify = false in agent.toml (DEV ONLY)")
+            return false
+        }
+        return true
     }
 
     /**

@@ -47,7 +47,9 @@ data class GroupDefinition(
     val resources: ResourcesConfig = ResourcesConfig(),
     val scaling: ScalingConfig = ScalingConfig(),
     val lifecycle: LifecycleConfig = LifecycleConfig(),
-    val jvm: JvmConfig = JvmConfig()
+    val jvm: JvmConfig = JvmConfig(),
+    val placement: PlacementConfig = PlacementConfig(),
+    val sync: SyncConfig = SyncConfig()
 ) {
     /**
      * Returns the effective list of templates. If [templates] is set, it is used directly.
@@ -100,4 +102,56 @@ data class LifecycleConfig(
 data class JvmConfig(
     val args: List<String> = emptyList(),
     val optimize: Boolean = true
+)
+
+/**
+ * Placement policy for services in a group.
+ *
+ *   node = ""         → any available node (default scheduler behavior)
+ *   node = "local"    → force controller-local (used for services that MUST stay local)
+ *   node = "<id>"     → pin to a specific agent node by its node_name
+ *
+ *   fallback = "local" | "wait" | "fail"
+ *     local: fall back to controller if the pinned node is offline
+ *            (NOTE: only safe for stateless groups — stateful data stays on the node!)
+ *     wait:  don't start until the pinned node is available (default for pinned services)
+ *     fail:  refuse to start with an error
+ *
+ * For STATIC and DEDICATED services pinned to a node, `fallback = "wait"` is strongly
+ * recommended — falling back to the controller creates divergent data on two hosts.
+ */
+@Serializable
+data class PlacementConfig(
+    val node: String = "",
+    val fallback: String = "wait"
+)
+
+/**
+ * State sync policy for a group. When enabled, the controller keeps the canonical
+ * copy of the service's working directory in `services/state/<name>/` and the agent
+ * pulls from it on start and pushes back on graceful stop. This allows unpinned
+ * services to move between nodes while preserving data across restarts.
+ *
+ * Data loss model: if a service **crashes** instead of stopping gracefully, all
+ * changes since the last push are lost. For zero-loss guarantees, use pinning
+ * (`[group.placement] node = "<id>"`) instead.
+ *
+ * Mutual exclusion: setting both `sync.enabled = true` AND `placement.node` is
+ * nonsensical and logged as a warning at startup. Sync wins (service floats).
+ *
+ * Excludes are rsync-style glob patterns (trailing `/` = directory, `*.ext` =
+ * extension). Matched files are neither uploaded nor deleted during reconcile.
+ */
+@Serializable
+data class SyncConfig(
+    val enabled: Boolean = false,
+    val excludes: List<String> = listOf(
+        "logs/",
+        "cache/",
+        "crash-reports/",
+        "*.tmp",
+        "*.lock",
+        "*.pid",
+        "session.lock"
+    )
 )

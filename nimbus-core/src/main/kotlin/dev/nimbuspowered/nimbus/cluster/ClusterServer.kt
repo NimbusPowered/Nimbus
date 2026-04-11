@@ -1,5 +1,6 @@
 package dev.nimbuspowered.nimbus.cluster
 
+import dev.nimbuspowered.nimbus.api.routes.stateRoutes
 import dev.nimbuspowered.nimbus.api.routes.templateRoutes
 import dev.nimbuspowered.nimbus.config.ClusterConfig
 import dev.nimbuspowered.nimbus.event.EventBus
@@ -25,11 +26,16 @@ class ClusterServer(
     private val handler: ClusterWebSocketHandler,
     private val templatesDir: Path,
     private val eventBus: EventBus,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null
 ) {
     private val logger = LoggerFactory.getLogger(ClusterServer::class.java)
 
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
+
+    @Volatile
+    var certInfo: TlsHelper.CertInfo? = null
+        private set
 
     val isRunning: Boolean get() = server != null
 
@@ -61,13 +67,14 @@ class ClusterServer(
 
         val password = resolveKeystorePassword()
         val (keyStore, effectivePassword) = try {
-            TlsHelper.ensureKeyStore(keystorePath, password, config.bind)
+            TlsHelper.ensureKeyStore(keystorePath, password, config.bind, config.extraSans)
         } catch (e: Exception) {
             logger.error("Failed to load/generate keystore at '{}': {}", keystorePath, e.message)
             return
         }
 
         val alias = keyStore.aliases().nextElement()
+        certInfo = TlsHelper.getCertInfo(keyStore)
 
         try {
             server = embeddedServer(Netty, configure = {
@@ -120,6 +127,9 @@ class ClusterServer(
         routing {
             with(handler) { clusterRoutes() }
             templateRoutes(templatesDir, config.token)
+            if (stateSyncManager != null) {
+                stateRoutes(stateSyncManager, config.token)
+            }
         }
     }
 
@@ -131,6 +141,7 @@ class ClusterServer(
     fun stop() {
         server?.stop(1000, 5000)
         server = null
+        certInfo = null
         logger.info("Cluster WebSocket server stopped")
     }
 }

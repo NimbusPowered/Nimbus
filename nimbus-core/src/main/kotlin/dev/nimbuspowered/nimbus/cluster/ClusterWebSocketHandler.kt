@@ -100,6 +100,10 @@ class ClusterWebSocketHandler(
                         node.markDisconnected()
                         // Emit disconnect event immediately (node stays registered for reconnection)
                         eventBus.emit(dev.nimbuspowered.nimbus.event.NimbusEvent.NodeDisconnected(nodeId))
+                        // Schedule a failure check: if the node doesn't reconnect within
+                        // node_timeout, its services will be marked CRASHED so the scaling
+                        // engine can respawn them elsewhere.
+                        nodeManager.scheduleFailureCheck(nodeId)
                     }
                 }
             }

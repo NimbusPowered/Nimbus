@@ -138,40 +138,6 @@ function Install-NimbusAgent {
     Write-Success "Downloaded to $jarPath"
 }
 
-# ── Create default config ───────────────────────────────────────
-
-function New-AgentConfig {
-    $configPath = Join-Path $InstallDir "agent.toml"
-    if (Test-Path $configPath) {
-        Write-Info "Config already exists, skipping"
-        return
-    }
-
-    Write-Info "Creating agent config..."
-    Write-Host ""
-
-    $controllerHost = Read-Host "[nimbus-agent] Controller host [127.0.0.1]"
-    if ([string]::IsNullOrEmpty($controllerHost)) { $controllerHost = "127.0.0.1" }
-
-    $controllerPort = Read-Host "[nimbus-agent] Controller port [8443]"
-    if ([string]::IsNullOrEmpty($controllerPort)) { $controllerPort = "8443" }
-
-    $nodeId = Read-Host "[nimbus-agent] Node ID [$env:COMPUTERNAME]"
-    if ([string]::IsNullOrEmpty($nodeId)) { $nodeId = $env:COMPUTERNAME }
-
-    $authToken = Read-Host "[nimbus-agent] Auth token"
-
-    $config = @"
-[agent]
-node_id = "$nodeId"
-controller_host = "$controllerHost"
-controller_port = $controllerPort
-auth_token = "$authToken"
-"@
-    Set-Content -Path $configPath -Value $config -Encoding UTF8
-    Write-Success "Config saved to $configPath"
-}
-
 # ── Create start script ─────────────────────────────────────────
 
 function New-StartScript {
@@ -326,7 +292,6 @@ function Main {
     }
 
     Install-NimbusAgent
-    New-AgentConfig
     New-StartScript
     New-AgentService
 
@@ -334,7 +299,7 @@ function Main {
     Write-Host "Nimbus Agent installed successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Installation:  " -ForegroundColor Cyan -NoNewline; Write-Host $InstallDir
-    Write-Host "  Config:        " -ForegroundColor Cyan -NoNewline; Write-Host "$InstallDir\agent.toml"
+    Write-Host "  Config:        " -ForegroundColor Cyan -NoNewline; Write-Host "$InstallDir\agent.toml (setup wizard runs on first start)"
     Write-Host "  Start:         " -ForegroundColor Cyan -NoNewline; Write-Host "nimbus-agent.bat"
     Write-Host ""
 }

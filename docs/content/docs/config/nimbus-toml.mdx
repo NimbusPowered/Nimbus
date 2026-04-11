@@ -441,6 +441,8 @@ Cluster mode is **disabled by default**. Single-node setups do not need it. All 
 | `tls_enabled` | Boolean | `true` | Enable TLS encryption for cluster WebSocket connections. When enabled without a keystore, Nimbus auto-generates a self-signed certificate. |
 | `keystore_path` | String | `""` | Path to a JKS/PKCS12 keystore for TLS. If empty and `tls_enabled = true`, a self-signed keystore is auto-generated at `config/cluster.jks`. |
 | `keystore_password` | String | `""` | Keystore password. If empty during auto-generation, uses a default internal password. Can be overridden via `NIMBUS_CLUSTER_KEYSTORE_PASSWORD` env var. |
+| `extra_sans` | List&lt;String&gt; | `[]` | Additional SANs (hostnames or IPs) baked into the auto-generated TLS cert. Strings matching `N.N.N.N` are added as IP SANs, everything else as DNS SANs. **Only applied when the keystore is generated** — to change SANs after the fact, run `cluster cert regenerate` and restart. |
+| `public_host` | String | `""` | Hostname or IP returned in the `wsUrl` of the `/api/cluster/bootstrap` response. Defaults to the `bind` address (when not `0.0.0.0`) or the local hostname. Set this if the controller is behind NAT or has multiple interfaces. |
 | `reconciliation_delay` | Int | `10000` | Milliseconds to wait for agent reconnections before starting services. During this window, agents report recovered services. Only after the delay does `startMinimumInstances()` run, preventing duplicate service starts. |
 
 ```toml title="config/nimbus.toml"
@@ -461,7 +463,7 @@ The cluster token grants remote nodes the ability to run services on behalf of t
 </Callout>
 
 <Callout type="info">
-You can manage all cluster and load balancer settings from the console using the `cluster` command instead of editing this file manually. See [Commands Reference — cluster](/docs/guide/commands#cluster).
+You can manage all cluster and load balancer settings from the console using the `cluster` command instead of editing this file manually. See [Commands Reference — cluster](/docs/guide/commands#cluster). For the TLS trust model, fingerprint pinning, and cert rotation flow, see [Cluster TLS & Security](/docs/guide/cluster-tls).
 </Callout>
 
 ---

@@ -25,6 +25,8 @@ data class AgentDefinition(
     val maxMemory: String = "8G",
     @SerialName("max_services")
     val maxServices: Int = 10,
+    @SerialName("trusted_fingerprint")
+    val trustedFingerprint: String = "",
     @SerialName("tls_verify")
     val tlsVerify: Boolean = true,
     @SerialName("truststore_path")
@@ -87,8 +89,13 @@ object AgentConfigLoader {
             appendLine("max_services = ${config.agent.maxServices}")
             appendLine()
             appendLine("# TLS settings for connecting to the controller.")
-            appendLine("# Set tls_verify = false to trust self-signed certificates (dev only).")
+            appendLine("# trusted_fingerprint: SHA-256 fingerprint of the controller's TLS cert.")
+            appendLine("#   Set by the setup wizard via the /api/cluster/bootstrap endpoint.")
+            appendLine("#   Takes precedence over truststore_path and system CAs.")
+            appendLine("trusted_fingerprint = \"${config.agent.trustedFingerprint}\"")
+            appendLine("# tls_verify: set to false to trust any cert (DEV ONLY, MITM-vulnerable).")
             appendLine("tls_verify = ${config.agent.tlsVerify}")
+            appendLine("# truststore_path / truststore_password: advanced, for CA-issued certs.")
             appendLine("truststore_path = \"${config.agent.truststorePath}\"")
             appendLine("truststore_password = \"${config.agent.truststorePassword}\"")
             appendLine()

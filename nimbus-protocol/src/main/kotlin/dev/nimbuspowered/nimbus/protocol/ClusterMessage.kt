@@ -53,7 +53,11 @@ sealed class ClusterMessage {
         val nimbusProperties: Map<String, String> = emptyMap(),
         val javaVersion: Int = 0,
         val bedrockPort: Int = 0,
-        val bedrockEnabled: Boolean = false
+        val bedrockEnabled: Boolean = false,
+        /** When true, agent pulls canonical state from controller before start and pushes back on stop. */
+        val syncEnabled: Boolean = false,
+        /** rsync-style exclude globs applied to both pull and push. Files matching these are never synced. */
+        val syncExcludes: List<String> = emptyList()
     ) : ClusterMessage()
 
     @Serializable @SerialName("STOP_SERVICE")

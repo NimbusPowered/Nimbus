@@ -206,40 +206,6 @@ download_agent() {
     success "Downloaded to $INSTALL_DIR/$jar_name"
 }
 
-# ── Create default config ───────────────────────────────────────
-
-create_default_config() {
-    local config_file="$INSTALL_DIR/agent.toml"
-    if [[ -f "$config_file" ]]; then
-        info "Config already exists, skipping"
-        return
-    fi
-
-    info "Creating default agent config..."
-
-    echo ""
-    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Controller host [127.0.0.1]: ")" controller_host <"$TTY"
-    controller_host="${controller_host:-127.0.0.1}"
-
-    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Controller port [8443]: ")" controller_port <"$TTY"
-    controller_port="${controller_port:-8443}"
-
-    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Node ID [$(hostname)]: ")" node_id <"$TTY"
-    node_id="${node_id:-$(hostname)}"
-
-    read -rp "$(echo -e "${CYAN}[nimbus-agent]${RESET} Auth token: ")" auth_token <"$TTY"
-
-    sudo tee "$config_file" >/dev/null <<EOF
-[agent]
-node_id = "$node_id"
-controller_host = "$controller_host"
-controller_port = $controller_port
-auth_token = "$auth_token"
-EOF
-
-    success "Config saved to $config_file"
-}
-
 # ── Install screen ──────────────────────────────────────────────
 
 install_screen() {
@@ -418,7 +384,6 @@ main() {
     install_screen
 
     download_agent
-    create_default_config
     create_start_script
     create_systemd_service
 
@@ -426,7 +391,7 @@ main() {
     echo -e "${GREEN}${BOLD}Nimbus Agent installed successfully!${RESET}"
     echo ""
     echo -e "  ${CYAN}Installation:${RESET}  $INSTALL_DIR"
-    echo -e "  ${CYAN}Config:${RESET}        $INSTALL_DIR/agent.toml"
+    echo -e "  ${CYAN}Config:${RESET}        $INSTALL_DIR/agent.toml ${DIM}(setup wizard runs on first start)${RESET}"
     echo -e "  ${CYAN}Start:${RESET}         nimbus-agent"
     echo -e "  ${CYAN}Attach:${RESET}        nimbus-agent  ${DIM}(auto-attaches if already running)${RESET}"
     echo -e "  ${CYAN}Detach:${RESET}        Ctrl+A, then D"

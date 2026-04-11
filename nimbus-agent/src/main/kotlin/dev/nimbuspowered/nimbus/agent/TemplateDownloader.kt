@@ -15,10 +15,19 @@ import kotlin.io.path.exists
 class TemplateDownloader(
     private val templatesDir: Path,
     private val controllerBaseUrl: String,
-    private val token: String
+    private val token: String,
+    trustManager: javax.net.ssl.X509TrustManager? = null
 ) {
     private val logger = LoggerFactory.getLogger(TemplateDownloader::class.java)
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(CIO) {
+        // Capture the ctor param so it isn't shadowed by HttpsConfig.trustManager inside the https block.
+        val tm = trustManager
+        engine {
+            https {
+                if (tm != null) this.trustManager = tm
+            }
+        }
+    }
     private val templateHashes = mutableMapOf<String, String>()
 
     /**

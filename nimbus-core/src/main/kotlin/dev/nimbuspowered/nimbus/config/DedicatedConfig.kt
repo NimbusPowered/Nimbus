@@ -27,5 +27,7 @@ data class DedicatedDefinition(
     val restartOnCrash: Boolean = true,
     @SerialName("max_restarts")
     val maxRestarts: Int = 5,
-    val jvm: JvmConfig = JvmConfig()
+    val jvm: JvmConfig = JvmConfig(),
+    val placement: PlacementConfig = PlacementConfig(),
+    val sync: SyncConfig = SyncConfig()
 )

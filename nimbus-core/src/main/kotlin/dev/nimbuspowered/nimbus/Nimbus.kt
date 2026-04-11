@@ -169,6 +169,7 @@ fun nimbusMain() = runBlocking {
     val templatesDir = baseDir.resolve(config.paths.templates)
     val servicesDir = baseDir.resolve(config.paths.services)
     val staticDir = servicesDir.resolve("static")
+    val stateDir = servicesDir.resolve("state")
     val tempDir = servicesDir.resolve("temp")
     val logsDir = baseDir.resolve(config.paths.logs)
 
@@ -181,7 +182,7 @@ fun nimbusMain() = runBlocking {
     val proxyDir = modulesDir.resolve("syncproxy")
 
     listOf(
-        templatesDir, staticDir, tempDir, logsDir, configDir, groupsDir, dedicatedDir, dedicatedServicesDir, modulesDir, proxyDir,
+        templatesDir, staticDir, stateDir, tempDir, logsDir, configDir, groupsDir, dedicatedDir, dedicatedServicesDir, modulesDir, proxyDir,
         globalTemplateDir, globalTemplateDir.resolve("plugins"),
         globalProxyTemplateDir, globalProxyTemplateDir.resolve("plugins")
     ).forEach { dir ->
@@ -308,6 +309,9 @@ fun nimbusMain() = runBlocking {
         JwtTokenManager(config.api.token)
     } else null
 
+    // State sync: controller holds the canonical copy of services with sync enabled
+    val stateSyncManager = dev.nimbuspowered.nimbus.service.StateSyncManager(stateDir)
+
     // Create service manager
     val serviceManager = ServiceManager(
         config = config,
@@ -385,7 +389,7 @@ fun nimbusMain() = runBlocking {
     } else null
 
     val clusterServer: dev.nimbuspowered.nimbus.cluster.ClusterServer? = if (clusterWsHandler != null) {
-        dev.nimbuspowered.nimbus.cluster.ClusterServer(config.cluster, clusterWsHandler, templatesDir, eventBus, scope)
+        dev.nimbuspowered.nimbus.cluster.ClusterServer(config.cluster, clusterWsHandler, templatesDir, eventBus, scope, stateSyncManager)
     } else null
 
     // Create REST API (started after console.init() so events are visible)
@@ -401,6 +405,7 @@ fun nimbusMain() = runBlocking {
         groupsDir = groupsDir,
         configPath = configPath,
         nodeManager = nodeManager,
+        clusterServer = clusterServer,
         loadBalancer = loadBalancer,
         templatesDir = templatesDir,
         stressTestManager = stressTestManager,
@@ -410,7 +415,8 @@ fun nimbusMain() = runBlocking {
         databaseManager = databaseManager,
         softwareResolver = softwareResolver,
         dedicatedServiceManager = dedicatedServiceManager,
-        dedicatedDir = dedicatedDir
+        dedicatedDir = dedicatedDir,
+        stateSyncManager = stateSyncManager
     )
 
     // Register shutdown hook for external signals (SIGTERM, SIGINT, terminal close)
@@ -461,6 +467,7 @@ fun nimbusMain() = runBlocking {
         api = api,
         proxySyncManager = proxySyncManager,
         nodeManager = nodeManager,
+        clusterServer = clusterServer,
         loadBalancer = loadBalancer,
         configPath = configPath,
         stressTestManager = stressTestManager,
