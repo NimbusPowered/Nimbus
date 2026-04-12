@@ -45,16 +45,16 @@ If your network runs on **one machine**, you don't — single-node mode handles 
 
 ## Service Placement Rules
 
-Not all service types are distributed equally. Static services have persistent data (worlds, configs) stored in `services/static/` and are therefore always run on the controller — no sync, no backup, no complexity.
+Not all service types are distributed equally. Static services have persistent data (worlds, configs) stored in `services/static/` and run on the controller by default — but since v0.7.0, they can be placed on remote agent nodes with state sync enabled.
 
 | Service Type | Where it runs | Reason |
 |---|---|---|
-| **Static** (e.g., Lobby, Survival) | Controller only | Persistent data in `services/static/` — no remote sync |
+| **Static** (e.g., Lobby, Survival) | Controller (default), or any node with sync enabled | Defaults to local; remote placement requires `[group.sync]` for data persistence |
 | **Dynamic** (e.g., BedWars, SkyWars) | Any node (controller or agent) | Stateless — rebuilt from template every start |
 | **Proxy** (Velocity) | Any node (controller or agent) | No persistent state |
 
-<Callout type="warn">
-Static services **always** run on the controller. There is no mechanism to sync or backup static service data to remote nodes. If you need a service on a remote node, make it dynamic.
+<Callout type="info">
+By default, static services run on the controller. For remote placement, enable state sync — see [State Sync](/docs/config/groups#groupsync).
 </Callout>
 
 ## Quick Start
@@ -126,6 +126,7 @@ token = "your-cluster-token"
 node_name = "worker-1"
 max_memory = "16G"
 max_services = 10
+public_host = ""  # Leave blank to auto-detect; set to your public IP if behind NAT
 trusted_fingerprint = "AA:BB:CC:DD:..."  # pinned by the wizard
 tls_verify = true
 truststore_path = ""
@@ -290,17 +291,17 @@ Velocity forwarding configuration is auto-patched on agent nodes, just like on t
 
 ### Controller shutdown (cluster mode)
 
-1. Send graceful shutdown to all agents
-2. Wait for agents to stop their services (up to 30s)
-3. Stop local game servers
-4. Stop local lobbies
-5. Stop load balancer
-6. Stop local proxies
-7. Stop cluster WebSocket server
+1. Cancel scaling engine and load balancer jobs
+2. Send `ShutdownAgent` to all connected nodes
+3. Wait ~500 ms for messages to flush over the WebSocket
+4. Stop the cluster WebSocket server
+5. Stop the REST API server and flush audit collectors
+6. Stop all local services in order: game servers → lobbies → proxies
+7. Cancel the coroutine scope and exit
 
-### Agent shutdown (Ctrl+C)
+### Agent shutdown (Ctrl+C or SIGTERM)
 
-1. Stop all local services (game → lobby → proxy)
+1. Stop all local services (game → lobby → proxy). For sync-enabled services, the graceful stop triggers a working-directory delta push back to the controller's canonical store before the process exits.
 2. Close WebSocket connection
 3. Exit
 

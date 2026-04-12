@@ -9,6 +9,113 @@ All notable changes to Nimbus, organized by release. Each entry links to the cor
 
 ---
 
+## v0.7.3 (April 12, 2026)
+
+Cluster hardening: orphan sweep, reconnect reconciliation, graceful shutdown ordering, daemon mode, and a Railway-style cluster topology canvas.
+
+### Added
+- **Marker-file orphan sweep**: Each spawned backend writes `.nimbus-owner` into its workdir (pid + service + owner + startedAt). On recovery, both agents and controller walk known workdir roots and kill any still-alive PID whose marker matches their owner tag. Replaces the `ProcessHandle.info().commandLine()` approach which returned empty on Windows for reparented children
+- **Reconnect reconciliation**: `AuthRequest` gained `runningServices: List<String>` — agents send the authoritative list of what they currently host on every (re)auth. Controller compares against its registry and purges ghost entries that the agent doesn't claim, releasing ports and unblocking the scaling engine
+- **`POST /api/shutdown` endpoint**: Responds 200, then kicks off `System.exit(0)` after 250ms so the HTTP response flushes. Essential for daemon mode (no TTY → no console REPL) where the only alternative was SIGKILL
+- **Daemon mode**: `NimbusConsole` detects `System.console() == null` and enters an `awaitCancellation` loop instead of running JLine's REPL. Launching via systemd, Docker without `-it`, or `cmd.exe /c` with `< nul` no longer causes the JVM to exit immediately
+- **Agent public host auto-detection**: `AuthRequest` carries a `publicHost` field. Agent picks the first non-loopback, non-APIPA, non-link-local, site-local IPv4 from any up interface (skipping Hyper-V / vEthernet / VMware / Tailscale / WSL), or honours `[agent] public_host` from `agent.toml`. Controller uses this over the socket-derived peer address — fixes Velocity routing to `169.254.x` APIPA addresses on Windows
+- **`DiscardSyncWorkdir` cluster message**: Controller sends it to the source node after a successful migration; agent deletes the cached workdir if the service isn't still running there
+- **ScalingEngine static-sync retry backoff**: Exponential schedule (10s → 30s → 90s → 5min → 15min, capped) for repeated placement failures per group. Resets on first READY instance. Skips if an in-flight PREPARING/PREPARED/STARTING instance already exists
+- **Railway-style cluster topology canvas**: Interactive dashboard visualization with draggable card-based nodes, obstacle-aware orthogonal edge routing, heartbeat pulse animations (controller→node→service), pan/zoom with keyboard shortcuts (+/-/0/F/arrows), dynamic port selection, and auto-fit. Renders even with 0 remote nodes, showing controller + local services
+
+### Changed
+- **Graceful shutdown ordering**: Both shutdown paths (SIGTERM hook and console-exit) now send `ShutdownAgent` to every node and wait 500ms for agents to start their shutdown *before* tearing down the cluster WebSocket server. Previously `clusterServer?.stop()` ran first, dropping queued frames and leaving Paper backends running on every node
+- **Memory budget raised**: `ServiceMemoryResolver` overhead 30%/256MB → 50%/384MB. Paper with Aikar flags, Netty direct buffers, JIT code cache, metaspace and thread stacks typically adds 40–50% on top of `-Xmx`. Terminal states now report 0 MB instead of stale cached values
+- **State machine expanded**: `CRASHED → STOPPING` and `PREPARING/STARTING → STOPPING` now allowed. CRASHED services can be stopped/restarted via API without a controller restart. `stopService` routes CRASHED to `purgeService` so slots free cleanly
+- **`STOPPED → CRASHED` transition allowed**: Ready-timeout handler can fire after normal shutdown; now silently relabels instead of logging a spurious warning
+- **Startup crash handling**: `monitorProcess` no longer treats exit-code-0-while-STARTING as clean shutdown (Paper/Velocity catch `BindException` and `System.exit(0)`). Only `READY → exit 0` is clean; `STARTING → exit` is a crash regardless of code
+- **Rate limiting split**: `GET /api/stress` status read is no longer under the 5/min mutation rate limit — dashboards polling stress test status no longer hit 429
+- **Migration completion**: `migrateService` now waits until the new instance reaches READY before logging "complete"
+- **Netty Unsafe warnings suppressed**: Added JVM args to suppress `sun.misc.Unsafe` access warnings on Java 21+
+
+### Fixed
+- **Orphan cascade on agent hard-kill**: Killing an agent mid-run left Paper children reparented and alive, holding `session.lock`. Each restart attempt crashed at `DirectoryLock.create`, and the 5-second scaling-retry loop spawned up to 7 orphan Javas per slot. Fixed by marker-file sweep + exponential retry backoff + duplicate StartService dedup on agent
+- **Ghost services after transient reconnect**: A WS drop followed by fresh-state agent reconnect left READY ghost entries in the controller registry, blocking `max_instances` and preventing re-placement. Reconnect reconciliation purges these
+- **Dedicated services crashing at boot**: `ServiceFactory.prepareDedicated` was not patching `server.properties` / `velocity.toml` for the configured port — Paper read the pre-existing file (often 25565) and collided with the proxy
+- **Duplicate dedicated-start loop**: Phase 3 of `startMinimumInstances` already starts dedicated services; the second loop in `Nimbus.kt` caused "already running" warnings on every boot
+- **Agent-crash failover never happened**: `NodeManager` gained an `onNodeFailover` hook; `ServiceManager.handleNodeFailover` purges CRASHED registry entries and starts fresh instances (dedicated stays pinned, groups re-place)
+- **Node placement to APIPA addresses on Windows**: Controller now uses agent-reported `publicHost` over the socket-derived peer address
+
+---
+
+## v0.7.2 (April 11, 2026)
+
+State sync simplified to graceful-stop-only persistence. Removes live-sync complexity in favor of the one model that actually works reliably.
+
+### Changed
+- **State sync reduced to push-on-stop / pull-on-start**: The periodic snapshot loop, manual trigger endpoint, save-all flush coordination, and in-flight sync UI were removed. On graceful stop the agent pushes the full workdir; on next start it pulls back. Static services gain persistence across node moves without the operational complexity of live syncing
+- **"Sync" badge renamed to "Persistent"** in the dashboard
+- **`[group.sync] enabled = true` on non-STATIC groups** now logs a warning and force-disables — dynamic sync has no sensible semantics under the simpler model
+
+### Removed
+- `[group.sync]` fields: `snapshot_interval`, `snapshot_flush_command`, `snapshot_flush_wait_ms`
+- `POST /api/services/{name}/sync/trigger` endpoint
+- `TRIGGER_SYNC` cluster message
+- `Nimbus.triggerStateSync()` / `NimbusClient.triggerStateSync()` / `NimbusSelfService.triggerStateSync()` SDK helpers
+- Dashboard "Sync now" dropdown action and detail-page button
+- "Syncing…" in-flight UI + animation
+- `SYNC_COMPLETED` toast (graceful-stop is ambient — `SYNC_FAILED` is kept as the one case worth surfacing)
+
+### Fixed
+- **Sync push EOFException**: Paper rewriting region files mid-upload caused multipart size mismatch. File bytes are now snapshotted into a `ByteArray` at form-build time (≤64 MB cap, larger files fall back to streaming)
+- **`Invalid state transition X → X` log spam**: Same-state transitions are now silent no-ops; `READY → STOPPED` added to allowed set
+- **Windows agent RAM = 0**: Agent's `readRssMb` was Linux-only; added `tasklist` fallback
+- **Template download OOM**: `TemplateDownloader.ensureTemplate` read entire ZIP into heap. Now streams HTTP body to a temp file and copies entries with a 64 KB buffer — peak heap ~64 KB regardless of template size
+- **SHA-256 mismatches on sync push**: Paper rewrites config files between manifest scan and upload. Receiver now accepts actual streamed bytes and patches the committed manifest with observed hash
+- **NTFS-over-WSL rename failure**: `moveWithRetry` with exponential backoff (100/250/500/1000/2000ms) handles Windows AV file handle contention
+- **Prometheus sync metrics**: Crashed services now show their canonical on disk via `StateSyncManager.listSyncServices()`
+- **Ready timeouts bumped**: 60→180s (agent), 120→180s (controller), modded 180→240s. Large sync-pulled canonicals need more time to boot
+
+---
+
+## v0.7.1 (April 11, 2026)
+
+Sync hardening: snapshots, health checks, quota enforcement, and reconciliation for state sync.
+
+### Added
+- **Sync health checks**: Per-service health tracking (last push time, canonical size, in-flight status) exposed via `GET /api/metrics` in Prometheus format
+- **Sync quota**: Configurable maximum canonical size per service to prevent runaway world growth from consuming all disk
+- **Sync reconciliation**: On controller startup, reconciles on-disk canonicals against the service registry to detect orphaned state directories
+- **Manual sync trigger**: `POST /api/services/{name}/sync/trigger` → controller → `TRIGGER_SYNC` cluster message → agent `pushStateNow`. SDK helpers `Nimbus.triggerStateSync()` / `NimbusClient.triggerStateSync()`
+- **Dashboard sync indicators**: `nodeId` column on services list, sync health badge (Persistent/Syncing/Failed), "Sync now" dropdown action, global toast listener for `PLACEMENT_BLOCKED` / `SYNC_COMPLETED` / `SYNC_FAILED` events
+
+### Fixed
+- **Scaling slot reuse race**: Mutex around service name allocation + atomic register prevents two concurrent scale-up decisions from allocating the same `<Group>-<N>` slot
+
+---
+
+## v0.7.0 (April 11, 2026)
+
+Multi-node cluster: easy setup with TLS fingerprint pinning, placement pinning, dynamic state sync for floating stateful services, and service name stability.
+
+### Added
+- **Easy cluster setup**: Agent setup wizard calls `GET /api/cluster/bootstrap` (gated by cluster token) to fetch the controller's TLS fingerprint, PEM certificate, and `wsUrl`. User confirms the fingerprint on the agent — no manual keytool or truststore work. Console commands: `cluster cert`, `cluster cert regenerate`, `cluster bootstrap-url`
+- **`/api/cluster/bootstrap` endpoint**: Returns `{ fingerprint, certPem, wsUrl, validUntil, sans }` so agents can auto-pin the controller cert on first connect
+- **Placement pinning**: `[group.placement] node = "worker-1"` or `[dedicated.placement] node = "..."` pins a group/service to a specific agent node. `fallback` controls behavior when the pinned node is offline: `wait` (default, refuse start), `local` (run on controller, unsafe for stateful), `fail` (error immediately)
+- **Dynamic state sync**: `[group.sync] enabled = true` (or `[dedicated.sync]`) stores a canonical copy of the service's working directory on the controller under `services/state/<name>/`. Agent pulls delta via manifest comparison on start, pushes delta on graceful stop. Atomic staging + per-service lock. Supports `excludes` glob patterns
+- **Service name stability**: `ServiceFactory.prepare` reuses the lowest-numbered CRASHED/STOPPED slot instead of always incrementing. `Lobby-1` stays `Lobby-1` across crash-respawn cycles — critical for sync canonical state keyed by name
+- **Dedicated services on agent nodes**: `[dedicated.placement]` with mandatory state sync. Controller's `dedicated/<name>/` is the canonical copy; agent pulls on start, pushes on stop
+- **`extra_sans` config**: `[cluster] extra_sans = ["controller.example.com", "10.0.0.5"]` adds Subject Alternative Names to the auto-generated cluster cert
+- **`public_host` config**: `[cluster] public_host = "controller.example.com"` overrides the `wsUrl` in the bootstrap response for NAT/multi-interface setups
+- **Cluster TLS & Security guide**: New docs page covering the threat model, trust-on-first-use flow, cert rotation, custom CA support, and troubleshooting
+- **State sync data loss model**: Graceful stop = zero loss; unplanned crash = loss since last push. Documented in dedicated services and multi-node guides
+
+### Changed
+- **Agent template downloads stream to disk**: Previously slurped entire ZIP to heap, causing OOM on 512 MB agents with concurrent downloads. Now streams to temp file + extracts with 64 KB buffer
+- **Cluster `AuthRequest` extended**: Gained `hostname`, `osVersion`, `cpuModel`, `availableProcessors`, `systemMemoryTotalMb`, `javaVersion`, `javaVendor`, `publicHost`, `runningServices` fields
+- **Push lock per service**: Prevents concurrent sync pushes to the same canonical from racing
+
+### Fixed
+- **Service placement on agent nodes**: Fixed TLS trust for `TemplateDownloader` when agents download templates from the controller
+- **Velocity routing to wrong addresses**: Agents report their real host IP instead of the controller using the WebSocket peer address (which could be a NAT or loopback address)
+
+---
+
 ## v0.6.2 (April 10, 2026)
 
 Overview-first dashboard: host system telemetry, cluster nodes get the full picture, and every icon swapped to Phosphor Regular.

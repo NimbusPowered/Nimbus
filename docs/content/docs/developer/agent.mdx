@@ -106,6 +106,7 @@ token = "your-cluster-token"
 node_name = "worker-1"
 max_memory = "8G"
 max_services = 10
+public_host = ""  # Leave blank to auto-detect from network interfaces
 
 # TLS: pinned controller cert fingerprint (set by the wizard, preferred).
 trusted_fingerprint = "AA:BB:CC:DD:EE:FF:..."
@@ -130,6 +131,7 @@ java_21 = ""
 | `node_name` | hostname | Display name for this node |
 | `max_memory` | auto-detected | Maximum memory this node can allocate to services |
 | `max_services` | auto-detected | Maximum concurrent services on this node |
+| `public_host` | `""` | Publicly reachable IP or hostname for player routing. Leave blank to auto-detect from network interfaces. |
 | `trusted_fingerprint` | `""` | SHA-256 fingerprint of the controller's TLS cert. Takes precedence over truststore and system CAs. Set by the setup wizard. |
 | `tls_verify` | `true` | If `false`, accept any cert (DEV ONLY). Ignored when `trusted_fingerprint` is set. |
 | `truststore_path` | `""` | Path to a JKS/PKCS12 truststore (advanced, for CA-issued certs). |

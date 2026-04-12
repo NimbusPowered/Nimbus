@@ -1,6 +1,6 @@
 ---
 title: Event Reference
-description: Complete reference for all Nimbus events emitted through the EventBus, including service, scaling, player, group, permission, proxy, maintenance, cluster, load balancer, system, and stress test events.
+description: Complete reference for all Nimbus events emitted through the EventBus, including service, scaling, player, group, permission, proxy, maintenance, cluster, load balancer, system, stress test, dedicated service, controller update, and module events.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -56,6 +56,28 @@ Emitted when a service process is launched.
 
 ---
 
+### SERVICE_PREPARED
+
+Emitted when a warm-pool service has been staged and is sitting in the `PREPARED` state, ready to be promoted to `STARTING` on demand.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `service` | string | Service name |
+| `group` | string | Group name |
+
+```json title="SERVICE_PREPARED"
+{
+  "type": "SERVICE_PREPARED",
+  "timestamp": "2025-01-15T10:30:05.000Z",
+  "data": {
+    "service": "Lobby-2",
+    "group": "Lobby"
+  }
+}
+```
+
+---
+
 ### SERVICE_READY
 
 Emitted when the service's stdout matches the ready pattern (e.g., Minecraft's `Done` message).
@@ -69,6 +91,28 @@ Emitted when the service's stdout matches the ready pattern (e.g., Minecraft's `
 {
   "type": "SERVICE_READY",
   "timestamp": "2025-01-15T10:30:15.000Z",
+  "data": {
+    "service": "Lobby-1",
+    "group": "Lobby"
+  }
+}
+```
+
+---
+
+### SERVICE_DRAINING
+
+Emitted when a service is marked as draining — it is no longer accepting new players but continues running until existing players leave before it shuts down.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `service` | string | Service name |
+| `group` | string | Group name |
+
+```json title="SERVICE_DRAINING"
+{
+  "type": "SERVICE_DRAINING",
+  "timestamp": "2025-01-15T11:55:00.000Z",
   "data": {
     "service": "Lobby-1",
     "group": "Lobby"
@@ -173,6 +217,30 @@ Emitted when Nimbus recovers a running service after controller restart (process
 <Callout type="info">
 This event is emitted during controller startup when previously running services are re-adopted via PID. It indicates that the service was still alive when the controller restarted and has been successfully reclaimed.
 </Callout>
+
+---
+
+### SERVICE_DEPLOYED
+
+Emitted when changed files are copied back to the template after a service stops (deploy-back). Only fires when `lifecycle.deploy_on_stop = true` is set for the group.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `service` | string | Service name |
+| `group` | string | Group name |
+| `filesChanged` | string | Number of files copied back to the template |
+
+```json title="SERVICE_DEPLOYED"
+{
+  "type": "SERVICE_DEPLOYED",
+  "timestamp": "2025-01-15T12:00:10.000Z",
+  "data": {
+    "service": "Survival-1",
+    "group": "Survival",
+    "filesChanged": "14"
+  }
+}
+```
 
 ---
 
@@ -303,6 +371,28 @@ Emitted when a service cannot be scheduled because its placement constraints can
 
 ---
 
+### WARM_POOL_REPLENISHED
+
+Emitted when the warm pool for a group is topped back up to its configured size after a prepared instance was promoted to active.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `group` | string | Group name |
+| `poolSize` | string | Current warm pool size after replenishment |
+
+```json title="WARM_POOL_REPLENISHED"
+{
+  "type": "WARM_POOL_REPLENISHED",
+  "timestamp": "2025-01-15T15:00:05.000Z",
+  "data": {
+    "group": "Lobby",
+    "poolSize": "2"
+  }
+}
+```
+
+---
+
 ### SYNC_COMPLETED
 
 Emitted when a state sync push successfully commits to the controller's canonical store. Fires for both graceful-stop pushes and periodic snapshots. Pipe these to Prometheus/Grafana via the events WebSocket for sync health dashboards.
@@ -362,6 +452,7 @@ Emitted when a player connects to a service.
 | Field | Type | Description |
 |-------|------|-------------|
 | `player` | string | Player name |
+| `uuid` | string | Player UUID |
 | `service` | string | Service name |
 
 ```json title="PLAYER_CONNECTED"
@@ -370,6 +461,7 @@ Emitted when a player connects to a service.
   "timestamp": "2025-01-15T11:15:00.000Z",
   "data": {
     "player": "Steve",
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
     "service": "Lobby-1"
   }
 }
@@ -384,6 +476,7 @@ Emitted when a player disconnects from a service.
 | Field | Type | Description |
 |-------|------|-------------|
 | `player` | string | Player name |
+| `uuid` | string | Player UUID |
 | `service` | string | Service name |
 
 ```json title="PLAYER_DISCONNECTED"
@@ -392,7 +485,34 @@ Emitted when a player disconnects from a service.
   "timestamp": "2025-01-15T11:45:00.000Z",
   "data": {
     "player": "Steve",
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
     "service": "Lobby-1"
+  }
+}
+```
+
+---
+
+### PLAYER_SERVER_SWITCH
+
+Emitted when a player is transferred from one backend service to another (e.g., via the `/send` command or the Bridge cloud connect).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `player` | string | Player name |
+| `uuid` | string | Player UUID |
+| `from` | string | Service the player is leaving |
+| `to` | string | Service the player is joining |
+
+```json title="PLAYER_SERVER_SWITCH"
+{
+  "type": "PLAYER_SERVER_SWITCH",
+  "timestamp": "2025-01-15T11:30:00.000Z",
+  "data": {
+    "player": "Steve",
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+    "from": "Lobby-1",
+    "to": "BedWars-2"
   }
 }
 ```
@@ -839,6 +959,7 @@ Emitted when the cluster subsystem is initialized and ready to accept agent conn
 |-------|------|-------------|
 | `bind` | string | Bind address for cluster communication |
 | `port` | string | Port for cluster communication |
+| `strategy` | string | Placement strategy in use (e.g., `round-robin`, `least-load`) |
 
 ```json title="CLUSTER_STARTED"
 {
@@ -846,7 +967,8 @@ Emitted when the cluster subsystem is initialized and ready to accept agent conn
   "timestamp": "2025-01-15T08:00:00.000Z",
   "data": {
     "bind": "0.0.0.0",
-    "port": "9090"
+    "port": "9090",
+    "strategy": "least-load"
   }
 }
 ```
@@ -1119,28 +1241,26 @@ Emitted when a stress test starts, stops, or ramps to a new player target.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `action` | string | Action performed (`started`, `stopped`, `ramped`) |
-| `targetPlayers` | string | Target number of simulated players (absent when `stopped`) |
-| `currentPlayers` | string | Current number of simulated players |
-| `group` | string? | Target group (absent for all-group tests) |
-| `rampSeconds` | string? | Ramp duration in seconds (absent when not ramping) |
+| `simulatedPlayers` | string | Current number of active simulated players |
+| `targetPlayers` | string | Target number of simulated players |
+| `targetGroup` | string? | Group the test is targeting (absent for all-group tests) |
+| `perService` | string | Comma-joined map of per-service simulated player counts (e.g., `"Lobby-1=40,Lobby-2=60"`) |
 
 ```json title="STRESS_TEST_UPDATED"
 {
   "type": "STRESS_TEST_UPDATED",
   "timestamp": "2025-01-15T14:00:00.000Z",
   "data": {
-    "action": "started",
+    "simulatedPlayers": "40",
     "targetPlayers": "100",
-    "currentPlayers": "0",
-    "group": "Lobby",
-    "rampSeconds": "30"
+    "targetGroup": "Lobby",
+    "perService": "Lobby-1=20,Lobby-2=20"
   }
 }
 ```
 
 <Callout type="info">
-Use this event to build real-time stress test dashboards. The `action` field indicates the lifecycle stage: `started` when a test begins, `ramped` when the target is adjusted mid-test, and `stopped` when the test ends.
+Use this event to build real-time stress test dashboards. Poll `simulatedPlayers` against `targetPlayers` to track ramp progress. `perService` gives a per-instance breakdown useful for verifying even distribution across backends.
 </Callout>
 
 ---
@@ -1206,3 +1326,198 @@ A Remote CLI client has disconnected.
 <Callout type="info">
 CLI session events are also displayed as live events on the controller's local console, making it easy to see who is managing the cloud remotely.
 </Callout>
+
+---
+
+## Dedicated Service Events
+
+### DEDICATED_CREATED
+
+Emitted when a new dedicated service definition is created via the console `dedicated create` command or the API.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Dedicated service name |
+
+```json title="DEDICATED_CREATED"
+{
+  "type": "DEDICATED_CREATED",
+  "timestamp": "2025-01-15T09:00:00.000Z",
+  "data": {
+    "name": "creative"
+  }
+}
+```
+
+---
+
+### DEDICATED_DELETED
+
+Emitted when a dedicated service definition is deleted.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Dedicated service name |
+
+```json title="DEDICATED_DELETED"
+{
+  "type": "DEDICATED_DELETED",
+  "timestamp": "2025-01-15T10:00:00.000Z",
+  "data": {
+    "name": "creative"
+  }
+}
+```
+
+---
+
+## Controller Update Events
+
+Emitted by the auto-updater when a new Nimbus controller release is detected or applied.
+
+### NIMBUS_UPDATE_AVAILABLE
+
+Emitted on startup when the update checker finds a newer release on GitHub.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentVersion` | string | Currently running version |
+| `newVersion` | string | Latest available version |
+| `updateType` | string | Severity of the update (`patch`, `minor`, or `major`) |
+
+```json title="NIMBUS_UPDATE_AVAILABLE"
+{
+  "type": "NIMBUS_UPDATE_AVAILABLE",
+  "timestamp": "2025-01-15T08:00:00.000Z",
+  "data": {
+    "currentVersion": "1.2.0",
+    "newVersion": "1.2.3",
+    "updateType": "patch"
+  }
+}
+```
+
+<Callout type="info">
+Patch and minor updates are applied automatically. Major updates require interactive confirmation at the controller console before downloading.
+</Callout>
+
+---
+
+### NIMBUS_UPDATE_APPLIED
+
+Emitted after the new JAR has been downloaded and swapped in. The controller will restart on next launch with the new version.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `oldVersion` | string | Version that was running before the update |
+| `newVersion` | string | Version that was downloaded and applied |
+
+```json title="NIMBUS_UPDATE_APPLIED"
+{
+  "type": "NIMBUS_UPDATE_APPLIED",
+  "timestamp": "2025-01-15T08:00:30.000Z",
+  "data": {
+    "oldVersion": "1.2.0",
+    "newVersion": "1.2.3"
+  }
+}
+```
+
+---
+
+## Module Events
+
+Emitted by the module system as controller modules are loaded, enabled, or disabled during startup and shutdown.
+
+### MODULE_LOADED
+
+Emitted when a module JAR is successfully loaded into the controller's module classloader.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moduleId` | string | Module identifier (e.g., `nimbus-module-scaling`) |
+| `moduleName` | string | Human-readable module name |
+| `moduleVersion` | string | Module version string |
+
+```json title="MODULE_LOADED"
+{
+  "type": "MODULE_LOADED",
+  "timestamp": "2025-01-15T08:00:01.000Z",
+  "data": {
+    "moduleId": "nimbus-module-scaling",
+    "moduleName": "Smart Scaling",
+    "moduleVersion": "1.2.0"
+  }
+}
+```
+
+---
+
+### MODULE_ENABLED
+
+Emitted when a module's `enable()` lifecycle method completes successfully.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moduleId` | string | Module identifier |
+| `moduleName` | string | Human-readable module name |
+
+```json title="MODULE_ENABLED"
+{
+  "type": "MODULE_ENABLED",
+  "timestamp": "2025-01-15T08:00:02.000Z",
+  "data": {
+    "moduleId": "nimbus-module-scaling",
+    "moduleName": "Smart Scaling"
+  }
+}
+```
+
+---
+
+### MODULE_DISABLED
+
+Emitted when a module's `disable()` lifecycle method completes (typically during shutdown).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moduleId` | string | Module identifier |
+| `moduleName` | string | Human-readable module name |
+
+```json title="MODULE_DISABLED"
+{
+  "type": "MODULE_DISABLED",
+  "timestamp": "2025-01-15T20:00:00.000Z",
+  "data": {
+    "moduleId": "nimbus-module-scaling",
+    "moduleName": "Smart Scaling"
+  }
+}
+```
+
+---
+
+### MODULE_EVENT
+
+A generic catch-all event fired by modules through `ModuleContext`. The `type` sub-field distinguishes different events from the same module, and `data` carries arbitrary key-value pairs defined by the module.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moduleId` | string | ID of the module that fired the event |
+| `type` | string | Module-defined event type string |
+| `data` | object | Arbitrary key-value map defined by the module |
+
+```json title="MODULE_EVENT"
+{
+  "type": "MODULE_EVENT",
+  "timestamp": "2025-01-15T11:00:00.000Z",
+  "data": {
+    "moduleId": "my-custom-module",
+    "type": "LEADERBOARD_UPDATED",
+    "data": {
+      "game": "BedWars",
+      "entries": "10"
+    }
+  }
+}
+```

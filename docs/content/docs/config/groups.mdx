@@ -56,6 +56,7 @@ Core group identity and server software settings.
 | `jar_name` | String | `""` | Custom JAR filename for `CUSTOM` software. Defaults to `"server.jar"` if empty. |
 | `ready_pattern` | String | `""` | Custom regex pattern for detecting when a `CUSTOM` server is ready. Nimbus watches stdout for this pattern. |
 | `java_path` | String | `""` | Override the Java binary path for this group. Takes priority over the version-based lookup in [nimbus.toml](/docs/config/nimbus-toml#java). |
+| `templates` | `List<String>` | `[]` | Template stacking: list of template names applied in order (later overrides earlier). When set, supersedes the singular `template` field. Example: `templates = ["base", "lobby-overlay"]`. |
 
 ---
 
@@ -81,6 +82,7 @@ Auto-scaling behavior for dynamic groups. Ignored for static groups.
 | `players_per_instance` | Int | `40` | Target player capacity per instance. Used in the fill-rate calculation. |
 | `scale_threshold` | Double | `0.8` | Fill-rate threshold (0.0 - 1.0) that triggers scale-up. When the ratio of total players to total capacity exceeds this value, a new instance is started. |
 | `idle_timeout` | Long | `0` | Seconds before an empty instance is stopped. Set to `0` to disable idle shutdown (instances stay running indefinitely). Only applies when current instances exceed `min_instances`. |
+| `warm_pool_size` | Int | `0` | Number of pre-staged services kept in PREPARED state. These services have templates extracted and JVM configured but are not yet started — they launch in seconds instead of minutes. `0` = disabled. |
 
 ### Scaling Formula
 
@@ -126,6 +128,9 @@ Instance lifecycle management.
 | `stop_on_empty` | Boolean | `false` | Stop the instance when the last player leaves. Useful for game servers where an empty instance has no purpose. |
 | `restart_on_crash` | Boolean | `true` | Automatically restart an instance if its process exits unexpectedly. |
 | `max_restarts` | Int | `5` | Maximum consecutive automatic restarts. After this limit, the instance stays stopped to prevent crash loops. Must be ≥ 0. |
+| `drain_timeout` | Long | `30` | Seconds to wait for graceful drain (players leaving) before force-stopping a service. |
+| `deploy_on_stop` | Boolean | `false` | Copy changed files back to the template directory on service stop (deploy-back). Only files that differ from the template are copied. |
+| `deploy_excludes` | `List<String>` | see below | Glob patterns to skip during deploy-back. Default: `["logs/", "crash-reports/", "cache/", "libraries/", "*.tmp"]`. |
 
 ---
 
@@ -165,34 +170,19 @@ fallback = "wait"     # don't fall back to controller (data integrity)
 
 State sync policy for stateful services that should **float between nodes** while keeping the canonical copy of their working directory on the controller. Enables multi-node deployment of services like Lobbies and Survival worlds without manually distributing data.
 
+<Callout type="warn">
+State sync only works with `STATIC` groups. Setting `enabled = true` on a `DYNAMIC` group logs a warning and the flag is force-disabled — dynamic services are rebuilt from templates on every start, so sync has no sensible semantics.
+</Callout>
+
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | Boolean | `false` | When true, the controller stores the service's canonical working directory under `services/state/<name>/`. On every start, the agent pulls (only changed files). On every graceful stop, the agent pushes changes back. |
 | `excludes` | `List<String>` | see below | rsync-style glob patterns. Matched files are neither uploaded nor deleted during reconcile. |
-| `snapshot_interval` | Long | `0` | Periodic snapshot interval in seconds. `0` = only push on graceful stop (no periodic snapshots). When set, the agent sends `snapshot_flush_command` to the service's stdin every N seconds, waits `snapshot_flush_wait_ms`, and pushes the current delta. Shrinks the crash data-loss window from "last stop" to "last snapshot". |
-| `snapshot_flush_command` | String | software-specific | Console command sent to stdin before a periodic snapshot. Defaults: Paper/Purpur/Folia/Pufferfish/Leaf/Forge/NeoForge/Fabric → `"save-all flush"`; Vanilla/Custom → `"save-all"`; Velocity → `""`. Set explicitly for modded servers with custom save commands. |
-| `snapshot_flush_wait_ms` | Long | `3000` | Milliseconds to wait after sending the flush command before scanning the filesystem. Gives the server time to finish writing chunks to disk. Bump for modded servers with many dimensions. |
 
 **Default excludes:**
 ```toml
 excludes = ["logs/", "cache/", "crash-reports/", "*.tmp", "*.lock", "*.pid", "session.lock"]
 ```
-
-### Periodic snapshotting
-
-Without snapshots, sync runs only at graceful stop — so an unplanned crash loses everything since the last stop. Periodic snapshotting trades a small runtime TPS hiccup (while the server flushes chunks) for a much smaller data-loss window.
-
-```toml title="config/groups/survival.toml"
-[group.sync]
-enabled = true
-snapshot_interval = 300       # every 5 minutes
-snapshot_flush_command = "save-all flush"
-snapshot_flush_wait_ms = 3000
-```
-
-The agent sends `save-all flush` over the service's stdin, waits for the flush to complete, then does a normal delta push. The lock prevents two snapshots from running concurrently — the next interval simply skips if a previous push is still in flight.
-
-**No SDK required** — the flush happens via standard Minecraft stdin commands. Works on any Bukkit/Paper/Forge/NeoForge/Fabric/Folia/Vanilla server.
 
 ### How it works
 

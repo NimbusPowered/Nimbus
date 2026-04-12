@@ -36,6 +36,20 @@ val clusterJson = Json {
 | `HEARTBEAT_REQUEST` | `HeartbeatRequest` | Request system metrics from agent |
 | `TEMPLATE_INFO` | `TemplateInfo` | Template metadata (name, hash, download URL, size) |
 | `SHUTDOWN_AGENT` | `ShutdownAgent` | Gracefully shut down the agent |
+| `DISCARD_SYNC_WORKDIR` | `DiscardSyncWorkdir` | Tell the agent to delete the local working directory for a sync-enabled service (fields: `serviceName`) |
+| `FILE_LIST_REQUEST` | `FileListRequest` | Request a directory listing from the agent for remote file management |
+| `FILE_READ_REQUEST` | `FileReadRequest` | Request the contents of a file on the agent |
+| `FILE_WRITE_REQUEST` | `FileWriteRequest` | Write or overwrite a file on the agent |
+| `FILE_DELETE_REQUEST` | `FileDeleteRequest` | Delete a file or directory on the agent |
+
+### Agent to Controller (file management responses)
+
+| Type | Class | Purpose |
+|---|---|---|
+| `FILE_LIST_RESPONSE` | `FileListResponse` | Returns directory listing for `FileListRequest` |
+| `FILE_READ_RESPONSE` | `FileReadResponse` | Returns file contents for `FileReadRequest` |
+| `FILE_WRITE_RESPONSE` | `FileWriteResponse` | Acknowledges or reports error for `FileWriteRequest` |
+| `FILE_DELETE_RESPONSE` | `FileDeleteResponse` | Acknowledges or reports error for `FileDeleteRequest` |
 
 ### Agent to Controller
 
@@ -62,7 +76,9 @@ The `apiToken` sent to game servers is a restricted **service token** (HMAC-deri
 
 ### AuthRequest
 
-Sent by the agent after connecting: `token`, `nodeName`, `maxMemory`, `maxServices`, `currentServices`, `agentVersion`, `os`, `arch`.
+Sent by the agent after connecting. Fields: `token`, `nodeName`, `maxMemory`, `maxServices`, `currentServices`, `agentVersion`, `os`, `arch`, `hostname`, `osVersion`, `cpuModel`, `availableProcessors`, `systemMemoryTotalMb`, `javaVersion`, `javaVendor`, `publicHost`, `runningServices`.
+
+`publicHost` is the publicly reachable IP or hostname reported by the agent for player routing. `runningServices` is a list of services the agent was already managing before the (re-)connection, used during the controller's reconciliation window to avoid duplicate restarts.
 
 ### ServiceHeartbeat
 

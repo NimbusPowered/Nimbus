@@ -49,6 +49,7 @@ history_file = ".nimbus_history"
 [paths]
 templates = "templates"
 services = "services"
+dedicated = "dedicated"
 logs = "logs"
 
 [api]
@@ -97,10 +98,17 @@ heartbeat_interval = 5000
 node_timeout = 15000
 placement_strategy = "least-services"
 
+[audit]
+enabled = true
+retention_days = 90
+
 [java]
 java_16 = ""
 java_17 = ""
 java_21 = ""
+
+[curseforge]
+api_key = ""
 ```
 
 ---
@@ -172,12 +180,14 @@ Directory paths for templates, running services, and logs. All paths are relativ
 |--------|------|---------|-------------|
 | `templates` | String | `"templates"` | Directory containing server templates. Each group references a template by name (subdirectory). |
 | `services` | String | `"services"` | Directory where running service instances are created. Each service gets its own subdirectory (e.g., `services/Lobby-1/`). |
+| `dedicated` | String | `"dedicated"` | Base directory for dedicated service working directories. Each dedicated service gets its own subdirectory (e.g., `dedicated/sandbox/`). |
 | `logs` | String | `"logs"` | Directory for Nimbus log files. |
 
 ```toml title="config/nimbus.toml"
 [paths]
 templates = "templates"
 services = "services"
+dedicated = "dedicated"
 logs = "logs"
 ```
 
@@ -444,7 +454,7 @@ Cluster mode is **disabled by default**. Single-node setups do not need it. All 
 | `extra_sans` | List&lt;String&gt; | `[]` | Additional SANs (hostnames or IPs) baked into the auto-generated TLS cert. Strings matching `N.N.N.N` are added as IP SANs, everything else as DNS SANs. **Only applied when the keystore is generated** — to change SANs after the fact, run `cluster cert regenerate` and restart. |
 | `public_host` | String | `""` | Hostname or IP returned in the `wsUrl` of the `/api/cluster/bootstrap` response. Defaults to the `bind` address (when not `0.0.0.0`) or the local hostname. Set this if the controller is behind NAT or has multiple interfaces. |
 | `sync_disk_quota_bytes` | Long | `0` | Maximum total size in bytes that state-sync canonical copies may occupy (under `services/state/` + any dedicated service roots). `0` = unlimited. Pushes that would exceed this limit are rejected with HTTP 507 Insufficient Storage. Example: `sync_disk_quota_bytes = 10737418240` for a 10 GB cap. |
-| `reconciliation_delay` | Int | `10000` | Milliseconds to wait for agent reconnections before starting services. During this window, agents report recovered services. Only after the delay does `startMinimumInstances()` run, preventing duplicate service starts. |
+| `reconciliation_delay` | Long | `10000` | Milliseconds to wait for agent reconnections before starting services. During this window, agents report recovered services. Only after the delay does `startMinimumInstances()` run, preventing duplicate service starts. |
 
 ```toml title="config/nimbus.toml"
 [cluster]
@@ -523,3 +533,18 @@ You can leave all `[java]` paths empty. Nimbus will find or download what it nee
 <Callout type="info">
 For a detailed explanation of Java version requirements per Minecraft version, see [Automatic JDK Management](/docs/guide/concepts#automatic-jdk-management).
 </Callout>
+
+---
+
+## `[curseforge]`
+
+CurseForge API configuration for modpack imports. Only needed if you import modpacks from CurseForge.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `api_key` | String | `""` | CurseForge API key for fetching modpack metadata and files. Required for `import curseforge:` commands and CurseForge URL imports. Get one at [console.curseforge.com](https://console.curseforge.com/). Server pack ZIP uploads work without an API key. |
+
+```toml title="config/nimbus.toml"
+[curseforge]
+api_key = "your-curseforge-api-key"
+```

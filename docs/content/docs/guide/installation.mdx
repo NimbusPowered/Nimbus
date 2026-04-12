@@ -176,6 +176,45 @@ my-network/
 | `permissions/` | Built-in permission system data. |
 | `plugins/` | Optional Nimbus plugins available for manual installation. |
 
+## Daemon Mode
+
+Nimbus auto-detects whether it is running attached to a terminal by checking `System.console() == null`. When no console is available (e.g., started via systemd or a shell redirect), it enters **headless mode**:
+
+- The JLine3 interactive REPL is not started — no terminal is required.
+- The JVM stays alive serving the REST API and WebSocket event stream.
+- `SIGTERM` triggers a clean, ordered shutdown (same sequence as the `shutdown confirm` command).
+- All log output goes to `logs/latest.log` and stdout for journal capture.
+
+A minimal systemd unit:
+
+```ini title="/etc/systemd/system/nimbus.service"
+[Unit]
+Description=Nimbus Minecraft Cloud Controller
+After=network.target
+
+[Service]
+Type=simple
+User=nimbus
+WorkingDirectory=/opt/nimbus
+ExecStart=java -jar /opt/nimbus/nimbus-core.jar
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start with:
+
+```bash title="Terminal"
+sudo systemctl daemon-reload
+sudo systemctl enable --now nimbus
+```
+
+<Callout type="info">
+You can still issue commands remotely when running in daemon mode using the [Remote CLI](/docs/guide/remote-cli) (`nimbus-cli`).
+</Callout>
+
 ## Remote CLI Installation
 
 The **Remote CLI** (`nimbus-cli`) is a standalone tool for managing Nimbus from any machine. It connects to the controller's REST API and provides the same commands, tab completion, and formatting as the local console.
