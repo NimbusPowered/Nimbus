@@ -22,22 +22,31 @@ fun Route.proxyEventRoutes(eventBus: EventBus) {
     post("/api/proxy/events") {
         val request = call.receive<ProxyEventReport>()
 
+        // H3 fix: validate UUID format before downstream use
+        val validatedUuid = request.uuid?.let { raw ->
+            try {
+                java.util.UUID.fromString(raw).toString()
+            } catch (_: IllegalArgumentException) {
+                return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid UUID format: '$raw'", ApiErrors.INVALID_INPUT))
+            }
+        }
+
         when (request.type.uppercase()) {
             "PLAYER_CONNECTED" -> {
                 val player = request.player ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'player'", ApiErrors.INVALID_INPUT))
-                val uuid = request.uuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
+                val uuid = validatedUuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
                 val service = request.service ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'service'", ApiErrors.INVALID_INPUT))
                 eventBus.emit(NimbusEvent.PlayerConnected(player, uuid, service))
             }
             "PLAYER_DISCONNECTED" -> {
                 val player = request.player ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'player'", ApiErrors.INVALID_INPUT))
-                val uuid = request.uuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
+                val uuid = validatedUuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
                 val service = request.service ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'service'", ApiErrors.INVALID_INPUT))
                 eventBus.emit(NimbusEvent.PlayerDisconnected(player, uuid, service))
             }
             "PLAYER_SERVER_SWITCH" -> {
                 val player = request.player ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'player'", ApiErrors.INVALID_INPUT))
-                val uuid = request.uuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
+                val uuid = validatedUuid ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'uuid'", ApiErrors.INVALID_INPUT))
                 val from = request.fromService ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'fromService'", ApiErrors.INVALID_INPUT))
                 val to = request.toService ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing 'toService'", ApiErrors.INVALID_INPUT))
                 eventBus.emit(NimbusEvent.PlayerServerSwitch(player, uuid, from, to))

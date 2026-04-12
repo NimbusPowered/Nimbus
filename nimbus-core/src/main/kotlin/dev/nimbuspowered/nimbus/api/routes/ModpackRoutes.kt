@@ -50,6 +50,14 @@ private data class ChunkedUploadState(
 
 private val chunkedUploads = ConcurrentHashMap<String, ChunkedUploadState>()
 
+/** Sanitize a user-provided file name to prevent path traversal (C3 fix). */
+private fun sanitizeFileName(raw: String): String? {
+    if (raw.contains("..") || raw.contains('/') || raw.contains('\\')) return null
+    val safe = java.io.File(raw).name
+    if (safe.isBlank() || safe.startsWith(".")) return null
+    return safe
+}
+
 @Serializable
 data class ModpackResolveRequest(
     val source: String
@@ -235,7 +243,7 @@ fun Route.modpackRoutes(
             val memory = call.request.queryParameters["memory"] ?: "2G"
             val minInstances = call.request.queryParameters["minInstances"]?.toIntOrNull() ?: 1
             val maxInstances = call.request.queryParameters["maxInstances"]?.toIntOrNull() ?: 2
-            val fileName = call.request.queryParameters["fileName"] ?: "upload.zip"
+            val rawFileName = call.request.queryParameters["fileName"] ?: "upload.zip"
 
             if (groupName.isBlank() || !groupName.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
                 return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid group name", ApiErrors.VALIDATION_FAILED))
@@ -244,10 +252,19 @@ fun Route.modpackRoutes(
                 return@post call.respond(HttpStatusCode.Conflict, apiError("Group '$groupName' already exists", ApiErrors.GROUP_ALREADY_EXISTS))
             }
 
+            // C3 fix: sanitize fileName to prevent path traversal
+            val fileName = sanitizeFileName(rawFileName)
+                ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid file name", ApiErrors.VALIDATION_FAILED))
+
             // Stream request body directly to disk — no memory buffering
             val uploadDir = templatesDir.resolve(".modpack-uploads")
             Files.createDirectories(uploadDir)
             val uploadedZip = uploadDir.resolve(fileName)
+
+            // Verify resolved path stays inside upload directory
+            if (!uploadedZip.toFile().canonicalPath.startsWith(uploadDir.toFile().canonicalPath + java.io.File.separator)) {
+                return@post call.respond(HttpStatusCode.BadRequest, apiError("Path traversal detected", ApiErrors.PATH_TRAVERSAL))
+            }
 
             try {
                 call.receiveStream().use { input ->
@@ -336,7 +353,7 @@ fun Route.modpackRoutes(
         // POST /api/modpacks/upload/init?fileName=X&totalChunks=N
         // Returns an uploadId. Chunks are then sent individually and finalized.
         post("upload/init") {
-            val fileName = call.request.queryParameters["fileName"] ?: "upload.zip"
+            val rawFileName = call.request.queryParameters["fileName"] ?: "upload.zip"
             val totalChunks = call.request.queryParameters["totalChunks"]?.toIntOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Missing totalChunks parameter", ApiErrors.VALIDATION_FAILED))
 
@@ -344,10 +361,19 @@ fun Route.modpackRoutes(
                 return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid totalChunks value", ApiErrors.VALIDATION_FAILED))
             }
 
+            // C3 fix: sanitize fileName to prevent path traversal
+            val fileName = sanitizeFileName(rawFileName)
+                ?: return@post call.respond(HttpStatusCode.BadRequest, apiError("Invalid file name", ApiErrors.VALIDATION_FAILED))
+
             val uploadId = java.util.UUID.randomUUID().toString()
             val uploadDir = templatesDir.resolve(".modpack-uploads")
             Files.createDirectories(uploadDir)
             val filePath = uploadDir.resolve("$uploadId-$fileName")
+
+            // Verify resolved path stays inside upload directory
+            if (!filePath.toFile().canonicalPath.startsWith(uploadDir.toFile().canonicalPath + java.io.File.separator)) {
+                return@post call.respond(HttpStatusCode.BadRequest, apiError("Path traversal detected", ApiErrors.PATH_TRAVERSAL))
+            }
 
             // Create empty file
             Files.createFile(filePath)

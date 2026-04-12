@@ -39,12 +39,13 @@ dependencies {
     // HTTP client for downloading server JARs
     implementation("io.ktor:ktor-client-cio:3.1.1")
 
-    // Database (Exposed + drivers)
+    // Database (Exposed + drivers + connection pool)
     implementation("org.jetbrains.exposed:exposed-core:0.57.0")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.57.0")
     implementation("org.xerial:sqlite-jdbc:3.47.2.0")
     implementation("com.mysql:mysql-connector-j:9.2.0")
     implementation("org.postgresql:postgresql:42.7.5")
+    implementation("com.zaxxer:HikariCP:5.1.0")
 
     // REST API (Ktor Server)
     implementation("io.ktor:ktor-server-core:3.1.1")

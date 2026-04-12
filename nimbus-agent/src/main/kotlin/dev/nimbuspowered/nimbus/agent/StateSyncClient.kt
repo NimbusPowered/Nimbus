@@ -193,10 +193,13 @@ class StateSyncClient(
                     }
                 }
             }
+            // H6 fix: send token in Authorization header, not URL query string
             val response: HttpResponse = client.submitFormWithBinaryData(
-                url = "$controllerBaseUrl/api/services/$serviceName/state/sync?token=$token",
+                url = "$controllerBaseUrl/api/services/$serviceName/state/sync",
                 formData = parts
-            )
+            ) {
+                header("Authorization", "Bearer $token")
+            }
             if (!response.status.isSuccess()) {
                 throw RuntimeException("state sync push failed: HTTP ${response.status.value} ${response.bodyAsText().take(200)}")
             }
@@ -209,9 +212,12 @@ class StateSyncClient(
 
     // ── HTTP helpers ────────────────────────────────────────
 
+    // H6 fix: send token in Authorization header, not URL query string
     private fun fetchManifest(serviceName: String): StateManifest? = runBlocking {
-        val url = "$controllerBaseUrl/api/services/$serviceName/state/manifest?token=$token"
-        val response: HttpResponse = client.get(url)
+        val url = "$controllerBaseUrl/api/services/$serviceName/state/manifest"
+        val response: HttpResponse = client.get(url) {
+            header("Authorization", "Bearer $token")
+        }
         when (response.status.value) {
             200 -> json.decodeFromString(StateManifest.serializer(), response.bodyAsText())
             404 -> null
@@ -222,13 +228,14 @@ class StateSyncClient(
         }
     }
 
+    // H6 fix: send token in Authorization header, not URL query string
     private fun downloadFile(serviceName: String, relPath: String, target: Path) = runBlocking {
         val encoded = relPath.split('/').joinToString("/") { java.net.URLEncoder.encode(it, Charsets.UTF_8) }
-        val url = "$controllerBaseUrl/api/services/$serviceName/state/file/$encoded?token=$token"
+        val url = "$controllerBaseUrl/api/services/$serviceName/state/file/$encoded"
         target.parent?.let { Files.createDirectories(it) }
         val tmp = target.resolveSibling(target.fileName.toString() + ".sync-tmp")
         try {
-            client.prepareGet(url).execute { response ->
+            client.prepareGet(url) { header("Authorization", "Bearer $token") }.execute { response ->
                 if (!response.status.isSuccess()) {
                     throw RuntimeException("file download failed: HTTP ${response.status.value} for $relPath")
                 }

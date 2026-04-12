@@ -416,29 +416,54 @@ class JavaResolver(
             }
         }
 
-        // Check JAVA_HOME
-        val javaHome = System.getenv("JAVA_HOME")
-        if (javaHome != null) {
-            val javaBin = findJavaBin(Path.of(javaHome))
-            if (javaBin != null) {
-                val version = probeJavaVersion(javaBin)
-                if (version != null && version !in found) {
-                    found[version] = javaBin
+        // Check JAVA_HOME and JDK_HOME
+        for (envName in listOf("JAVA_HOME", "JDK_HOME")) {
+            val envValue = System.getenv(envName)
+            if (envValue != null) {
+                val javaBin = findJavaBin(Path.of(envValue))
+                if (javaBin != null) {
+                    val version = probeJavaVersion(javaBin)
+                    if (version != null && version !in found) {
+                        found[version] = javaBin
+                        logger.debug("Found Java {} via {}: {}", version, envName, javaBin)
+                    }
                 }
             }
         }
 
-        // Scan common directories
-        val scanDirs = listOf(
-            "/usr/lib/jvm",
-            "/usr/java",
-            "/usr/local/java",
-            "${System.getProperty("user.home")}/.sdkman/candidates/java",
-            "${System.getProperty("user.home")}/.jdks",
-            "/mnt/c/Program Files/Java",
-            "/mnt/c/Program Files/Eclipse Adoptium",
-            "/mnt/c/Program Files/Microsoft"
-        )
+        // Scan common directories (platform-specific)
+        val isWindows = System.getProperty("os.name").lowercase().contains("win")
+        val scanDirs = buildList {
+            // Unix / WSL paths
+            add("/usr/lib/jvm")
+            add("/usr/java")
+            add("/usr/local/java")
+            add("${System.getProperty("user.home")}/.sdkman/candidates/java")
+            add("${System.getProperty("user.home")}/.jdks")
+            // WSL-mapped Windows paths
+            add("/mnt/c/Program Files/Java")
+            add("/mnt/c/Program Files/Eclipse Adoptium")
+            add("/mnt/c/Program Files/Microsoft")
+            // Native Windows paths
+            if (isWindows) {
+                val programFiles = System.getenv("ProgramFiles") ?: "C:\\Program Files"
+                add("$programFiles\\Java")
+                add("$programFiles\\Eclipse Adoptium")
+                add("$programFiles\\Microsoft")
+                add("$programFiles\\BellSoft")
+                add("$programFiles\\Amazon Corretto")
+                add("$programFiles\\Zulu")
+                add("$programFiles\\AdoptOpenJDK")
+                val programFilesX86 = System.getenv("ProgramFiles(x86)")
+                if (programFilesX86 != null) {
+                    add("$programFilesX86\\Java")
+                }
+                val localAppData = System.getenv("LOCALAPPDATA")
+                if (localAppData != null) {
+                    add("$localAppData\\Programs\\Eclipse Adoptium")
+                }
+            }
+        }
 
         for (scanDir in scanDirs) {
             val dir = Path.of(scanDir)

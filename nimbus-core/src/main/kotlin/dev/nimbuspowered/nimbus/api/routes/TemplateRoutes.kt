@@ -22,8 +22,12 @@ fun Route.templateRoutes(
 ) {
     // GET /api/templates/{name}/download?token=...&software=PAPER
     get("/api/templates/{name}/download") {
+        // C2 fix: reject when cluster token is blank (prevents unauthenticated downloads)
+        if (clusterToken.isBlank()) {
+            return@get call.respond(HttpStatusCode.ServiceUnavailable, apiError("Cluster not configured", ApiErrors.SERVICE_UNAVAILABLE))
+        }
         val clientToken = call.queryParameters["token"] ?: ""
-        if (clusterToken.isNotBlank() && !NimbusApi.timingSafeEquals(clientToken, clusterToken)) {
+        if (!NimbusApi.timingSafeEquals(clientToken, clusterToken)) {
             return@get call.respond(HttpStatusCode.Unauthorized, apiError("Invalid token", ApiErrors.FORBIDDEN))
         }
 
@@ -60,8 +64,11 @@ fun Route.templateRoutes(
 
     // GET /api/templates/{name}/hash?software=PAPER — returns SHA-256 hash including global templates
     get("/api/templates/{name}/hash") {
+        if (clusterToken.isBlank()) {
+            return@get call.respond(HttpStatusCode.ServiceUnavailable, apiError("Cluster not configured", ApiErrors.SERVICE_UNAVAILABLE))
+        }
         val clientToken = call.queryParameters["token"] ?: ""
-        if (clusterToken.isNotBlank() && !NimbusApi.timingSafeEquals(clientToken, clusterToken)) {
+        if (!NimbusApi.timingSafeEquals(clientToken, clusterToken)) {
             return@get call.respond(HttpStatusCode.Unauthorized, apiError("Invalid token", ApiErrors.FORBIDDEN))
         }
 

@@ -212,8 +212,14 @@ data class StateSyncResponse(
     val filesInManifest: Int
 )
 
+// H6 fix: accept cluster token from Authorization header (preferred) or query parameter (legacy)
 private fun validateClusterToken(call: io.ktor.server.application.ApplicationCall, expected: String): Boolean {
     if (expected.isBlank()) return false
-    val presented = call.request.queryParameters["token"] ?: ""
+    val authHeader = call.request.headers["Authorization"]
+    val presented = when {
+        authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
+            authHeader.removePrefix("Bearer ").removePrefix("bearer ")
+        else -> call.request.queryParameters["token"] ?: ""
+    }
     return NimbusApi.timingSafeEquals(presented, expected)
 }

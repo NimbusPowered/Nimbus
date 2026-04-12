@@ -1,10 +1,13 @@
 package dev.nimbuspowered.nimbus.database
 
+import com.zaxxer.hikari.HikariConfig
+import com.zaxxer.hikari.HikariDataSource
 import dev.nimbuspowered.nimbus.config.DatabaseConfig
 import dev.nimbuspowered.nimbus.database.migrations.V1_Baseline
 import dev.nimbuspowered.nimbus.database.migrations.V2_AuditLog
 import dev.nimbuspowered.nimbus.database.migrations.V3_CliSessions
 import dev.nimbuspowered.nimbus.database.migrations.V4_ServiceMetricSamples
+import dev.nimbuspowered.nimbus.database.migrations.V5_TimestampColumnWidth
 import dev.nimbuspowered.nimbus.module.Migration
 import kotlinx.coroutines.Dispatchers
 import org.jetbrains.exposed.sql.Database
@@ -16,6 +19,7 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
+import kotlin.system.exitProcess
 
 class DatabaseManager(private val baseDir: Path, private val config: DatabaseConfig) {
 
@@ -31,17 +35,24 @@ class DatabaseManager(private val baseDir: Path, private val config: DatabaseCon
         V2_AuditLog,
         V3_CliSessions,
         V4_ServiceMetricSamples,
+        V5_TimestampColumnWidth,
     )
 
     fun init() {
-        database = when (config.type.lowercase()) {
-            "sqlite" -> connectSqlite()
-            "mysql", "mariadb" -> connectMysql()
-            "postgresql", "postgres" -> connectPostgresql()
-            else -> {
-                logger.warn("Unknown database type '{}', falling back to SQLite", config.type)
-                connectSqlite()
+        try {
+            database = when (config.type.lowercase()) {
+                "sqlite" -> connectSqlite()
+                "mysql", "mariadb" -> connectMysql()
+                "postgresql", "postgres" -> connectPostgresql()
+                else -> {
+                    logger.warn("Unknown database type '{}', falling back to SQLite", config.type)
+                    connectSqlite()
+                }
             }
+        } catch (e: Exception) {
+            logger.error("Failed to connect to database: {}", e.message)
+            logger.error("Check your database configuration in config/nimbus.toml under [database]")
+            exitProcess(1)
         }
 
         // Initialize migration tracking table
@@ -87,12 +98,13 @@ class DatabaseManager(private val baseDir: Path, private val config: DatabaseCon
     }
 
     private fun connectMysql(): Database {
-        return Database.connect(
+        val dataSource = createPooledDataSource(
             url = "jdbc:mysql://${config.host}:${config.port}/${config.name}?createDatabaseIfNotExist=true&useSSL=true&requireSSL=true&allowPublicKeyRetrieval=false",
             driver = "com.mysql.cj.jdbc.Driver",
             user = config.username,
             password = config.password
         )
+        return Database.connect(dataSource)
     }
 
     private fun connectPostgresql(): Database {
@@ -102,12 +114,29 @@ class DatabaseManager(private val baseDir: Path, private val config: DatabaseCon
                     "Set the correct port (default: 5432) in [database] config."
             )
         }
-        return Database.connect(
+        val dataSource = createPooledDataSource(
             url = "jdbc:postgresql://${config.host}:${config.port}/${config.name}?sslmode=require",
             driver = "org.postgresql.Driver",
             user = config.username,
             password = config.password
         )
+        return Database.connect(dataSource)
+    }
+
+    private fun createPooledDataSource(url: String, driver: String, user: String, password: String): HikariDataSource {
+        val hikariConfig = HikariConfig().apply {
+            jdbcUrl = url
+            driverClassName = driver
+            username = user
+            this.password = password
+            maximumPoolSize = 10
+            minimumIdle = 2
+            connectionTimeout = 30_000
+            idleTimeout = 600_000
+            maxLifetime = 1_800_000
+            connectionTestQuery = "SELECT 1"
+        }
+        return HikariDataSource(hikariConfig)
     }
 
     suspend fun <T> query(block: Transaction.() -> T): T =

@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -810,27 +811,35 @@ class ServiceManager(
 
             portAllocator.release(service.port)
             service.bedrockPort?.let { portAllocator.releaseBedrockPort(it) }
+
+            // Deploy changed files back to template BEFORE transitioning to STOPPED
+            // so the service directory is still intact and registered
+            val group = groupManager.getGroup(service.groupName)
+            if (group?.config?.group?.lifecycle?.deployOnStop == true) {
+                try {
+                    val templatesDir = Path(config.paths.templates)
+                    val primaryTemplate = group.config.group.resolvedTemplates.firstOrNull()
+                    if (primaryTemplate != null) {
+                        val templateDir = templatesDir.resolve(primaryTemplate)
+                        val excludes = group.config.group.lifecycle.deployExcludes
+                        val changed = serviceDeployer.deployBack(service.workingDirectory, templateDir, excludes)
+                        if (changed > 0) {
+                            eventBus.emit(NimbusEvent.ServiceDeployed(name, service.groupName, changed))
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.error("Deploy-back failed for '{}': {}", name, e.message)
+                    service.transitionTo(ServiceState.CRASHED)
+                    return false
+                }
+            }
+
             service.transitionTo(ServiceState.STOPPED)
             eventBus.emit(NimbusEvent.ServiceStopped(name))
 
             registry.unregister(name)
             processHandles.remove(name)
             stateStore?.removeService(name)
-
-            // Deploy changed files back to template (if configured)
-            val group = groupManager.getGroup(service.groupName)
-            if (group?.config?.group?.lifecycle?.deployOnStop == true) {
-                val templatesDir = Path(config.paths.templates)
-                val primaryTemplate = group.config.group.resolvedTemplates.firstOrNull()
-                if (primaryTemplate != null) {
-                    val templateDir = templatesDir.resolve(primaryTemplate)
-                    val excludes = group.config.group.lifecycle.deployExcludes
-                    val changed = serviceDeployer.deployBack(service.workingDirectory, templateDir, excludes)
-                    if (changed > 0) {
-                        eventBus.emit(NimbusEvent.ServiceDeployed(name, service.groupName, changed))
-                    }
-                }
-            }
 
             if (!service.isStatic) {
                 cleanupWorkingDirectory(service.workingDirectory)
@@ -944,6 +953,13 @@ class ServiceManager(
         restartingGroups.add(groupName)
         try {
             stopService(name)
+            // Wait for the service to fully stop before starting the new instance
+            // to avoid port conflicts (EADDRINUSE) from overlapping processes
+            withTimeoutOrNull(60_000L) {
+                while (registry.get(name)?.state !in setOf(ServiceState.STOPPED, ServiceState.CRASHED, null)) {
+                    delay(500)
+                }
+            } ?: logger.warn("Service '{}' did not stop within 60s — proceeding with restart anyway", name)
             // Static services reuse the same name automatically (lowest available = the one we just stopped)
             return startService(groupName)
         } finally {
@@ -1150,7 +1166,10 @@ class ServiceManager(
     private suspend fun awaitServicesReady(services: List<Service>, timeoutMs: Long): Boolean {
         if (services.isEmpty()) return true
 
-        val pending = services.map { it.name }.toMutableSet()
+        // H11 fix: use thread-safe set for concurrent event listener access
+        val pending: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().also {
+            it.addAll(services.map { svc -> svc.name })
+        }
         val done = CompletableDeferred<Boolean>()
 
         // Listen for ready/crashed events

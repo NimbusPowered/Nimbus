@@ -1,6 +1,7 @@
 package dev.nimbuspowered.nimbus.agent
 
 import com.akuleshov7.ktoml.Toml
+import com.akuleshov7.ktoml.TomlInputConfig
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
@@ -60,7 +61,7 @@ data class JavaDefinition(
 
 object AgentConfigLoader {
     private val logger = LoggerFactory.getLogger(AgentConfigLoader::class.java)
-    private val toml = Toml()
+    private val toml = Toml(inputConfig = TomlInputConfig(ignoreUnknownNames = true))
 
     fun load(path: Path): AgentConfig {
         val content = path.readText()

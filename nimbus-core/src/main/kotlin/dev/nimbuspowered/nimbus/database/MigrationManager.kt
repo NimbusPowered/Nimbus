@@ -59,69 +59,114 @@ class MigrationManager(private val database: Database) {
      * Runs all pending migrations in version order.
      * Also detects and repairs incorrectly bootstrapped migrations
      * (marked as applied but table doesn't actually exist).
+     * Uses advisory locks on MySQL/PostgreSQL to prevent concurrent migration races (C7 fix).
      * Returns the number of migrations applied.
      */
     fun runPending(migrations: List<Migration>): Int {
         if (migrations.isEmpty()) return 0
 
-        // Repair: remove entries for non-baseline migrations that were incorrectly
-        // marked as applied by a previous buggy bootstrap (pre-fix for baseline flag)
+        return withMigrationLock {
+            // Repair: remove entries for non-baseline migrations that were incorrectly
+            // marked as applied by a previous buggy bootstrap (pre-fix for baseline flag)
+            transaction(database) {
+                val appliedRows = SchemaMigrations.selectAll().map {
+                    it[SchemaMigrations.version] to it[SchemaMigrations.description]
+                }
+                for ((version, desc) in appliedRows) {
+                    if (desc == "baseline (pre-0.2.0)") {
+                        val migration = migrations.find { it.version == version }
+                        if (migration != null && !migration.baseline) {
+                            logger.warn("Repairing incorrectly bootstrapped migration V{}: {}", version, migration.description)
+                            SchemaMigrations.deleteWhere { SchemaMigrations.version eq version }
+                        }
+                    }
+                }
+            }
+
+            val applied = transaction(database) {
+                SchemaMigrations.selectAll().map { it[SchemaMigrations.version] }.toSet()
+            }
+
+            val pending = migrations
+                .filter { it.version !in applied }
+                .sortedBy { it.version }
+
+            if (pending.isEmpty()) {
+                logger.debug("All {} migrations are up to date", migrations.size)
+                return@withMigrationLock 0
+            }
+
+            logger.info("Running {} pending migration(s)...", pending.size)
+
+            for (migration in pending) {
+                try {
+                    transaction(database) {
+                        migration.run { migrate() }
+
+                        SchemaMigrations.insert {
+                            it[version] = migration.version
+                            it[appliedAt] = Instant.now().toString()
+                            it[description] = migration.description
+                        }
+                    }
+                    logger.info("  V{}: {} ✓", migration.version, migration.description)
+                } catch (e: Exception) {
+                    logger.error("Migration V{} failed: {}", migration.version, e.message, e)
+                    throw MigrationException("Migration V${migration.version} (${migration.description}) failed: ${e.message}", e)
+                }
+            }
+
+            pending.size
+        }
+    }
+
+    /**
+     * Acquires a database-level advisory lock for the duration of [block].
+     * Prevents concurrent controller instances from running migrations simultaneously.
+     * - MySQL/MariaDB: uses GET_LOCK / RELEASE_LOCK
+     * - PostgreSQL: uses pg_advisory_lock / pg_advisory_unlock
+     * - SQLite: single-writer by design, no lock needed
+     */
+    private fun <T> withMigrationLock(block: () -> T): T {
+        val vendor = database.vendor
+        val needsLock = vendor.contains("mysql", ignoreCase = true) ||
+            vendor.contains("mariadb", ignoreCase = true) ||
+            vendor.contains("postgre", ignoreCase = true)
+
+        if (!needsLock) return block()
+
+        val isPostgres = vendor.contains("postgre", ignoreCase = true)
+
+        // Acquire advisory lock
         transaction(database) {
-            val appliedRows = SchemaMigrations.selectAll().map {
-                it[SchemaMigrations.version] to it[SchemaMigrations.description]
+            if (isPostgres) {
+                exec("SELECT pg_advisory_lock(hashtext('nimbus_migration'))")
+            } else {
+                exec("SELECT GET_LOCK('nimbus_migration', 30)")
             }
-            for ((version, desc) in appliedRows) {
-                if (desc == "baseline (pre-0.2.0)") {
-                    val migration = migrations.find { it.version == version }
-                    if (migration != null && !migration.baseline) {
-                        logger.warn("Repairing incorrectly bootstrapped migration V{}: {}", version, migration.description)
-                        SchemaMigrations.deleteWhere { SchemaMigrations.version eq version }
-                    }
+        }
+        logger.debug("Acquired migration advisory lock ({})", vendor)
+
+        try {
+            return block()
+        } finally {
+            // Release advisory lock
+            transaction(database) {
+                if (isPostgres) {
+                    exec("SELECT pg_advisory_unlock(hashtext('nimbus_migration'))")
+                } else {
+                    exec("SELECT RELEASE_LOCK('nimbus_migration')")
                 }
             }
+            logger.debug("Released migration advisory lock")
         }
-
-        val applied = transaction(database) {
-            SchemaMigrations.selectAll().map { it[SchemaMigrations.version] }.toSet()
-        }
-
-        val pending = migrations
-            .filter { it.version !in applied }
-            .sortedBy { it.version }
-
-        if (pending.isEmpty()) {
-            logger.debug("All {} migrations are up to date", migrations.size)
-            return 0
-        }
-
-        logger.info("Running {} pending migration(s)...", pending.size)
-
-        for (migration in pending) {
-            try {
-                transaction(database) {
-                    migration.run { migrate() }
-
-                    SchemaMigrations.insert {
-                        it[version] = migration.version
-                        it[appliedAt] = Instant.now().toString()
-                        it[description] = migration.description
-                    }
-                }
-                logger.info("  V{}: {} ✓", migration.version, migration.description)
-            } catch (e: Exception) {
-                logger.error("Migration V{} failed: {}", migration.version, e.message, e)
-                throw MigrationException("Migration V${migration.version} (${migration.description}) failed: ${e.message}", e)
-            }
-        }
-
-        return pending.size
     }
 }
 
 /** Tracking table for applied migrations. */
 object SchemaMigrations : Table("schema_migrations") {
     val version = integer("version")
-    val appliedAt = varchar("applied_at", 30)
+    val appliedAt = varchar("applied_at", 40)
     val description = varchar("description", 256)
 
     override val primaryKey = PrimaryKey(version)

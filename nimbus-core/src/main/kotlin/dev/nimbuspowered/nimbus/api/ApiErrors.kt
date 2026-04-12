@@ -13,6 +13,7 @@ object ApiErrors {
 
     // ── Auth ──────────────────────────────────────────────────────
     const val AUTH_FAILED = "AUTH_FAILED"
+    const val UNAUTHORIZED = "UNAUTHORIZED"
     const val INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE"
 
     // ── Generic ────────────────────────────────────────────────────
@@ -53,6 +54,7 @@ object ApiErrors {
     const val STRESS_NOT_RUNNING = "STRESS_NOT_RUNNING"
 
     // ── Cluster / LB ───────────────────────────────────────────────
+    const val SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     const val CLUSTER_NOT_ENABLED = "CLUSTER_NOT_ENABLED"
     const val LOAD_BALANCER_NOT_ENABLED = "LOAD_BALANCER_NOT_ENABLED"
     const val NODE_NOT_FOUND = "NODE_NOT_FOUND"

@@ -517,6 +517,8 @@ class LocalProcessManager(
             try {
                 handle.stopGracefully(30.seconds)
                 handle.destroy()
+                // H8 fix: push state sync before clearing handles (matches stopService behavior)
+                pushStateIfEnabled(name)
             } catch (e: Exception) {
                 logger.error("Error stopping '{}': {}", name, e.message)
             }

@@ -178,7 +178,15 @@ function Main {
         Write-Host "  Starting Nimbus..." -ForegroundColor DarkGray
         Write-Host ""
         Set-Location $InstallDir
-        & java -Xms256M -Xmx256M "--enable-native-access=ALL-UNNAMED" "--add-opens=java.base/sun.misc=ALL-UNNAMED" "--add-opens=java.base/java.nio=ALL-UNNAMED" "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED" -jar $script:NimbusJar
+        do {
+            $proc = Start-Process java -ArgumentList "-Xms256M", "-Xmx256M", "--enable-native-access=ALL-UNNAMED", "--add-opens=java.base/sun.misc=ALL-UNNAMED", "--add-opens=java.base/java.nio=ALL-UNNAMED", "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED", "-jar", "`"$($script:NimbusJar)`"" -Wait -PassThru -NoNewWindow
+            $restart = ($proc.ExitCode -eq 10)
+            if ($restart) {
+                Write-Info "Restarting after update..."
+            } elseif ($proc.ExitCode -ne 0) {
+                Write-Warn "Exited with code $($proc.ExitCode)"
+            }
+        } while ($restart)
     } else {
         Write-Host "  To start manually:" -ForegroundColor DarkGray
         Write-Host "    cd $InstallDir; java -jar $script:NimbusJar" -ForegroundColor DarkGray

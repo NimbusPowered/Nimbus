@@ -43,8 +43,8 @@ class ClusterWebSocketHandler(
                     return@webSocket
                 }
 
-                // Validate token
-                if (!NimbusApi.timingSafeEquals(authMsg.token, config.token)) {
+                // C5 fix: reject connections when cluster token is blank
+                if (config.token.isBlank() || !NimbusApi.timingSafeEquals(authMsg.token, config.token)) {
                     send(Frame.Text(clusterJson.encodeToString(ClusterMessage.serializer(),
                         ClusterMessage.AuthResponse(false, reason = "Invalid auth token"))))
                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Auth failed"))

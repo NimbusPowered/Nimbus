@@ -84,7 +84,7 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 - kotlinx-coroutines for async (scaling loops, event bus, process I/O)
 - Ktor Client (CIO) for downloading server JARs
 - Ktor Server (CIO) for REST API + WebSocket, Ktor Server (Netty) for cluster WebSocket (TLS)
-- Exposed (JetBrains ORM) + SQLite/MySQL/PostgreSQL for database, versioned migrations via MigrationManager
+- Exposed (JetBrains ORM) + SQLite/MySQL/PostgreSQL for database, versioned migrations via MigrationManager, HikariCP connection pool for MySQL/PostgreSQL
 
 ## Architecture
 

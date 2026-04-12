@@ -262,7 +262,19 @@ main() {
         echo -e "  ${DIM}Starting Nimbus...${RESET}"
         echo ""
         cd "$INSTALL_DIR"
-        java -Xms256M -Xmx256M --enable-native-access=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar "$NIMBUS_JAR"
+        while true; do
+            EXIT_CODE=0
+            java -Xms256M -Xmx256M --enable-native-access=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar "$NIMBUS_JAR" || EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 10 ]; then
+                echo -e "${CYAN}[nimbus]${RESET} Restarting after update..."
+                continue
+            else
+                if [ $EXIT_CODE -ne 0 ]; then
+                    echo -e "${YELLOW}[nimbus]${RESET} Exited with code $EXIT_CODE"
+                fi
+                break
+            fi
+        done
     else
         echo -e "  ${DIM}To start manually:${RESET}"
         echo -e "    cd $INSTALL_DIR && java -jar $NIMBUS_JAR"

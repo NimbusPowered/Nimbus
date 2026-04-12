@@ -61,6 +61,13 @@ class TcpLoadBalancer(
                 healthManager.remove(service.host, service.port)
             }
         }
+        // H14 fix: also remove crashed backends from health manager
+        eventBus.on<NimbusEvent.ServiceCrashed> { event ->
+            val service = registry.get(event.serviceName)
+            if (service != null) {
+                healthManager.remove(service.host, service.port)
+            }
+        }
 
         healthManager.start()
 

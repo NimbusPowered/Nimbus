@@ -1,6 +1,7 @@
 package dev.nimbuspowered.nimbus.api.routes
 
 import dev.nimbuspowered.nimbus.api.*
+import io.ktor.http.*
 import dev.nimbuspowered.nimbus.console.CommandDispatcher
 import dev.nimbuspowered.nimbus.event.EventBus
 import dev.nimbuspowered.nimbus.event.NimbusEvent
@@ -17,6 +18,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -37,8 +40,20 @@ fun Route.consoleRoutes(
 ) {
     route("/api/console") {
 
-        // POST /api/console/complete — Tab completion
+        // POST /api/console/complete — Tab completion (C1 fix: requires auth)
         post("complete") {
+            if (token.isNotBlank()) {
+                val authHeader = call.request.header("Authorization")
+                val clientToken = when {
+                    authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
+                        authHeader.removePrefix("Bearer ").removePrefix("bearer ")
+                    else -> call.request.queryParameters["token"]
+                }
+                if (clientToken == null || !NimbusApi.timingSafeEquals(clientToken, token)) {
+                    call.respond(HttpStatusCode.Unauthorized, apiError("Authentication required", ApiErrors.UNAUTHORIZED))
+                    return@post
+                }
+            }
             val request = call.receive<CompleteRequest>()
             val buffer = if (request.cursor >= 0 && request.cursor < request.buffer.length) {
                 request.buffer.substring(0, request.cursor)
@@ -125,7 +140,11 @@ fun Route.consoleRoutes(
                     "execute" -> {
                         commandCount++
                         val output = WebSocketCommandOutput(this, msg.id, json)
+                        // Launch drain loop to send output without blocking Ktor threads (C4 fix)
+                        val drainJob = launch { output.drainLoop() }
                         dispatcher.dispatch(msg.input, output)
+                        output.close()
+                        drainJob.join()
                         // Signal command completion
                         send(Frame.Text(json.encodeToString(
                             ConsoleMessageOut(type = "output_end", id = msg.id)
@@ -213,6 +232,9 @@ fun Route.consoleRoutes(
 /**
  * [CommandOutput] implementation that sends each output line over WebSocket
  * as a [ConsoleMessageOut] with the given command ID.
+ *
+ * Uses a coroutine channel to bridge non-suspend [CommandOutput] methods to
+ * the suspend WebSocket send, avoiding runBlocking on Ktor's CIO thread pool (C4 fix).
  */
 private class WebSocketCommandOutput(
     private val session: DefaultWebSocketServerSession,
@@ -220,38 +242,33 @@ private class WebSocketCommandOutput(
     private val json: Json
 ) : CommandOutput {
 
-    private suspend fun send(type: String, text: String) {
-        val msg = ConsoleMessageOut(
-            type = "output",
-            id = commandId,
-            line = OutputLineResponse(type, text)
-        )
-        session.send(Frame.Text(json.encodeToString(msg)))
+    private val channel = kotlinx.coroutines.channels.Channel<Pair<String, String>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    /** Drain loop — launch this in the WebSocket coroutine scope before dispatching commands. */
+    suspend fun drainLoop() {
+        for ((type, text) in channel) {
+            val msg = ConsoleMessageOut(
+                type = "output",
+                id = commandId,
+                line = OutputLineResponse(type, text)
+            )
+            session.send(Frame.Text(json.encodeToString(msg)))
+        }
     }
 
-    override fun header(text: String) {
-        kotlinx.coroutines.runBlocking { send("header", text) }
+    /** Signal that no more output will be sent. */
+    fun close() { channel.close() }
+
+    private fun enqueue(type: String, text: String) {
+        channel.trySend(type to text)
     }
 
-    override fun info(text: String) {
-        kotlinx.coroutines.runBlocking { send("info", text) }
-    }
-
-    override fun success(text: String) {
-        kotlinx.coroutines.runBlocking { send("success", text) }
-    }
-
-    override fun error(text: String) {
-        kotlinx.coroutines.runBlocking { send("error", text) }
-    }
-
-    override fun item(text: String) {
-        kotlinx.coroutines.runBlocking { send("item", text) }
-    }
-
-    override fun text(text: String) {
-        kotlinx.coroutines.runBlocking { send("text", text) }
-    }
+    override fun header(text: String) = enqueue("header", text)
+    override fun info(text: String) = enqueue("info", text)
+    override fun success(text: String) = enqueue("success", text)
+    override fun error(text: String) = enqueue("error", text)
+    override fun item(text: String) = enqueue("item", text)
+    override fun text(text: String) = enqueue("text", text)
 }
 
 /**
@@ -386,33 +403,35 @@ private data class ClientHello(
  * Returns a human-readable location string or empty string on failure.
  * Skips lookup for private/local IPs.
  */
-private fun lookupGeoIp(ip: String): String {
+private suspend fun lookupGeoIp(ip: String): String {
     // Skip private/local IPs
     if (ip == "127.0.0.1" || ip == "0:0:0:0:0:0:0:1" || ip == "::1"
         || ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("172.")) {
         return "local"
     }
 
-    return try {
-        val url = java.net.URI("http://ip-api.com/json/$ip?fields=status,city,regionName,country").toURL()
-        val connection = url.openConnection() as java.net.HttpURLConnection
-        connection.connectTimeout = 3000
-        connection.readTimeout = 3000
-        connection.requestMethod = "GET"
+    return withContext(Dispatchers.IO) {
+        try {
+            val url = java.net.URI("http://ip-api.com/json/$ip?fields=status,city,regionName,country").toURL()
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
+            connection.requestMethod = "GET"
 
-        if (connection.responseCode == 200) {
-            val body = connection.inputStream.bufferedReader().readText()
-            // Simple JSON parsing without full deserialization
-            val status = Regex(""""status"\s*:\s*"(\w+)"""").find(body)?.groupValues?.get(1)
-            if (status == "success") {
-                val city = Regex(""""city"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
-                val region = Regex(""""regionName"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
-                val country = Regex(""""country"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
-                listOf(city, region, country).filter { it.isNotEmpty() }.joinToString(", ")
+            if (connection.responseCode == 200) {
+                val body = connection.inputStream.bufferedReader().readText()
+                // Simple JSON parsing without full deserialization
+                val status = Regex(""""status"\s*:\s*"(\w+)"""").find(body)?.groupValues?.get(1)
+                if (status == "success") {
+                    val city = Regex(""""city"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                    val region = Regex(""""regionName"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                    val country = Regex(""""country"\s*:\s*"([^"]*?)"""").find(body)?.groupValues?.get(1) ?: ""
+                    listOf(city, region, country).filter { it.isNotEmpty() }.joinToString(", ")
+                } else ""
             } else ""
-        } else ""
-    } catch (e: Exception) {
-        logger.debug("GeoIP lookup failed for {}: {}", ip, e.message)
-        ""
+        } catch (e: Exception) {
+            logger.debug("GeoIP lookup failed for {}: {}", ip, e.message)
+            ""
+        }
     }
 }

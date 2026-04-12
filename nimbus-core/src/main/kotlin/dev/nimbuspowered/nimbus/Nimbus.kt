@@ -212,23 +212,6 @@ fun nimbusMain() = runBlocking {
     val templateManager = TemplateManager()
     val groupManager = GroupManager(templatesDir)
 
-    // Start metrics collector
-    val metricsCollector = MetricsCollector(databaseManager, eventBus, scope)
-    val metricsJobs = metricsCollector.start()
-    metricsCollector.startRetentionCleanup(scope)
-
-    // Start audit collector (if enabled)
-    val auditCollector = if (config.audit.enabled) {
-        val collector = dev.nimbuspowered.nimbus.database.AuditCollector(databaseManager, eventBus, scope, config.audit.retentionDays)
-        collector.start()
-        collector.startRetentionCleanup(scope)
-        collector
-    } else null
-
-    // Start CLI session tracker
-    val cliSessionTracker = dev.nimbuspowered.nimbus.database.CliSessionTracker(databaseManager, eventBus, scope)
-    cliSessionTracker.start()
-
     val proxySyncManager = dev.nimbuspowered.nimbus.proxy.ProxySyncManager(proxyDir)
     proxySyncManager.init()
 
@@ -275,6 +258,21 @@ fun nimbusMain() = runBlocking {
 
     // Run database migrations (core + module) after all modules have registered theirs
     databaseManager.runMigrations(moduleContext.migrations)
+
+    // Start collectors AFTER migrations have created required tables (C8 fix)
+    val metricsCollector = MetricsCollector(databaseManager, eventBus, scope)
+    val metricsJobs = metricsCollector.start()
+    metricsCollector.startRetentionCleanup(scope)
+
+    val auditCollector = if (config.audit.enabled) {
+        val collector = dev.nimbuspowered.nimbus.database.AuditCollector(databaseManager, eventBus, scope, config.audit.retentionDays)
+        collector.start()
+        collector.startRetentionCleanup(scope)
+        collector
+    } else null
+
+    val cliSessionTracker = dev.nimbuspowered.nimbus.database.CliSessionTracker(databaseManager, eventBus, scope)
+    cliSessionTracker.start()
 
     // Enable modules after migrations have created all required tables
     moduleManager.enableAll()

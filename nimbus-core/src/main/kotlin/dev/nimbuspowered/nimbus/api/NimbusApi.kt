@@ -25,6 +25,7 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -178,16 +179,25 @@ class NimbusApi(
         }
 
         install(RateLimit) {
+            fun ApplicationCall.clientIp(): String {
+                return if (apiConfig.trustForwardedFor) {
+                    request.header("X-Forwarded-For")?.split(",")?.firstOrNull()?.trim()
+                        ?: request.local.remoteAddress
+                } else {
+                    request.local.remoteAddress
+                }
+            }
+
             global {
                 rateLimiter(limit = 120, refillPeriod = 60.seconds)
                 requestKey { call ->
-                    call.request.local.remoteAddress
+                    call.clientIp()
                 }
             }
             register(RateLimitName("stress")) {
                 rateLimiter(limit = 5, refillPeriod = 60.seconds)
                 requestKey { call ->
-                    call.request.local.remoteAddress
+                    call.clientIp()
                 }
             }
         }

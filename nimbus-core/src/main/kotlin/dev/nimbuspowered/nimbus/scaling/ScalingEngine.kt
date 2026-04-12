@@ -205,47 +205,46 @@ class ScalingEngine(
             val totalPlayers = routableServices.sumOf { it.playerCount }
 
             // --- Scale Up ---
-            // Don't scale up if we already have services starting
-            if (pendingCount > 0) {
-                logger.debug("Skipping scale-up for group '{}': {} service(s) still starting", group.name, pendingCount)
-                continue
+            // H10 fix: only skip scale-up (not scale-down) when services are pending
+            val skipScaleUp = when {
+                pendingCount > 0 -> {
+                    logger.debug("Skipping scale-up for group '{}': {} service(s) still starting", group.name, pendingCount)
+                    true
+                }
+                globalMaxServices > 0 && registry.getAll().size >= globalMaxServices -> {
+                    logger.warn("Global service limit reached ({}) — skipping scale-up for group '{}'", globalMaxServices, group.name)
+                    true
+                }
+                else -> {
+                    val lastUp = lastScaleUp[group.name]
+                    lastUp != null && Duration.between(lastUp, Instant.now()).seconds < SCALE_UP_COOLDOWN_SECONDS
+                }
             }
 
-            // Global hard cap: never exceed controller.max_services across all groups
-            if (globalMaxServices > 0 && registry.getAll().size >= globalMaxServices) {
-                logger.warn("Global service limit reached ({}) — skipping scale-up for group '{}'", globalMaxServices, group.name)
-                continue
-            }
-
-            // Cooldown: skip if we recently scaled up this group
-            val lastUp = lastScaleUp[group.name]
-            if (lastUp != null && Duration.between(lastUp, Instant.now()).seconds < SCALE_UP_COOLDOWN_SECONDS) {
-                logger.debug("Skipping scale-up for group '{}': cooldown active", group.name)
-                continue
-            }
-
-            val scaleUpReason = ScalingRule.shouldScaleUp(
-                totalPlayers = totalPlayers,
-                readyInstances = routableCount,
-                maxInstances = maxInstances,
-                playersPerInstance = playersPerInstance,
-                scaleThreshold = scaleThreshold,
-                minInstances = minInstances
-            )
-
-            if (scaleUpReason != null) {
-                val targetInstances = routableCount + 1
-                logger.info("Scaling up group '${group.name}': $scaleUpReason")
-                eventBus.emit(
-                    NimbusEvent.ScaleUp(
-                        groupName = group.name,
-                        currentInstances = routableCount,
-                        targetInstances = targetInstances,
-                        reason = scaleUpReason
-                    )
+            if (!skipScaleUp) {
+                val scaleUpReason = ScalingRule.shouldScaleUp(
+                    totalPlayers = totalPlayers,
+                    readyInstances = routableCount,
+                    maxInstances = maxInstances,
+                    playersPerInstance = playersPerInstance,
+                    scaleThreshold = scaleThreshold,
+                    minInstances = minInstances
                 )
-                serviceManager.startService(group.name)
-                lastScaleUp[group.name] = Instant.now()
+
+                if (scaleUpReason != null) {
+                    val targetInstances = routableCount + 1
+                    logger.info("Scaling up group '${group.name}': $scaleUpReason")
+                    eventBus.emit(
+                        NimbusEvent.ScaleUp(
+                            groupName = group.name,
+                            currentInstances = routableCount,
+                            targetInstances = targetInstances,
+                            reason = scaleUpReason
+                        )
+                    )
+                    serviceManager.startService(group.name)
+                    lastScaleUp[group.name] = Instant.now()
+                }
             }
 
             // --- Scale Down ---

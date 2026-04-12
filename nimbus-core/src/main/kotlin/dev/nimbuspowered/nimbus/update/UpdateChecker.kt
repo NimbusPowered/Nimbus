@@ -401,8 +401,29 @@ class UpdateChecker(
                 .joinToString("") { "%02x".format(it) }
             logger.info("Update JAR SHA-256: {}", sha256)
 
+            // Write to temp file first, validate, then move to final location
+            val tempFile = currentJar.resolveSibling("nimbus-update.tmp")
             withContext(Dispatchers.IO) {
-                Files.write(targetJar, bytes)
+                Files.write(tempFile, bytes)
+            }
+
+            // Verify downloaded file is a valid JAR/ZIP
+            try {
+                withContext(Dispatchers.IO) {
+                    java.util.zip.ZipFile(tempFile.toFile()).use { zip ->
+                        logger.info("Downloaded JAR validated: {} entries", zip.size())
+                    }
+                }
+            } catch (e: Exception) {
+                logger.error("Downloaded file is corrupt — discarding: {}", e.message)
+                println(ConsoleFormatter.error("failed (corrupt JAR)"))
+                withContext(Dispatchers.IO) { Files.deleteIfExists(tempFile) }
+                return false
+            }
+
+            // Move validated temp file to final location
+            withContext(Dispatchers.IO) {
+                Files.move(tempFile, targetJar, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
             println(ConsoleFormatter.success("done (SHA-256: ${sha256.take(16)}...)"))
 

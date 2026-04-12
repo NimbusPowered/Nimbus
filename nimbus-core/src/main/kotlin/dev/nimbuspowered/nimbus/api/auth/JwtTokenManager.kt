@@ -75,9 +75,20 @@ class JwtTokenManager(secret: String) {
         const val ISSUER = "nimbus"
         const val CLAIM_SCOPES = "scopes"
 
-        /** Quick check: does this token look like a JWT (three Base64 segments)? */
+        /**
+         * Checks if a token looks like a JWT by verifying it has three dot-separated
+         * segments and the first segment decodes to valid JSON containing an "alg" field.
+         * H4 fix: previously only checked dot count, which could match plain API tokens.
+         */
         fun looksLikeJwt(token: String): Boolean {
-            return token.count { it == '.' } == 2
+            val parts = token.split(".")
+            if (parts.size != 3) return false
+            return try {
+                val header = java.util.Base64.getUrlDecoder().decode(parts[0])
+                String(header).contains("\"alg\"")
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 }
