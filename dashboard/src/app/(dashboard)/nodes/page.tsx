@@ -83,7 +83,7 @@ export default function NodesPage() {
         } · remote agents that run services on this controller's behalf.`}
       />
 
-      {!loading && nodes.length > 0 && (
+      {!loading && (
         <ClusterTopology nodes={nodes} services={services} />
       )}
 
