@@ -286,7 +286,7 @@ class NimbusApi(
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
                 controllerInfoRoutes(startedAt, apiUpdateChecker, config, registry, groupManager, serviceManager.dedicatedServiceManager)
                 maintenanceRoutes(proxySyncManager, eventBus)
-                metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt)
+                metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt, stateSyncManager)
                 // Command proxy routes (for Bridge dynamic commands)
                 if (dispatcher != null) commandRoutes(dispatcher)
                 // Module service-level routes
@@ -297,6 +297,9 @@ class NimbusApi(
             val adminRouteBlock: Route.() -> Unit = {
                 systemRoutes(config, groupManager, groupsDir, serviceManager, eventBus, scope, startedAt)
                 if (stressTestManager != null) {
+                    // Status GET runs under the global 120/min limit; mutation routes
+                    // (start/stop/ramp) keep the tighter 5/min stress limit.
+                    stressStatusRoute(stressTestManager)
                     rateLimit(RateLimitName("stress")) {
                         stressRoutes(stressTestManager)
                     }

@@ -262,7 +262,7 @@ main() {
         echo -e "  ${DIM}Starting Nimbus...${RESET}"
         echo ""
         cd "$INSTALL_DIR"
-        java -Xms256M -Xmx256M --enable-native-access=ALL-UNNAMED -jar "$NIMBUS_JAR"
+        java -Xms256M -Xmx256M --enable-native-access=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar "$NIMBUS_JAR"
     else
         echo -e "  ${DIM}To start manually:${RESET}"
         echo -e "    cd $INSTALL_DIR && java -jar $NIMBUS_JAR"

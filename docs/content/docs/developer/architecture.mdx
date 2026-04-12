@@ -17,15 +17,19 @@ nimbus-core (Controller)
 ├── cluster/       → NodeManager, NodeConnection, PlacementStrategy, ClusterWebSocketHandler
 ├── config/        → TOML configuration loading
 ├── console/       → JLine3 interactive REPL
+├── database/      → DatabaseManager, MigrationManager, Exposed ORM tables, MetricsCollector, AuditCollector
 ├── event/         → Coroutine-based EventBus
 ├── group/         → Server group state management
 ├── loadbalancer/  → Layer-4 TCP load balancer for Velocity proxies
-├── scaling/       → Auto-scaling engine + Velocity updater
-├── service/       → Service lifecycle, process management
-├── template/      → Template copying, software download
-├── setup/         → First-run wizard
 ├── module/        → ModuleManager, ModuleContextImpl (dynamic module loading)
 ├── proxy/         → Proxy sync (tab list, MOTD, chat format, maintenance)
+├── scaling/       → Auto-scaling engine + Velocity updater
+├── service/       → Service lifecycle, process management, StateSyncManager
+├── setup/         → First-run wizard
+├── stress/        → StressTestManager (simulated player load testing)
+├── system/        → System-level utilities (memory reading, process inspection)
+├── template/      → Template copying, software download
+├── update/        → UpdateChecker (GitHub Releases auto-updater)
 └── velocity/      → Velocity config generation
 
 nimbus-module-api (Module API)
@@ -43,7 +47,9 @@ nimbus-agent (Agent Node)
 ├── AgentConfig           → TOML config (controller host, token, resources)
 ├── ControllerConnection  → WebSocket client, message dispatch
 ├── LocalServiceManager   → Launches/stops JVM processes on the agent
-└── TemplateSync          → Downloads and caches templates from controller
+├── StateSyncClient       → Pull-on-start / push-on-stop delta sync with controller canonical store
+├── TemplateSync          → Downloads and caches templates from controller
+└── TlsHelper.kt          → Keystore loading, SHA-256 fingerprint verification
 
 nimbus-bridge (Velocity Plugin)
 ├── CloudCommand          → /cloud subcommands (status, list, start, stop, etc.)
@@ -104,6 +110,11 @@ nimbus-module-scaling (Smart Scaling Module)
 ├── SmartScalingManager, SmartScalingConfigManager
 ├── ScalingCommand, ScalingRoutes
 └── ScalingSnapshots, ScalingDecisions (Exposed DB tables)
+
+nimbus-module-players (Player Module)
+├── PlayerManager, PlayerSession, PlayerHistory
+├── PlayerRoutes, PlayerCommand
+└── PlayerTables (Exposed DB tables)
 
 ```
 
@@ -217,7 +228,7 @@ Each running service is wrapped in a `ServiceHandle` interface that abstracts pr
 - **`ProcessHandle`** -- Local JVM subprocess started via `ProcessBuilder` with inherited environment
 - **`RemoteServiceHandle`** -- Proxy for services running on remote agent nodes, communicating via the cluster WebSocket protocol
 
-**Static services always run on the controller.** They have persistent data (worlds, configs) stored in `services/static/` and are never placed on remote nodes. Dynamic and proxy services can be distributed across any node.
+**Static services run on the controller by default.** They have persistent data (worlds, configs) stored in `services/static/`. With `[group.sync] enabled = true`, static services can be placed on remote agent nodes — the controller's canonical store under `services/state/<name>/` acts as the source of truth. Dynamic and proxy services can be distributed across any node without additional configuration.
 
 Both implementations provide:
 
@@ -232,16 +243,18 @@ The controller persists local service state to `state/services.json` via `Contro
 ### Service states
 
 ```text title="Service State Machine"
-PREPARING → STARTING → READY → STOPPING → STOPPED
-                 ↓                              ↑
-               CRASHED ─── (restart?) ──────────┘
+PREPARING → PREPARED → STARTING → READY → DRAINING → STOPPING → STOPPED
+                                    ↓                                 ↑
+                                  CRASHED ── (restart?) ─────────────┘
 ```
 
 | State | Description |
 |---|---|
 | `PREPARING` | Template being copied to service directory |
+| `PREPARED` | Template copy complete; service is staged in the warm pool, waiting to be started |
 | `STARTING` | JVM started, scanning stdout for ready pattern |
 | `READY` | Server accepting players |
+| `DRAINING` | Load balancer draining existing connections; no new players routed here |
 | `STOPPING` | Graceful shutdown in progress |
 | `STOPPED` | Clean shutdown complete |
 | `CRASHED` | Unexpected exit (triggers restart if `restart_on_crash = true`) |

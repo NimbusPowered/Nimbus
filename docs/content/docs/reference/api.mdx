@@ -554,6 +554,54 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ---
 
+### GET /api/services/{'{'}name{'}'}/metrics/history
+
+Get time-series memory and player count samples for a service. Reads from the `service_metric_samples` table written by `MetricsCollector`. Used by the dashboard to show historical charts rather than starting from a blank state when the page loads.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `minutes` | int | `60` | 5–1440 | How far back to fetch samples |
+
+**Example:**
+
+```bash title="Terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/services/Lobby-1/metrics/history?minutes=120"
+```
+
+**Response:**
+
+```json title="Response"
+{
+  "service": "Lobby-1",
+  "samples": [
+    {
+      "timestamp": "2025-01-15T10:00:00Z",
+      "memoryUsedMb": 480,
+      "memoryMaxMb": 1024,
+      "playerCount": 8
+    },
+    {
+      "timestamp": "2025-01-15T10:01:00Z",
+      "memoryUsedMb": 512,
+      "memoryMaxMb": 1024,
+      "playerCount": 12
+    }
+  ]
+}
+```
+
+Returns an empty `samples` array if the database is not configured or no samples exist for the requested window.
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Success |
+| 404 | Service not found |
+
+---
+
 ### POST /api/services/{'{'}name{'}'}/message
 
 Send a message to a service (service-to-service messaging via the event bus).
@@ -1973,9 +2021,34 @@ Hot-reload all group configuration files.
 
 ---
 
+### POST /api/shutdown
+
+Initiate a graceful controller shutdown. Responds immediately, then exits after a 250 ms delay so the response can be flushed. The JVM shutdown hook runs the normal graceful cleanup path (game servers → lobbies → proxies). **Admin-only.**
+
+This endpoint is essential when the controller runs in daemon mode (no TTY, no console REPL), where the only alternative would be `SIGKILL`, which orphans backend processes.
+
+**Response:**
+
+```json title="Response"
+{
+  "success": true,
+  "message": "Shutdown initiated"
+}
+```
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Shutdown initiated |
+
+---
+
 ### GET /api/metrics
 
-Public endpoint (no authentication required). Exports metrics in Prometheus text exposition format for scraping.
+Requires authentication (service token or admin token). Exports metrics in Prometheus text exposition format for scraping.
+
+<Callout type="info">
+Only `/api/health` is a truly public endpoint. `/api/metrics` is mounted inside the authenticated route block and requires a valid Bearer token (service token or admin token).
+</Callout>
 
 Includes: service counts, player counts (total, by group, by service), group scaling config, cluster node stats, load balancer counters, and maintenance status.
 
@@ -2000,7 +2073,24 @@ nimbus_services_total 5
 # HELP nimbus_players_total Total players across all services
 # TYPE nimbus_players_total gauge
 nimbus_players_total 36
+# HELP nimbus_sync_canonical_size_bytes Canonical state size on disk per sync-enabled service
+# TYPE nimbus_sync_canonical_size_bytes gauge
+nimbus_sync_canonical_size_bytes{service="BedWars-1"} 104857600
+# HELP nimbus_sync_last_push_bytes Bytes received in the most recent push (delta size)
+# TYPE nimbus_sync_last_push_bytes gauge
+nimbus_sync_last_push_bytes{service="BedWars-1"} 2097152
+# HELP nimbus_sync_last_push_files Files received in the most recent push
+# TYPE nimbus_sync_last_push_files gauge
+nimbus_sync_last_push_files{service="BedWars-1"} 14
+# HELP nimbus_sync_last_push_timestamp Unix timestamp of the most recent successful push
+# TYPE nimbus_sync_last_push_timestamp gauge
+nimbus_sync_last_push_timestamp{service="BedWars-1"} 1744387200
+# HELP nimbus_sync_in_flight 1 if a sync push is currently in progress, 0 otherwise
+# TYPE nimbus_sync_in_flight gauge
+nimbus_sync_in_flight{service="BedWars-1"} 0
 ```
+
+Sync metrics are only exported for services with `[group.sync]` (or `[dedicated.sync]`) enabled, after at least one push has landed.
 
 | Status Code | Description |
 |-------------|-------------|
@@ -2307,7 +2397,11 @@ Returns the controller's TLS certificate material so an agent can pin it SSH-sty
 
 ## Service State Sync
 
-Endpoints used by the agent to pull canonical service state from the controller on start and push it back on graceful stop (the `[group.sync]` / `[dedicated.sync]` feature). All three are served on the **TLS cluster port** (default 8443) and gated by the **cluster token** as a query parameter, matching the template download pattern.
+Endpoints used by the agent to pull canonical service state from the controller on start and push it back on graceful stop (the `[group.sync]` / `[dedicated.sync]` feature). All three are served on the **REST API port** (default 8080) and gated by the **cluster token** as a query parameter, matching the template download pattern.
+
+<Callout type="info">
+These endpoints are mounted on the same port as the REST API (default 8080), not on the TLS cluster port. Authentication uses the cluster token (passed as a `?token=` query parameter), not the REST API bearer token.
+</Callout>
 
 ### GET /api/services/{'{'}name{'}'}/state/manifest
 

@@ -713,6 +713,40 @@ Press **Space** on multiple search results before pressing **Enter** — all sel
 
 ---
 
+## Dedicated Services
+
+### `dedicated`
+
+Manage dedicated services — single-instance services with a fixed port and a persistent managed directory under `paths.dedicated/<name>/`. Unlike groups, dedicated services have no scaling and are identified by a user-defined name.
+
+**Syntax:** `dedicated <subcommand> [args]`
+
+| Subcommand | Description |
+|---|---|
+| `dedicated list` | List all configured dedicated services with state, port, and uptime |
+| `dedicated create` | Launch an interactive wizard to create a new dedicated service |
+| `dedicated info <name>` | Show detailed configuration and runtime state for a dedicated service |
+| `dedicated start <name>` | Start a dedicated service |
+| `dedicated stop <name>` | Gracefully stop a dedicated service |
+| `dedicated restart <name>` | Stop and restart a dedicated service |
+| `dedicated delete <name>` | Delete a dedicated service and its config (prompts for confirmation) |
+
+```text title="Nimbus"
+nimbus » dedicated list
+── Dedicated Services ─────────────────────────────
+NAME        SOFTWARE    STATE       PORT    UPTIME
+───────────────────────────────────────────────────
+Survival    FABRIC      ● READY     25566   3d 2h
+Creative    PAPER       ● READY     25567   1d 4h
+2 service(s)
+```
+
+**Tab completion:** Subcommand names, then dedicated service names.
+
+See [Dedicated Services](/docs/guide/dedicated-services) for full setup documentation.
+
+---
+
 ## Network & System
 
 ### `audit`
@@ -875,6 +909,25 @@ Show all available commands or detailed help for a specific command.
 <Callout type="info">
 You can also type `?` as a shorthand for `help`.
 </Callout>
+
+---
+
+### `version`
+
+Show the running Nimbus version and immediately check GitHub Releases for a newer version.
+
+**Syntax:** `version`
+
+**Aliases:** `ver`
+
+```text title="Nimbus"
+nimbus » version
+Nimbus v0.8.1
+Checking for updates...
+✓ Up to date (latest: v0.8.1)
+```
+
+If an update is available the output includes the new version number and a note on whether it will be applied automatically (patch/minor) or requires confirmation (major).
 
 ---
 

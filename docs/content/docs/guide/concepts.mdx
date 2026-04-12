@@ -74,16 +74,18 @@ Services are named `<GroupName>-<N>`, where N is an incrementing number:
 Every service moves through a lifecycle of states:
 
 ```text title="Service Lifecycle"
-PREPARING → STARTING → READY → STOPPING → STOPPED
-                         │
-                         └──→ CRASHED
+PREPARING → PREPARED → STARTING → READY → DRAINING → STOPPING → STOPPED
+                                    │
+                                    └──→ CRASHED
 ```
 
 | State | Description |
 |---|---|
 | **PREPARING** | Template files are being copied to the service directory. |
+| **PREPARED** | Template copy is complete. Service is staged in the warm pool, waiting to be started. Only reached when `warm_pool_size > 0` is configured for the group. |
 | **STARTING** | JVM process has launched. Nimbus watches stdout for the "Done" pattern. |
 | **READY** | Server is fully started and accepting player connections. |
+| **DRAINING** | The load balancer is draining existing connections before the service is stopped. New players are not routed to a draining service. |
 | **STOPPING** | Graceful shutdown has been initiated. |
 | **STOPPED** | Process has exited cleanly. |
 | **CRASHED** | Process exited unexpectedly. May auto-restart based on lifecycle config. |
@@ -93,6 +95,31 @@ PREPARING → STARTING → READY → STOPPING → STOPPED
 **Static services** (like a proxy) keep their data between restarts. Their files live in `services/static/Proxy-1/` and persist across Nimbus restarts.
 
 **Dynamic services** (like lobbies and game servers) are created fresh each time from their template. When stopped, their `services/temp/` directory is cleaned up. This ensures every new instance starts from a known good state.
+
+### State Sync
+
+For static services that need to float across cluster nodes, Nimbus provides **state sync** — a mechanism that keeps a canonical copy of a service's working directory on the controller and synchronises it to and from agent nodes automatically.
+
+How it works:
+
+1. **Canonical store** — The controller holds the authoritative copy of the service's data under `services/state/<name>/` (for groups) or `dedicated/<name>/` (for dedicated services).
+2. **Pull on start** — Before launching, the agent compares a manifest of its local files against the controller's canonical manifest. Only changed or missing files are downloaded (staged atomically, hardlinks used where possible to minimise disk I/O).
+3. **Push on stop** — After a graceful shutdown, the agent pushes its working directory delta back to the controller. Only files that changed since the last pull are uploaded.
+
+**Data-loss model:** A graceful stop results in zero data loss. An unexpected crash means any changes since the last successful push are lost — the service will resume from the previous canonical snapshot on the next start.
+
+**Enabling state sync:**
+
+```toml title="config/groups/lobby.toml"
+[group.sync]
+enabled = true
+```
+
+See [group config reference](/docs/config/groups#groupsync) for the full option list.
+
+<Callout type="info">
+State sync is what enables static services to be placed on remote agent nodes via `[group.placement] node = "worker-1"`. Without sync, static services always run on the controller where their data already lives.
+</Callout>
 
 ### Custom States
 

@@ -23,6 +23,7 @@ This page tracks where Nimbus is, where it's going, and why. Each version has a 
 | [v0.4.0 – v0.4.7](#v04x--web-dashboard) | Released (ALPHA) | Web Dashboard, modpack import, module loading fixes |
 | [v0.5.0 – v0.5.3](#v05x--modded-support) | Released | Modded client routing, mod list matching |
 | [v0.6.0 – v0.6.2](#v06x--dedicated-services) | Released | Dedicated services, unified memory, dashboard design system, overview telemetry |
+| [v0.7.0 – v0.7.3](#v07x--multi-node-cluster) | Released | Cluster TLS, placement pinning, state sync, failover, daemon mode |
 | [Vision](#vision--cloud-native) | Planned | Docker, S3 storage, multi-controller HA |
 
 ---
@@ -280,6 +281,49 @@ Smart routing based on mod list overlap — the key feature for networks running
 
 ---
 
+## v0.7.x — Multi-Node Cluster
+
+**Theme:** Make multi-node clusters production-ready. Easy setup, stateful services that float between nodes, automatic failover, and the operational hardening that comes from live end-to-end testing.
+
+### v0.7.0 — Cluster Setup & State Sync (April 11, 2026)
+
+The easy-setup release: agents auto-pin the controller's TLS cert on first connect, services can be pinned to specific nodes, and stateful services float across the cluster with automatic state persistence.
+
+- **Easy cluster setup** — Agent setup wizard fetches the controller's TLS fingerprint via `/api/cluster/bootstrap` (gated by cluster token). User confirms the fingerprint, wizard saves it to `agent.toml` — no keytool, no truststore, SSH-style trust-on-first-use
+- **Placement pinning** — `[group.placement] node = "worker-1"` or `[dedicated.placement] node = "..."` pins services to a specific agent. `fallback = wait | local | fail` controls offline behavior
+- **Dynamic state sync** — `[group.sync] enabled = true` stores a canonical copy on the controller. Agent pulls delta on start, pushes on graceful stop. Atomic staging, per-service lock, SHA-based delta detection
+- **Service name stability** — Lowest-numbered CRASHED/STOPPED slot is reused instead of always incrementing, keeping `Lobby-1` as `Lobby-1` across crash-respawn cycles
+- **Dedicated services on agent nodes** — `[dedicated.placement]` with mandatory state sync. Controller's `dedicated/<name>/` is the canonical copy
+- **Cluster TLS & Security guide** — New docs page covering threat model, cert rotation, custom CA, troubleshooting
+
+### v0.7.1 — Sync Hardening (April 11, 2026)
+
+- **Sync health metrics** — Per-service canonical size, last push time, in-flight status on `GET /api/metrics` (Prometheus format)
+- **Dashboard sync indicators** — `nodeId` column, sync health badge, "Sync now" action, global placement/sync toast listener
+- **Slot race fix** — Mutex + atomic register prevents two concurrent scale-ups from claiming the same service name
+
+### v0.7.2 — Sync Simplification (April 11, 2026)
+
+Live-sync (periodic snapshots, manual trigger, flush coordination) removed in favor of graceful-stop-only persistence. Simpler, more reliable, no operational complexity.
+
+- **Template download streaming** — Agent streams ZIP to disk with 64 KB buffer instead of loading into heap (prevents OOM on 512 MB agents)
+- **SHA tolerance** — Receiver accepts actual streamed bytes when files change between manifest scan and upload
+- **Ready timeouts raised** — 180s controller/agent, 240s modded (from 60/120/180)
+
+### v0.7.3 — Cluster Hardening (April 12, 2026)
+
+End-to-end failover testing with live agents uncovered cascading failures. This release breaks the cascade at every layer.
+
+- **Marker-file orphan sweep** — `.nimbus-owner` markers replace `ProcessHandle.commandLine()` (broken on Windows). Both agent and controller kill orphaned backends on recovery
+- **Reconnect reconciliation** — Agent sends `runningServices` on every auth; controller purges ghost entries the agent doesn't claim
+- **`POST /api/shutdown`** — REST endpoint for daemon-mode controllers with no TTY
+- **Daemon mode** — Controller detects headless environment and stays alive without JLine
+- **Graceful shutdown ordering** — `ShutdownAgent` sent before cluster server teardown, not after
+- **Agent-crash failover** — `NodeManager.onNodeFailover` hook + `ServiceManager.handleNodeFailover` purges CRASHED entries and re-places
+- **Railway-style cluster topology** — Interactive dashboard canvas with draggable cards, orthogonal edge routing, heartbeat pulse animations
+
+---
+
 ## Vision — Cloud-Native
 
 **Theme:** Enterprise features for large networks. These are long-term goals, not promises.
@@ -320,8 +364,8 @@ The ALPHA dashboard will continue to evolve:
 
 - File browser (built on Remote File Management API)
 - Template management and editing
-- Permission group editor
-- Real-time metrics dashboards with historical data
+- ~~Permission group editor~~ — v0.4.0 ✓
+- ~~Real-time metrics dashboards with historical data~~ — v0.6.1 ✓ (memory charts with 30s sampling)
 - Multi-language support
 
 ### Cloudflare DNS Module
@@ -348,7 +392,7 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Smart Scaling (time/predictive) | 4/5 | Works well, but requires `nimbus-module-scaling` (not in core) |
 | REST API | 4/5 | 17 route files, rate limiting, CORS, JWT scoped auth (opt-in) |
 | WebSocket Events | 4/5 | Live events + bidirectional console work reliably |
-| Multi-Node Cluster | 5/5 | Agent recovery, TLS, placement strategies, state reconciliation with grace period |
+| Multi-Node Cluster | 5/5 | TLS fingerprint pinning, placement pinning, state sync, orphan sweep, reconnect reconciliation, failover, daemon mode |
 | TCP Load Balancer | 4/5 | Async NIO, PROXY protocol v2, health checks — production-capable |
 | Module System | 5/5 | ServiceLoader, dependency resolution, versioning, SetupWizard integration |
 | Permission System | 4/5 | Groups, inheritance, tracks, meta, LuckPerms — audit integration could go deeper |
@@ -366,9 +410,11 @@ Transparent assessment of current feature maturity. This helps you understand wh
 | Template Stacking | 4/5 | Multi-template composition, backwards compatible |
 | Warm Pool | 4/5 | Pre-staged services, background replenishment |
 | Player Module | 3/5 | Tracking, sessions, history — needs real-world testing |
-| Service Deployments | 3/5 | Hash-based copy-back, local only (agent support planned) |
+| Service Deployments | 4/5 | Hash-based copy-back, works on controller and agent nodes |
+| State Sync | 4/5 | Graceful-stop persistence, manifest-based delta, placement pinning, failover tested end-to-end |
+| Dedicated Services | 4/5 | Single-instance, fixed-port, proxy toggle, modpack import, cluster placement with sync |
 | Remote CLI | 4/5 | Full JLine3 experience, tab completion, events, screen sessions, session tracking with GeoIP |
-| Web Dashboard | 2/5 | ALPHA — functional but still evolving, needs real-world testing and polish |
+| Web Dashboard | 3/5 | ALPHA — design system, memory charts, cluster topology canvas, light/dark theme, Phosphor icons |
 | Modded Client Routing | 4/5 | Protocol filtering, connection type matching, mod list overlap scoring, alternate group fallback |
 
 ---
@@ -392,6 +438,9 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 - Remote CLI with session tracking and GeoIP (SimpleCloud has CLI but no session auditing)
 - Web Dashboard (ALPHA) — browser-based management UI connecting to existing API (SimpleCloud's dashboard is hosted/commercial)
 - Smart modded client routing with mod list matching (no manual config, auto-scans template mods)
+- Stateful service sync with automatic failover (graceful-stop persistence, manifest-based delta, placement pinning)
+- Daemon mode (headless operation via systemd/Docker without TTY)
+- Interactive cluster topology visualization in the dashboard
 
 ### What competitors have that we don't (yet)
 
@@ -407,7 +456,7 @@ How Nimbus compares to the two major Minecraft cloud systems as of April 2026:
 | S3/SFTP template storage | CloudNET (storage-s3, storage-sftp) | Vision |
 | Web dashboard | SimpleCloud (hosted) | v0.4.0 ✓ (ALPHA) |
 | BungeeCord support | Both | No plans (Velocity-only by design) |
-| Peer-to-peer cluster (no SPOF) | CloudNET | v0.5.0+ (if demand exists) |
+| Peer-to-peer cluster (no SPOF) | CloudNET | Vision (if demand exists) |
 
 ### Our philosophy
 

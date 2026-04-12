@@ -52,6 +52,13 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { MemoryBar } from "@/components/memory-bar";
 
+interface SyncHealth {
+  lastPushAt: string | null;
+  lastPushBytes: number;
+  lastPushFiles: number;
+  canonicalSizeBytes: number;
+}
+
 interface Service {
   name: string;
   groupName: string;
@@ -64,6 +71,8 @@ interface Service {
   uptime: string | null;
   isDedicated?: boolean;
   proxyEnabled?: boolean;
+  nodeId?: string;
+  sync?: SyncHealth | null;
 }
 
 interface ServiceListResponse {
@@ -129,6 +138,14 @@ export default function ServicesPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
     }
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   const startDialog = (
@@ -199,6 +216,7 @@ export default function ServicesPage() {
                 <TableRow>
                   <TableHead className="pl-6">Name</TableHead>
                   <TableHead>Group</TableHead>
+                  <TableHead>Node</TableHead>
                   <TableHead>State</TableHead>
                   <TableHead>Port</TableHead>
                   <TableHead className="text-right">Players</TableHead>
@@ -220,10 +238,28 @@ export default function ServicesPage() {
                         {s.isDedicated && (
                           <Badge variant="outline">Dedicated</Badge>
                         )}
+                        {s.sync && (
+                          <Badge
+                            variant="outline"
+                            title={
+                              s.sync.lastPushAt
+                                ? `Last saved ${new Date(s.sync.lastPushAt).toLocaleString()} · canonical ${formatBytes(s.sync.canonicalSizeBytes)} (${s.sync.lastPushFiles} files)`
+                                : `Canonical ${formatBytes(s.sync.canonicalSizeBytes)} · not yet pushed`
+                            }
+                            className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
+                          >
+                            Persistent
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
                       {s.isDedicated ? "—" : s.groupName}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-muted-foreground text-sm">
+                        {s.nodeId && s.nodeId !== "local" ? s.nodeId : "local"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <Badge

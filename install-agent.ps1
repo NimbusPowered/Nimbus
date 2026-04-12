@@ -151,6 +151,7 @@ cd /d "%~dp0"
 
 set JAVA_OPTS=-Xms256M -Xmx512M
 set JAVA_OPTS=%JAVA_OPTS% -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200
+set JAVA_OPTS=%JAVA_OPTS% --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
 
 :start
 set "AGENT_JAR="
@@ -218,7 +219,7 @@ function Find-LatestJar {
     return $best
 }
 
-$javaOpts = @("-Xms256M", "-Xmx512M", "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200")
+$javaOpts = @("-Xms256M", "-Xmx512M", "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "--add-opens=java.base/sun.misc=ALL-UNNAMED", "--add-opens=java.base/java.nio=ALL-UNNAMED", "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED")
 
 do {
     $agentJar = Find-LatestJar
@@ -267,7 +268,7 @@ function New-AgentService {
     $javaPath = (Get-Command java).Source
     $jarPath = Join-Path $InstallDir "nimbus-agent.jar"
 
-    & sc.exe create $serviceName binPath= "`"$javaPath`" -Xms256M -Xmx512M -jar `"$jarPath`"" start= auto DisplayName= "Nimbus Agent"
+    & sc.exe create $serviceName binPath= "`"$javaPath`" -Xms256M -Xmx512M --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar `"$jarPath`"" start= auto DisplayName= "Nimbus Agent"
     & sc.exe description $serviceName "Nimbus Cloud Agent Node"
 
     Write-Success "Windows service '$serviceName' created"

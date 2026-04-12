@@ -229,6 +229,15 @@ object ConfigLoader {
                 "max_restarts must be >= 0 in group '${group.name}' ($source)"
             )
         }
+        // sync is only meaningful for STATIC groups — dynamic scaling would push/pull
+        // canonical state on every scale-up/down which is almost never what you want.
+        if (group.sync.enabled && group.type != GroupType.STATIC) {
+            logger.warn(
+                "Group '{}' has [group.sync] enabled but type={} — persistence is " +
+                        "only supported for STATIC groups. Ignoring sync flag.",
+                group.name, group.type
+            )
+        }
         // Validate memory format (e.g. "512M", "1G", "2048M")
         val memoryPattern = Regex("^\\d+[MmGg]$")
         if (!memoryPattern.matches(group.resources.memory)) {

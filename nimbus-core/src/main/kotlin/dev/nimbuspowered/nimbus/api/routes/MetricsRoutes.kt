@@ -23,7 +23,8 @@ fun Route.metricsRoutes(
     nodeManager: NodeManager?,
     loadBalancer: TcpLoadBalancer?,
     proxySyncManager: ProxySyncManager,
-    startedAt: Instant
+    startedAt: Instant,
+    stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null
 ) {
     get("/api/metrics") {
         val sb = StringBuilder()
@@ -126,6 +127,39 @@ fun Route.metricsRoutes(
                     sb.value("nimbus_loadbalancer_backend_health",
                         if (backend.status.get() == dev.nimbuspowered.nimbus.loadbalancer.BackendHealthManager.HealthStatus.HEALTHY) 1 else 0,
                         "backend" to name, "host" to backend.host, "port" to backend.port.toString())
+                }
+            }
+        }
+
+        // ── State sync ──
+        if (stateSyncManager != null) {
+            sb.help("nimbus_sync_canonical_size_bytes", "gauge",
+                "Canonical state size on controller disk per service")
+            sb.help("nimbus_sync_last_push_bytes", "gauge",
+                "Bytes in the last successful push per service")
+            sb.help("nimbus_sync_last_push_files", "gauge",
+                "File count in the last successful push per service")
+            sb.help("nimbus_sync_last_push_timestamp", "gauge",
+                "Unix timestamp of the last successful push per service")
+            sb.help("nimbus_sync_in_flight", "gauge",
+                "1 if a sync is currently running for this service, else 0")
+            // Drive enumeration from StateSyncManager, not the service registry,
+            // so a service that crashed or was removed still shows its canonical
+            // on disk (important for ops dashboards during failover).
+            val serviceByName = services.associateBy { it.name }
+            for (name in stateSyncManager.listSyncServices()) {
+                val size = stateSyncManager.canonicalSizeBytes(name)
+                val stats = stateSyncManager.getStats(name)
+                val inFlight = if (stateSyncManager.isSyncInFlight(name)) 1 else 0
+                if (size == 0L && stats == null && inFlight == 0) continue
+                val groupLabel = serviceByName[name]?.groupName ?: ""
+                val labels = arrayOf("service" to name, "group" to groupLabel)
+                sb.value("nimbus_sync_canonical_size_bytes", size, *labels)
+                sb.value("nimbus_sync_in_flight", inFlight, *labels)
+                if (stats != null) {
+                    sb.value("nimbus_sync_last_push_bytes", stats.lastPushBytes, *labels)
+                    sb.value("nimbus_sync_last_push_files", stats.lastPushFiles, *labels)
+                    sb.value("nimbus_sync_last_push_timestamp", stats.lastPushAtEpochMs / 1000, *labels)
                 }
             }
         }

@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AuthProvider } from "@/lib/auth";
 import { ModulesProvider } from "@/lib/modules";
+import { ClusterEventToaster } from "@/components/cluster-event-toaster";
 
 export default function DashboardLayout({
   children,
@@ -22,6 +23,7 @@ export default function DashboardLayout({
             } as React.CSSProperties
           }
         >
+          <ClusterEventToaster />
           <AppSidebar variant="inset" />
           <SidebarInset>
             <SiteHeader />

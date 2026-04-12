@@ -26,6 +26,13 @@ import { StatCard } from "@/components/stat-card";
 import { MemoryBar } from "@/components/memory-bar";
 import { Server, Plug, Users } from "@/lib/icons";
 
+interface SyncHealth {
+  lastPushAt: string | null;
+  lastPushBytes: number;
+  lastPushFiles: number;
+  canonicalSizeBytes: number;
+}
+
 interface ServiceDetail {
   name: string;
   groupName: string;
@@ -36,6 +43,8 @@ interface ServiceDetail {
   memoryMaxMb: number;
   healthy: boolean;
   uptime: string | null;
+  nodeId?: string;
+  sync?: SyncHealth | null;
 }
 
 const memConfig: ChartConfig = {
@@ -144,7 +153,7 @@ export default function ServiceDetailPage({
             </Badge>
           </span>
         }
-        description={`${service.groupName} · port ${service.port}`}
+        description={`${service.groupName} · port ${service.port} · node ${service.nodeId && service.nodeId !== "local" ? service.nodeId : "local"}`}
         actions={
           <>
             <Button variant="outline" onClick={() => serviceAction("start")}>

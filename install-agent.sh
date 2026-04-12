@@ -270,6 +270,7 @@ find_latest_jar() {
 
 JAVA_OPTS="-Xms256M -Xmx512M"
 JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200"
+JAVA_OPTS="$JAVA_OPTS --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
 
 # --run mode: called by screen session, handles restart loop
 if [[ "$RUN_MODE" == true ]]; then

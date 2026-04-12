@@ -52,7 +52,12 @@ class ClusterWebSocketHandler(
                 }
 
                 nodeId = authMsg.nodeName
-                val host = (call.request.local.remoteAddress ?: "unknown")
+                // Prefer the agent's self-reported public_host (filtered for a routable
+                // IPv4) over the socket-derived peer address — the latter often picks
+                // a Hyper-V vEthernet or APIPA interface on Windows, which breaks
+                // backend routing from the proxy.
+                val host = authMsg.publicHost.takeIf { it.isNotBlank() }
+                    ?: (call.request.local.remoteAddress ?: "unknown")
 
                 // Check for reconnection
                 val existingNode = nodeManager.getNode(nodeId)
@@ -66,6 +71,19 @@ class ClusterWebSocketHandler(
                     existingNode.reconnect(this)
                     existingNode.applyAuthInfo(authMsg)
                     logger.info("Node '{}' reconnected from {}", nodeId, host)
+
+                    // Reconcile registry against the agent's authoritative list: any
+                    // service we thought was on this node but the agent doesn't claim
+                    // is gone (agent restart with wiped state, orphan sweep killed it,
+                    // or manual cleanup). Purge them so the slot frees up and scaling
+                    // can re-place on another node.
+                    val agentHas = authMsg.runningServices.toSet()
+                    val stale = registry.getAll().filter { it.nodeId == nodeId && it.name !in agentHas }
+                    for (svc in stale) {
+                        logger.warn("Reconcile: purging '{}' — controller had it on '{}', agent doesn't", svc.name, nodeId)
+                        registry.unregister(svc.name)
+                        portAllocator?.release(svc.port)
+                    }
                 } else {
                     val connection = NodeConnection(
                         nodeId = nodeId,

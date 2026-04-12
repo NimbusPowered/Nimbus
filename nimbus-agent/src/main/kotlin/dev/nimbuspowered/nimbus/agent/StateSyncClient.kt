@@ -155,25 +155,42 @@ class StateSyncClient(
             localManifest.files.size - toUpload.size)
 
         runBlocking {
-            // Stream each file from disk via ChannelProvider instead of loading into
-            // memory — world syncs can be multiple GB and a readAllBytes approach would
-            // OOM the agent heap on large single files.
+            // Read each file into a ByteArray at form-build time rather than streaming
+            // lazily. Paper keeps region files + config live and a lazy ChannelProvider
+            // hit a race: the pre-declared size would come from the manifest scan but
+            // the actual byte count read later could be smaller if Paper rewrote the
+            // file, truncating the multipart body and causing an EOFException on the
+            // receiver. Reading up-front gives us a stable snapshot whose size is
+            // guaranteed to match the bytes we send. Peak heap is bounded by the
+            // largest individual file (typically <16 MB for world/region/*.mca);
+            // larger files we fall back to streaming and accept the race.
+            val inMemoryCap = 64L * 1024 * 1024
             val parts = formData {
                 append("manifest", json.encodeToString(StateManifest.serializer(), localManifest))
                 for (relPath in toUpload) {
                     val file = workDir.resolve(relPath)
                     if (!file.exists() || !Files.isRegularFile(file)) continue
-                    val size = Files.size(file)
-                    append(
-                        key = "file:$relPath",
-                        value = ChannelProvider(size = size) {
-                            Files.newInputStream(file).toByteReadChannel()
-                        },
-                        headers = Headers.build {
-                            append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
-                            append(HttpHeaders.ContentDisposition, "filename=\"${relPath.substringAfterLast('/')}\"")
-                        }
-                    )
+                    val filename = relPath.substringAfterLast('/')
+                    val headers = Headers.build {
+                        append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
+                        append(HttpHeaders.ContentDisposition, "filename=\"$filename\"")
+                    }
+                    val size = try { Files.size(file) } catch (_: Exception) { continue }
+                    if (size <= inMemoryCap) {
+                        // Stable snapshot: bytes and length agree.
+                        val bytes = try { Files.readAllBytes(file) } catch (_: Exception) { continue }
+                        append(key = "file:$relPath", value = bytes, headers = headers)
+                    } else {
+                        // Very large file — fall back to the streaming path. Still prone
+                        // to the size race but acceptable since these are rare.
+                        append(
+                            key = "file:$relPath",
+                            value = ChannelProvider(size = size) {
+                                Files.newInputStream(file).toByteReadChannel()
+                            },
+                            headers = headers
+                        )
+                    }
                 }
             }
             val response: HttpResponse = client.submitFormWithBinaryData(

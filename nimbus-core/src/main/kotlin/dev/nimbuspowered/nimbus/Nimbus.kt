@@ -343,6 +343,11 @@ fun nimbusMain() = runBlocking {
         jwtTokenManager = jwtTokenManager
     )
 
+    // Wire node-failover callback — runs re-placement for services on dead nodes.
+    nodeManager?.onNodeFailover = { nodeId, names ->
+        serviceManager.handleNodeFailover(nodeId, names)
+    }
+
     // Wire dedicated service manager into service manager and factory
     serviceManager.dedicatedServiceManager = dedicatedServiceManager
     serviceManager.serviceFactory.dedicatedServiceManager = dedicatedServiceManager
@@ -442,15 +447,20 @@ fun nimbusMain() = runBlocking {
             logger.info("Shutdown signal received, stopping all services...")
             lbJob?.cancel()
             heartbeatJob?.cancel()
-            clusterServer?.stop()
-            // Send ShutdownAgent to all nodes
+            // Send ShutdownAgent to every node BEFORE stopping the cluster server —
+            // otherwise the send queue is closed and agents never learn they should
+            // stop their children, leaving orphan backends on the other machines.
             if (nodeManager != null) {
                 for (node in nodeManager.getAllNodes()) {
                     try {
-                        runBlocking { node.send(ClusterMessage.ShutdownAgent()) }
+                        node.send(ClusterMessage.ShutdownAgent())
                     } catch (_: Exception) {}
                 }
+                // Give agents a moment to actually receive + process the message
+                // before we tear down the WebSocket listener.
+                try { kotlinx.coroutines.delay(500) } catch (_: Exception) {}
             }
+            clusterServer?.stop()
             auditCollector?.shutdown()
             metricsCollector.shutdown()
             metricsJobs.forEach { it.cancel() }
@@ -547,17 +557,9 @@ fun nimbusMain() = runBlocking {
     }
 
     // Start minimum instances for all groups (auto-downloads JARs if missing)
-    // This runs phased: proxy first (waits for READY), then backends.
+    // This runs phased: proxy first (waits for READY), then backends, then
+    // dedicated services. All three startup phases live in startMinimumInstances.
     serviceManager.startMinimumInstances()
-
-    // Start dedicated services after group services
-    for (cfg in dedicatedServiceManager.getAllConfigs()) {
-        try {
-            serviceManager.startDedicatedService(cfg.dedicated)
-        } catch (e: Exception) {
-            logger.error("Failed to start dedicated service '{}': {}", cfg.dedicated.name, e.message)
-        }
-    }
 
     // Start scaling engine AFTER initial boot completes — prevents the engine from
     // racing the phased startup (e.g. starting backends before the proxy is ready).
@@ -574,15 +576,18 @@ fun nimbusMain() = runBlocking {
     if (shutdownStarted.compareAndSet(false, true)) {
         lbJob?.cancel()
         heartbeatJob?.cancel()
-        clusterServer?.stop()
-        // Send ShutdownAgent to all nodes
+        // Send ShutdownAgent to every node BEFORE stopping the cluster server —
+        // otherwise the send queue is closed and agents never learn they should
+        // stop their children, leaving orphan backends.
         if (nodeManager != null) {
             for (node in nodeManager.getAllNodes()) {
                 try {
                     node.send(ClusterMessage.ShutdownAgent())
                 } catch (_: Exception) {}
             }
+            try { kotlinx.coroutines.delay(500) } catch (_: Exception) {}
         }
+        clusterServer?.stop()
         auditCollector?.shutdown()
         metricsJobs.forEach { it.cancel() }
         updaterJob.cancel()

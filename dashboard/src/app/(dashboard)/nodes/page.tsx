@@ -14,6 +14,7 @@ import {
   SystemStatsCard,
   type SystemInfo,
 } from "@/components/system-stats-card";
+import { ClusterTopology } from "@/components/cluster-topology";
 
 interface Node {
   nodeId: string;
@@ -26,6 +27,7 @@ interface Node {
   memoryTotalMb: number;
   isConnected: boolean;
   agentVersion: string;
+  services: string[];
   system: SystemInfo | null;
 }
 
@@ -34,15 +36,33 @@ interface NodeListResponse {
   total: number;
 }
 
+interface TopologyService {
+  name: string;
+  groupName: string;
+  state: string;
+  nodeId: string;
+  sync?: { lastPushAt: string | null } | null;
+}
+
+interface ServiceListResponse {
+  services: TopologyService[];
+  total: number;
+}
+
 export default function NodesPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [services, setServices] = useState<TopologyService[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await apiFetch<NodeListResponse>("/api/nodes");
-        setNodes(data.nodes);
+        const [nodeData, svcData] = await Promise.all([
+          apiFetch<NodeListResponse>("/api/nodes"),
+          apiFetch<ServiceListResponse>("/api/services"),
+        ]);
+        setNodes(nodeData.nodes);
+        setServices(svcData.services);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to load nodes");
       } finally {
@@ -62,6 +82,10 @@ export default function NodesPage() {
           nodes.length === 1 ? "" : "s"
         } · remote agents that run services on this controller's behalf.`}
       />
+
+      {!loading && (
+        <ClusterTopology nodes={nodes} services={services} />
+      )}
 
       {loading ? (
         <div className="grid gap-4 lg:grid-cols-2">

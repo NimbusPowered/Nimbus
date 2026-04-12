@@ -5,6 +5,7 @@ import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.cluster.RemoteServiceHandle
 import dev.nimbuspowered.nimbus.config.DedicatedDefinition
 import dev.nimbuspowered.nimbus.config.GroupDefinition
+import dev.nimbuspowered.nimbus.config.GroupType
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import dev.nimbuspowered.nimbus.config.ServerSoftware
 import dev.nimbuspowered.nimbus.module.ModuleContextImpl
@@ -273,6 +274,31 @@ class ServiceManager(
             logger.error("Migration start for '{}' failed", serviceName)
             return null
         }
+        // Wait until the service is actually READY on the new node before reporting
+        // success — previously this logged "complete" ~40s before the service could
+        // accept connections, which was confusing for operators.
+        val readyDeadline = System.currentTimeMillis() + 240_000
+        while (System.currentTimeMillis() < readyDeadline) {
+            val live = registry.get(started.name) ?: break
+            if (live.state == ServiceState.READY) break
+            if (live.state == ServiceState.CRASHED || live.state == ServiceState.STOPPED) {
+                logger.error("Migration start for '{}' ended in state {}", started.name, live.state)
+                return null
+            }
+            delay(1000)
+        }
+        // Tell the source node to drop its cached sync workdir if the service
+        // actually moved — otherwise stale copies accumulate after every migration.
+        if (sourceNodeId != "local" && sourceNodeId != started.nodeId) {
+            try {
+                val src = nodeManager?.getNode(sourceNodeId)
+                if (src != null && src.isConnected) {
+                    src.send(ClusterMessage.DiscardSyncWorkdir(serviceName))
+                }
+            } catch (e: Exception) {
+                logger.debug("Failed to send DiscardSyncWorkdir to '{}': {}", sourceNodeId, e.message)
+            }
+        }
         logger.info("Migration of '{}' complete: now on node {}", started.name, started.nodeId)
         return started
     }
@@ -304,6 +330,19 @@ class ServiceManager(
             processHandle.start(workDir, command, env)
             // Store handle immediately after start so cleanupFailedStart can find it
             processHandles[serviceName] = processHandle
+
+            // Write a pid marker in the workdir so the orphan sweep can find this
+            // process after an unclean controller restart on Windows, where
+            // java.lang.ProcessHandle.info().commandLine() often returns empty.
+            try {
+                val pid = processHandle.pid() ?: 0L
+                if (pid > 0) {
+                    java.nio.file.Files.writeString(
+                        workDir.resolve(".nimbus-owner"),
+                        "pid=$pid\nservice=$serviceName\nowner=controller\nstartedAt=${System.currentTimeMillis()}\n"
+                    )
+                }
+            } catch (_: Exception) {}
 
             // Persist state for crash recovery
             stateStore?.addService(PersistedLocalService(
@@ -378,6 +417,21 @@ class ServiceManager(
             launchReadyMonitor(service, remoteHandle, prepared.readyTimeout)
             launchExitMonitor(service, remoteHandle)
 
+            // prepare() created a controller-side workDir (services/static/<name> or
+            // services/temp/<name>_xxxx) even though the service runs on the agent.
+            // The canonical state lives in services/state/<name>/ for sync groups and
+            // dedicated/<name>/ for dedicated, so the local prepared dir is dead weight.
+            // Clean it up so the controller doesn't hoard stale copies of every remote
+            // service's files (full world, plugins, etc.).
+            try {
+                val leftover = prepared.workDir
+                if (leftover.exists()) {
+                    Files.walk(leftover).sorted(Comparator.reverseOrder()).forEach(Files::delete)
+                }
+            } catch (e: Exception) {
+                logger.debug("Failed to remove controller-side placeholder dir for remote service '{}': {}", serviceName, e.message)
+            }
+
             service
         } catch (e: Exception) {
             logger.error("Failed to start remote service '{}' on node '{}'", serviceName, node.nodeId, e)
@@ -416,7 +470,7 @@ class ServiceManager(
             jarName = softwareResolver.jarFileName(groupConfig.software),
             modloaderVersion = groupConfig.modloaderVersion,
             readyPattern = groupConfig.readyPattern,
-            readyTimeoutSeconds = if (isModded) 180 else 60,
+            readyTimeoutSeconds = if (isModded) 240 else 180,
             forwardingMode = forwardingMode,
             forwardingSecret = forwardingSecret,
             isStatic = service.isStatic,
@@ -430,27 +484,11 @@ class ServiceManager(
             javaVersion = javaResolver.requiredJavaVersion(groupConfig.version, groupConfig.software),
             bedrockPort = service.bedrockPort ?: 0,
             bedrockEnabled = config.bedrock.enabled && groupConfig.software == dev.nimbuspowered.nimbus.config.ServerSoftware.VELOCITY,
-            syncEnabled = groupConfig.sync.enabled,
-            syncExcludes = groupConfig.sync.excludes,
-            snapshotInterval = groupConfig.sync.snapshotInterval,
-            snapshotFlushCommand = resolveSnapshotFlushCommand(groupConfig.sync.snapshotFlushCommand, groupConfig.software),
-            snapshotFlushWaitMs = groupConfig.sync.snapshotFlushWaitMs
+            // sync is only meaningful for STATIC groups — ConfigLoader warns on any
+            // misconfigured non-static group and we force-disable it here.
+            syncEnabled = groupConfig.sync.enabled && groupConfig.type == GroupType.STATIC,
+            syncExcludes = groupConfig.sync.excludes
         )
-    }
-
-    /**
-     * Resolves the effective flush command for a snapshot. If the user didn't specify one,
-     * pick a sensible default based on the server software.
-     */
-    private fun resolveSnapshotFlushCommand(configured: String, software: ServerSoftware): String {
-        if (configured.isNotBlank()) return configured
-        return when (software) {
-            ServerSoftware.VELOCITY -> ""
-            // Paper-family (Paper, Purpur, Folia, Pufferfish, Leaf), Forge, NeoForge, Fabric
-            // all accept "save-all flush". CUSTOM defaults to the safer plain "save-all".
-            ServerSoftware.CUSTOM -> "save-all"
-            else -> "save-all flush"
-        }
     }
 
     /**
@@ -484,7 +522,7 @@ class ServiceManager(
             jarName = dedicated.jarName.ifBlank { softwareResolver.jarFileName(dedicated.software) },
             modloaderVersion = "",
             readyPattern = dedicated.readyPattern,
-            readyTimeoutSeconds = if (isModded) 180 else 60,
+            readyTimeoutSeconds = if (isModded) 240 else 180,
             forwardingMode = forwardingMode,
             forwardingSecret = forwardingSecret,
             isStatic = true,
@@ -497,10 +535,7 @@ class ServiceManager(
             bedrockEnabled = false,
             syncEnabled = true,                      // dedicated ALWAYS uses sync for remote placement
             syncExcludes = dedicated.sync.excludes,
-            isDedicated = true,
-            snapshotInterval = dedicated.sync.snapshotInterval,
-            snapshotFlushCommand = resolveSnapshotFlushCommand(dedicated.sync.snapshotFlushCommand, dedicated.software),
-            snapshotFlushWaitMs = dedicated.sync.snapshotFlushWaitMs
+            isDedicated = true
         )
     }
 
@@ -532,6 +567,10 @@ class ServiceManager(
         scope.launch {
             try {
                 val ready = handle.waitForReady(readyTimeout)
+                // If the exit monitor already handled this (process died, service
+                // unregistered) skip the relabel — avoids double CRASHED logs 3 min
+                // after a bind-failure startup crash.
+                if (registry.get(serviceName) !== service) return@launch
                 if (ready) {
                     service.transitionTo(ServiceState.READY)
                     eventBus.emit(NimbusEvent.ServiceReady(serviceName, service.groupName))
@@ -544,7 +583,10 @@ class ServiceManager(
                         eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, -1, service.restartCount))
                     }
                 }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // Normal during shutdown — don't log as error.
             } catch (e: Exception) {
+                if (registry.get(serviceName) !== service) return@launch
                 logger.error("Error waiting for service '{}' to become ready — marking as CRASHED", serviceName, e)
                 if (service.transitionTo(ServiceState.CRASHED)) {
                     eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, -1, service.restartCount))
@@ -634,6 +676,11 @@ class ServiceManager(
         }
 
         val exitCode = handle.exitCode() ?: -1
+        // A service that dies before reaching READY is a crash regardless of exit code —
+        // Paper/Velocity catch startup exceptions (e.g. BindException) and then System.exit(0),
+        // so exit 0 alone doesn't mean "ran cleanly". Only READY → exit 0 is truly clean.
+        val wasReady = service.state == ServiceState.READY
+        val treatAsCrash = exitCode != 0 || !wasReady
 
         handle.destroy()
         processHandles.remove(serviceName)
@@ -645,20 +692,23 @@ class ServiceManager(
             cleanupWorkingDirectory(service.workingDirectory)
         }
 
-        // Exit code 0 = clean shutdown, not a crash
-        if (exitCode == 0) {
+        if (!treatAsCrash) {
             service.transitionTo(ServiceState.STOPPED)
             logger.info("Service '{}' exited cleanly (code 0)", serviceName)
             eventBus.emit(NimbusEvent.ServiceStopped(serviceName))
             return
         }
 
-        // Non-zero exit = actual crash. Guard on transitionTo so we only emit once
+        // Startup crash OR non-zero exit. Guard on transitionTo so we only emit once
         // per distinct crash (it returns false if the service was already CRASHED via
         // another path — e.g. node-failure handler ran first).
         val justCrashed = service.transitionTo(ServiceState.CRASHED)
         if (justCrashed) {
-            logger.warn("Service '{}' crashed with exit code {}", serviceName, exitCode)
+            if (exitCode == 0 && !wasReady) {
+                logger.warn("Service '{}' exited during startup (code 0) — treating as crash", serviceName)
+            } else {
+                logger.warn("Service '{}' crashed with exit code {}", serviceName, exitCode)
+            }
             eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, exitCode, service.restartCount))
         }
 
@@ -692,6 +742,14 @@ class ServiceManager(
 
         // Already draining or stopping — idempotent
         if (service.state == ServiceState.DRAINING || service.state == ServiceState.STOPPING) {
+            return true
+        }
+
+        // CRASHED services have no live process — just purge the registry entry and
+        // release resources so a subsequent start can succeed. Without this, operators
+        // are stuck with a dead slot until the controller is restarted.
+        if (service.state == ServiceState.CRASHED) {
+            purgeService(name)
             return true
         }
 
@@ -787,6 +845,62 @@ class ServiceManager(
         } catch (e: Exception) {
             logger.error("Error stopping service '{}'", name, e)
             false
+        }
+    }
+
+    /**
+     * Called by NodeManager after a node is declared failed. For each service that
+     * was running on the dead node, purge the CRASHED registry entry and start a
+     * fresh instance — on another node if one is available, otherwise the group is
+     * left blocked (scaling engine / operator will retry).
+     *
+     * This is the missing piece that made agent crashes non-recoverable for sync
+     * static groups (which the scaling engine skips) and made the CRASHED slot
+     * permanently block subsequent starts.
+     */
+    suspend fun handleNodeFailover(nodeId: String, affectedServiceNames: List<String>) {
+        if (affectedServiceNames.isEmpty()) return
+        logger.warn("Failover: re-placing {} service(s) from failed node '{}'", affectedServiceNames.size, nodeId)
+        for (name in affectedServiceNames) {
+            val service = registry.get(name) ?: continue
+            val groupName = service.groupName
+            val isDedicated = service.isDedicated
+
+            val shouldRestart = if (isDedicated) {
+                dedicatedServiceManager?.getConfig(name)?.dedicated?.restartOnCrash ?: true
+            } else {
+                groupManager.getGroup(groupName)?.config?.group?.lifecycle?.restartOnCrash ?: true
+            }
+            if (!shouldRestart) {
+                logger.info("Failover: '{}' has restart_on_crash=false — leaving CRASHED", name)
+                continue
+            }
+
+            // Purge the dead entry so the slot frees up.
+            try {
+                purgeService(name)
+            } catch (e: Exception) {
+                logger.warn("Failover: purge of '{}' failed: {}", name, e.message)
+                continue
+            }
+
+            // Start a fresh instance. Dedicated services stay pinned to their config;
+            // group services pick a new node via the standard placement logic.
+            try {
+                val started = if (isDedicated) {
+                    val def = dedicatedServiceManager?.getConfig(name)?.dedicated
+                    if (def != null) startDedicatedService(def) else null
+                } else {
+                    startService(groupName)
+                }
+                if (started != null) {
+                    logger.info("Failover: '{}' re-placed on node '{}'", started.name, started.nodeId)
+                } else {
+                    logger.warn("Failover: re-placement of '{}' (group {}) failed — no capacity or blocked", name, groupName)
+                }
+            } catch (e: Exception) {
+                logger.error("Failover: re-placement of '{}' threw", name, e)
+            }
         }
     }
 
@@ -898,7 +1012,73 @@ class ServiceManager(
         }
 
         logger.info("Recovered {}/{} local service(s)", recovered.size, state.services.size)
+
+        // Any java.exe still alive with a -Dnimbus.service.name=<X> marker that we
+        // didn't successfully adopt is an orphan from a previous controller run
+        // (killed without cleanly stopping its children). These hold Paper's
+        // world/session.lock and will make every new spawn fail with a
+        // DirectoryLock IOException until they're killed.
+        killOrphanLocalBackends()
+
         return recovered to protectedDirs
+    }
+
+    /**
+     * Kills any alive java.exe whose command line contains `-Dnimbus.service.name=`
+     * and isn't currently tracked in [processHandles]. Matches only processes whose
+     * command line also references this controller's services/ directory, so a
+     * parallel Nimbus instance on the same host isn't affected. Called from
+     * [recoverLocalServices] after adoption.
+     */
+    private fun killOrphanLocalBackends() {
+        val adoptedPids = processHandles.values.mapNotNull { it.pid() }.toSet()
+        // Walk known service workdirs for `.nimbus-owner` marker files written at
+        // spawn time. Each marker records the PID + ownerNode. This is more reliable
+        // than ProcessHandle.info().commandLine() which returns empty on Windows for
+        // reparented processes.
+        val servicesDir = Path(config.paths.services)
+        val candidateRoots = listOf(
+            servicesDir.resolve("static"),
+            servicesDir.resolve("temp")
+        ) + (dedicatedServiceManager?.let { listOf(Path(config.paths.dedicated)) } ?: emptyList())
+        var scanned = 0
+        var killed = 0
+        for (root in candidateRoots) {
+            if (!root.exists()) continue
+            try {
+                java.nio.file.Files.list(root).use { stream ->
+                    stream.forEach { wd ->
+                        val marker = wd.resolve(".nimbus-owner")
+                        if (!java.nio.file.Files.exists(marker)) return@forEach
+                        scanned++
+                        try {
+                            val lines = java.nio.file.Files.readAllLines(marker)
+                                .associate { line -> line.substringBefore("=") to line.substringAfter("=", "") }
+                            val pid = lines["pid"]?.toLongOrNull() ?: return@forEach
+                            val markerService = lines["service"] ?: ""
+                            val markerOwner = lines["owner"] ?: ""
+                            if (markerOwner != "controller") return@forEach
+                            if (pid in adoptedPids) return@forEach
+                            val h = java.lang.ProcessHandle.of(pid).orElse(null) ?: return@forEach
+                            if (!h.isAlive) {
+                                try { java.nio.file.Files.delete(marker) } catch (_: Exception) {}
+                                return@forEach
+                            }
+                            logger.warn("Killing orphan backend PID {} (service={}) from marker",
+                                pid, markerService)
+                            h.destroyForcibly()
+                            killed++
+                            try { java.nio.file.Files.delete(marker) } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            logger.debug("Marker parse failed for {}: {}", marker, e.message)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (scanned > 0 || killed > 0) {
+            logger.info("Controller orphan sweep done (scanned {}, killed {})", scanned, killed)
+        }
     }
 
     /**
