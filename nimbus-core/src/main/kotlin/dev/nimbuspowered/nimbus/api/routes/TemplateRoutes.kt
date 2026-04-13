@@ -125,10 +125,17 @@ private fun addDirectoryToZip(zos: ZipOutputStream, dir: Path, addedPaths: Mutab
 }
 
 private fun hashDirectory(digest: java.security.MessageDigest, dir: Path) {
+    val buf = ByteArray(64 * 1024)
     Files.walk(dir).use { stream ->
         stream.filter { Files.isRegularFile(it) }.sorted().forEach { file ->
             digest.update(dir.relativize(file).toString().toByteArray())
-            digest.update(Files.readAllBytes(file))
+            Files.newInputStream(file).use { input ->
+                while (true) {
+                    val n = input.read(buf)
+                    if (n <= 0) break
+                    digest.update(buf, 0, n)
+                }
+            }
         }
     }
 }

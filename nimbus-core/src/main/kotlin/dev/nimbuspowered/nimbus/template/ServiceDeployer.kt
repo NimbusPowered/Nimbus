@@ -84,7 +84,14 @@ class ServiceDeployer {
 
     private fun sha256(path: Path): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(Files.readAllBytes(path))
+        Files.newInputStream(path).use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                digest.update(buf, 0, n)
+            }
+        }
         return digest.digest()
     }
 }

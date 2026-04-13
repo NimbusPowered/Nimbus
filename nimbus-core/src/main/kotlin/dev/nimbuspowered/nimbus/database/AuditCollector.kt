@@ -7,9 +7,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.batchInsert
 import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.selectAll
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -169,14 +171,30 @@ class AuditCollector(
     private suspend fun pruneOldEntries() {
         val cutoff = Instant.now().minus(retentionDays, ChronoUnit.DAYS).toString()
         try {
-            db.query {
-                val deleted = AuditLog.deleteWhere { timestamp less cutoff }
-                if (deleted > 0) {
-                    logger.info("Audit retention cleanup: pruned {} entries older than {} days", deleted, retentionDays)
-                }
+            val totalDeleted = pruneInBatches(cutoff)
+            if (totalDeleted > 0) {
+                logger.info("Audit retention cleanup: pruned {} entries older than {} days", totalDeleted, retentionDays)
             }
         } catch (e: Exception) {
             logger.warn("Failed to prune old audit entries: {}", e.message)
         }
+    }
+
+    private suspend fun pruneInBatches(cutoff: String, batchSize: Int = 5000): Int {
+        var totalDeleted = 0
+        while (true) {
+            val deleted = db.query {
+                val ids = AuditLog.selectAll()
+                    .where { AuditLog.timestamp less cutoff }
+                    .limit(batchSize)
+                    .map { it[AuditLog.id] }
+                if (ids.isEmpty()) return@query 0
+                AuditLog.deleteWhere { AuditLog.id inList ids }
+            }
+            totalDeleted += deleted
+            if (deleted < batchSize) break
+            delay(100) // yield to other writers between batches
+        }
+        return totalDeleted
     }
 }
