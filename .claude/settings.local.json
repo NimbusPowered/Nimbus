@@ -6,7 +6,9 @@
       "Bash(find /mnt/e/DEV/Minecraft/Nimbus/nimbus-sdk -name *.kt)",
       "Bash(./gradlew shadowJar)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "mcp__code-review-graph__get_architecture_overview_tool",
+      "mcp__code-review-graph__find_large_functions_tool"
     ]
   }
 }
