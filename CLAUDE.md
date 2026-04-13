@@ -59,22 +59,31 @@ Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 - Builds `shadowJar`, uploads `nimbus-core-<version>.jar` + `nimbus-agent-<version>.jar`
 - Creates a GitHub Release **draft** with auto-generated release notes
 
-## Modules
+## Project Structure
 
+Core (root):
 - `nimbus-core` — Main application (entry point: `dev.nimbuspowered.nimbus.NimbusKt`)
 - `nimbus-agent` — Remote agent node for multi-node clusters
 - `nimbus-protocol` — Shared cluster message types
-- `nimbus-bridge` — Velocity plugin: hub commands + cloud bridge (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
-- `nimbus-sdk` — Server SDK (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed to backend servers)
-- `nimbus-perms` — Permissions plugin: builtin or LuckPerms provider (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed, configurable)
-- `nimbus-display` — Display plugin: server selector signs + NPCs via FancyNpcs (Spigot 1.13+ signs, Paper 1.20+ NPCs, Folia compatible)
 - `nimbus-cli` — Remote CLI: standalone JLine3 console that connects to controller via REST + WebSocket (no Minecraft dependencies)
-- `nimbus-module-api` — Module API: interfaces for external module developers (NimbusModule, ModuleContext, ModuleCommand, Migration)
-- `nimbus-module-perms` — Permissions module: groups, tracks, prefix/suffix, audit log (extracted from core)
-- `nimbus-module-display` — Display module: server selector signs + NPCs config (extracted from core)
-- `nimbus-module-scaling` — Smart Scaling module: time-based schedules, predictive warmup, player count history
-- `nimbus-module-players` — Player module: centralized tracking, session history, cross-server management (controller module, auto-deployed)
+
+Plugins (`plugins/`):
+- `plugins/sdk` — Server SDK (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed to backend servers)
+- `plugins/bridge` — Velocity plugin: hub commands + cloud bridge (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
+- `plugins/perms` — Permissions plugin: builtin or LuckPerms provider (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed, configurable)
+- `plugins/display` — Display plugin: server selector signs + NPCs via FancyNpcs (Spigot 1.13+ signs, Paper 1.20+ NPCs, Folia compatible)
+
+Controller Modules (`modules/`):
+- `modules/api` — Module API: interfaces for external module developers (NimbusModule, ModuleContext, ModuleCommand, Migration)
+- `modules/perms` — Permissions module: groups, tracks, prefix/suffix, audit log (extracted from core)
+- `modules/display` — Display module: server selector signs + NPCs config (extracted from core)
+- `modules/scaling` — Smart Scaling module: time-based schedules, predictive warmup, player count history
+- `modules/players` — Player module: centralized tracking, session history, cross-server management (controller module, auto-deployed)
+
+Other:
 - `dashboard` — Web Dashboard (ALPHA): Next.js + shadcn/ui management UI, connects to controller REST API + WebSocket. Live at `dashboard.nimbuspowered.org`. Separate app, not embedded in core JAR
+
+Gradle project names remain unchanged (`:nimbus-sdk`, `:nimbus-module-perms`, etc.) via `projectDir` mappings in `settings.gradle.kts`.
 
 ## Tech Stack
 
