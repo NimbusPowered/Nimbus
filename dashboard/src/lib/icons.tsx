@@ -74,6 +74,7 @@ export type { LucideIcon };
 export {
   Activity,
   ArrowLeft,
+  ChevronDown,
   Clock,
   Cpu,
   Download,

@@ -24,8 +24,14 @@ import {
 import { apiFetch } from "@/lib/api";
 import { statusColors } from "@/lib/status";
 import { toast } from "sonner";
-import { Plus, X, Gavel } from "@/lib/icons";
+import { Plus, X, ChevronDown } from "@/lib/icons";
 import { SectionLabel } from "@/components/section-label";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 interface PlayerMeta {
   uuid: string;
@@ -64,22 +70,6 @@ interface PunishmentSummary {
   scope: string;
   scopeTarget: string | null;
 }
-
-type PunishmentForm = {
-  type: "BAN" | "TEMPBAN" | "MUTE" | "TEMPMUTE" | "KICK" | "WARN";
-  duration: string;
-  scope: "NETWORK" | "GROUP" | "SERVICE";
-  scopeTarget: string;
-  reason: string;
-};
-
-const DEFAULT_FORM: PunishmentForm = {
-  type: "BAN",
-  duration: "1d",
-  scope: "NETWORK",
-  scopeTarget: "",
-  reason: "",
-};
 
 function punishmentTypeClass(type: string): string {
   if (["BAN", "TEMPBAN", "IPBAN"].includes(type))
@@ -142,22 +132,13 @@ export function PlayerSheet({
   const [loading, setLoading] = useState(false);
   const [newGroup, setNewGroup] = useState("");
   const [punishments, setPunishments] = useState<PunishmentSummary[]>([]);
-  const [showPunishForm, setShowPunishForm] = useState(false);
-  const [punishForm, setPunishForm] = useState<PunishmentForm>(DEFAULT_FORM);
+  const [punishmentsOpen, setPunishmentsOpen] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   function reloadPerms() {
     if (!uuid) return;
     apiFetch<PlayerPerms>(`/api/permissions/players/${uuid}`)
       .then(setPerms)
-      .catch(() => {});
-  }
-
-  function reloadPunishments() {
-    if (!uuid) return;
-    apiFetch<{ punishments: PunishmentSummary[] }>(
-      `/api/punishments/player/${uuid}?limit=50`
-    )
-      .then((d) => setPunishments(d.punishments))
       .catch(() => {});
   }
 
@@ -168,9 +149,9 @@ export function PlayerSheet({
     setHistory([]);
     setPerms(null);
     setPunishments([]);
+    setPunishmentsOpen(false);
+    setSessionsOpen(false);
     setNewGroup("");
-    setShowPunishForm(false);
-    setPunishForm(DEFAULT_FORM);
 
     Promise.all([
       apiFetch<PlayerMeta>(`/api/players/info/${uuid}`).catch(() => null),
@@ -196,55 +177,13 @@ export function PlayerSheet({
       setPerms(p);
       setAllGroups(g);
       setPunishments(pn);
+      // Open the punishments section by default if anything is active —
+      // makes sure staff see enforcement state at a glance.
+      setPunishmentsOpen(pn.some((x) => x.active));
       setLoading(false);
     });
   }, [uuid, open]);
 
-  async function issuePunishment() {
-    if (!uuid || !punishForm.reason.trim()) return;
-    const playerName = meta?.name ?? perms?.name ?? "";
-    const needsDuration =
-      punishForm.type === "TEMPBAN" || punishForm.type === "TEMPMUTE";
-    const body: Record<string, unknown> = {
-      type: punishForm.type,
-      targetUuid: uuid,
-      targetName: playerName,
-      reason: punishForm.reason.trim(),
-      issuer: "dashboard",
-      issuerName: "Dashboard",
-      scope: punishForm.scope,
-    };
-    if (needsDuration) body.duration = punishForm.duration;
-    if (punishForm.scope !== "NETWORK") body.scopeTarget = punishForm.scopeTarget.trim();
-
-    try {
-      await apiFetch("/api/punishments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      toast.success(`${punishForm.type} issued`);
-      setShowPunishForm(false);
-      setPunishForm(DEFAULT_FORM);
-      reloadPunishments();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to issue punishment");
-    }
-  }
-
-  async function revokePunishment(id: number) {
-    try {
-      await apiFetch(`/api/punishments/${id}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revokedBy: "dashboard" }),
-      });
-      toast.success("Revoked");
-      reloadPunishments();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Revoke failed");
-    }
-  }
 
   async function addGroup() {
     if (!uuid || !newGroup.trim()) return;
@@ -400,126 +339,48 @@ export function PlayerSheet({
               </section>
             )}
 
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <SectionLabel>Punishments</SectionLabel>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowPunishForm((v) => !v)}
-                >
-                  <Gavel className="size-3.5 mr-1" />
-                  {showPunishForm ? "Cancel" : "New"}
-                </Button>
-              </div>
-
-              {showPunishForm && (
-                <div className="rounded-md border p-3 space-y-2 bg-muted/30">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select
-                      value={punishForm.type}
-                      onValueChange={(v) =>
-                        setPunishForm({
-                          ...punishForm,
-                          type: v as PunishmentForm["type"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="BAN">Ban (permanent)</SelectItem>
-                          <SelectItem value="TEMPBAN">Ban (temporary)</SelectItem>
-                          <SelectItem value="MUTE">Mute (permanent)</SelectItem>
-                          <SelectItem value="TEMPMUTE">Mute (temporary)</SelectItem>
-                          <SelectItem value="KICK">Kick</SelectItem>
-                          <SelectItem value="WARN">Warn</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={punishForm.scope}
-                      onValueChange={(v) =>
-                        setPunishForm({
-                          ...punishForm,
-                          scope: v as PunishmentForm["scope"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="NETWORK">Network-wide</SelectItem>
-                          <SelectItem value="GROUP">Group</SelectItem>
-                          <SelectItem value="SERVICE">Service</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {(punishForm.type === "TEMPBAN" ||
-                    punishForm.type === "TEMPMUTE") && (
-                    <Input
-                      value={punishForm.duration}
-                      onChange={(e) =>
-                        setPunishForm({ ...punishForm, duration: e.target.value })
-                      }
-                      placeholder="Duration (e.g. 30m, 1d, 2w)"
-                    />
-                  )}
-                  {punishForm.scope !== "NETWORK" && (
-                    <Input
-                      value={punishForm.scopeTarget}
-                      onChange={(e) =>
-                        setPunishForm({
-                          ...punishForm,
-                          scopeTarget: e.target.value,
-                        })
-                      }
-                      placeholder={
-                        punishForm.scope === "GROUP"
-                          ? "Group name (e.g. BedWars)"
-                          : "Service name (e.g. Lobby-1)"
-                      }
-                    />
-                  )}
-                  <Input
-                    value={punishForm.reason}
-                    onChange={(e) =>
-                      setPunishForm({ ...punishForm, reason: e.target.value })
-                    }
-                    placeholder="Reason"
-                    onKeyDown={(e) => e.key === "Enter" && issuePunishment()}
+            <Collapsible open={punishmentsOpen} onOpenChange={setPunishmentsOpen}>
+              <CollapsibleTrigger
+                render={
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between text-left focus-visible:outline-none cursor-pointer"
                   />
-                  <Button
-                    onClick={issuePunishment}
-                    disabled={
-                      !punishForm.reason.trim() ||
-                      (punishForm.scope !== "NETWORK" &&
-                        !punishForm.scopeTarget.trim())
-                    }
-                    size="sm"
-                  >
-                    Issue
-                  </Button>
-                </div>
-              )}
-
-              {punishments.length === 0 ? (
-                <div className="text-xs text-muted-foreground">
-                  No punishments on record.
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {punishments.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-xs"
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <SectionLabel>Punishments</SectionLabel>
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {punishments.length}
+                  </Badge>
+                  {punishments.some((p) => p.active) && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-red-500/40 text-red-600 dark:text-red-400"
                     >
-                      <div className="min-w-0 flex-1">
+                      {punishments.filter((p) => p.active).length} active
+                    </Badge>
+                  )}
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "size-4 text-muted-foreground transition-transform",
+                    punishmentsOpen && "rotate-180"
+                  )}
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                {punishments.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    No punishments on record.
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {punishments.map((p) => (
+                      <div
+                        key={p.id}
+                        className="rounded-md border px-3 py-2 text-xs"
+                      >
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <Badge
                             variant="outline"
@@ -542,52 +403,72 @@ export function PlayerSheet({
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-1 truncate">{p.reason || "—"}</div>
+                        <div className="mt-1 break-words">{p.reason || "—"}</div>
                         <div className="text-muted-foreground">
                           by {p.issuerName} · {formatDate(p.issuedAt)}
                           {p.expiresAt && <> · until {formatDate(p.expiresAt)}</>}
                         </div>
                       </div>
-                      {p.active && (
-                        <button
-                          onClick={() => revokePunishment(p.id)}
-                          className="text-muted-foreground hover:text-destructive"
-                          title="Revoke"
-                        >
-                          <X className="size-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+                <div className="pt-2 text-[11px] text-muted-foreground">
+                  Manage punishments on the{" "}
+                  <span className="font-medium">Punishments</span> page.
                 </div>
-              )}
-            </section>
+              </CollapsibleContent>
+            </Collapsible>
 
             {history.length > 0 && (
-              <section className="space-y-2">
-                <SectionLabel>Session history</SectionLabel>
-                <div className="space-y-1">
-                  {history.map((entry, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+              <Collapsible open={sessionsOpen} onOpenChange={setSessionsOpen}>
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between text-left focus-visible:outline-none cursor-pointer"
+                    />
+                  }
+                >
+                  <div className="flex items-center gap-2">
+                    <SectionLabel>Session history</SectionLabel>
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] font-normal"
                     >
-                      <div>
-                        <span className="font-medium">{entry.service}</span>
-                        <span className="text-muted-foreground ml-2">
-                          {entry.group}
-                        </span>
+                      {history.length}
+                    </Badge>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      "size-4 text-muted-foreground transition-transform",
+                      sessionsOpen && "rotate-180"
+                    )}
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2">
+                  <div className="space-y-1">
+                    {history.map((entry, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+                      >
+                        <div>
+                          <span className="font-medium">{entry.service}</span>
+                          <span className="text-muted-foreground ml-2">
+                            {entry.group}
+                          </span>
+                        </div>
+                        <div className="text-muted-foreground">
+                          {formatDate(entry.connectedAt)}
+                          {entry.disconnectedAt && (
+                            <span> – {formatDate(entry.disconnectedAt)}</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-muted-foreground">
-                        {formatDate(entry.connectedAt)}
-                        {entry.disconnectedAt && (
-                          <span> – {formatDate(entry.disconnectedAt)}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             )}
           </SheetBody>
         )}
