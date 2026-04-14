@@ -86,6 +86,7 @@ class ResourcePacksModule : NimbusModule {
         context.registerRoutes({ resourcePackPublicRoutes(manager) }, auth = AuthLevel.NONE)
 
         context.registerService(ResourcePackManager::class.java, manager)
+        context.registerDoctorCheck(ResourcePacksDoctorCheck(manager, storageDir))
     }
 
     private fun resolvePublicBaseUrl(config: NimbusConfig?): String {

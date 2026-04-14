@@ -325,6 +325,16 @@ class NimbusApi(
                 if (databaseManager != null && config.audit.enabled) {
                     auditRoutes(databaseManager)
                 }
+                // Doctor endpoint — same checks as the `doctor` console command.
+                doctorRoutes(
+                    dev.nimbuspowered.nimbus.doctor.DoctorRunner(
+                        config = config,
+                        registry = registry,
+                        databaseManager = databaseManager,
+                        nodeManager = nodeManager,
+                        extraChecks = { moduleContext?.doctorChecks ?: emptyList() }
+                    )
+                )
                 if (dedicatedServiceManager != null && dedicatedDir != null) {
                     dedicatedRoutes(registry, dedicatedServiceManager, serviceManager, groupManager, eventBus, dedicatedDir,
                         softwareResolver, templatesDir, config.curseforge)

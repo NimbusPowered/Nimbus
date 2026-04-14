@@ -20,6 +20,9 @@ import {
   ArrowLeft,
   Box,
   ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
   Clock,
   Cpu,
   Download,
@@ -52,6 +55,7 @@ import {
   Shield,
   Signpost,
   Square,
+  Stethoscope,
   Terminal,
   Trash2,
   Upload,
@@ -75,6 +79,9 @@ export {
   Activity,
   ArrowLeft,
   ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
   Clock,
   Cpu,
   Download,
@@ -99,6 +106,7 @@ export {
   Shield,
   Signpost,
   Square,
+  Stethoscope,
   Trash2,
   Upload,
   UserCheck,
@@ -125,6 +133,7 @@ export const PlugIcon = Plug;
 export const RadioIcon = Radio;
 export const ScrollTextIcon = ScrollText;
 export const ServerIcon = Server;
+export const StethoscopeIcon = Stethoscope;
 export const ShieldIcon = Shield;
 export const TerminalIcon = Terminal;
 export const UsersIcon = Users;

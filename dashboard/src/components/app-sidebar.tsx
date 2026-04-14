@@ -23,6 +23,7 @@ import {
   ZapIcon,
   ScrollTextIcon,
   ShieldIcon,
+  StethoscopeIcon,
   UsersIcon,
   MonitorIcon,
   RadioIcon,
@@ -52,6 +53,7 @@ const navOperations = [
 ]
 
 const navMonitoring = [
+  { title: "Doctor", url: "/doctor", icon: <StethoscopeIcon /> },
   { title: "Audit Log", url: "/audit", icon: <ScrollTextIcon /> },
 ]
 

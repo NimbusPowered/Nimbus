@@ -109,6 +109,12 @@ interface ModuleContext {
      * Used by the core to expose services that are created after module loading.
      */
     fun <T : Any> registerService(type: Class<T>, instance: T) {}
+
+    /**
+     * Register a diagnostic check that shows up in `doctor` / `GET /api/doctor`.
+     * Call from [NimbusModule.init]; checks are invoked every time the doctor runs.
+     */
+    fun registerDoctorCheck(check: DoctorCheck) {}
 }
 
 /** Convenience reified version of [ModuleContext.getService]. */

@@ -49,6 +49,10 @@ class ModuleContextImpl(
     private val _migrations = mutableListOf<Migration>()
     val migrations: List<Migration> get() = _migrations
 
+    /** Doctor checks registered by modules. */
+    private val _doctorChecks = mutableListOf<DoctorCheck>()
+    val doctorChecks: List<DoctorCheck> get() = _doctorChecks
+
     /** Service registry for getService() lookups. */
     private val services = mutableMapOf<Class<*>, Any>()
 
@@ -106,5 +110,9 @@ class ModuleContextImpl(
 
     override fun <T : Any> registerService(type: Class<T>, instance: T) {
         services[type] = instance
+    }
+
+    override fun registerDoctorCheck(check: DoctorCheck) {
+        _doctorChecks.add(check)
     }
 }

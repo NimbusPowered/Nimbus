@@ -52,7 +52,9 @@ class NimbusConsole(
     private val sharedDispatcher: CommandDispatcher? = null,
     private val dedicatedServiceManager: DedicatedServiceManager? = null,
     private val dedicatedDir: Path? = null,
-    private val portAllocator: PortAllocator? = null
+    private val portAllocator: PortAllocator? = null,
+    private val databaseManager: dev.nimbuspowered.nimbus.database.DatabaseManager? = null,
+    private val moduleContext: dev.nimbuspowered.nimbus.module.ModuleContextImpl? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(NimbusConsole::class.java)
@@ -110,6 +112,8 @@ class NimbusConsole(
         dispatcher.register(ScreenCommand(serviceManager, registry, terminal))
         dispatcher.register(ExecCommand(serviceManager, registry))
         dispatcher.register(HealthCommand(registry, groupManager, serviceManager))
+        dispatcher.register(DoctorCommand(config, registry, databaseManager, nodeManager,
+            extraChecks = { moduleContext?.doctorChecks ?: emptyList() }))
         dispatcher.register(SendCommand(serviceManager, registry, groupManager))
         dispatcher.register(LogsCommand(serviceManager, registry))
         if (groupsDir != null) {

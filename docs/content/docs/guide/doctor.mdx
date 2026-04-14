@@ -1,0 +1,239 @@
+---
+title: Doctor
+description: Built-in diagnostic command and dashboard page that flags environment, configuration, storage, database, service, and cluster issues with actionable hints.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+The **Nimbus Doctor** is a diagnostic runner that checks the most common sources of production pain — Java version, missing tokens, unwritable directories, crashed services, offline agent nodes — and reports findings with actionable remediation hints. It is designed to be the first thing an operator runs when "something feels off."
+
+Doctor is available in four equivalent forms — the underlying checks are identical, only the presentation differs:
+
+| Form | Use case |
+|---|---|
+| `doctor` console command | Quick interactive check from the controller REPL |
+| `doctor --json` | Machine-readable output for scripts and monitoring |
+| `nimbus-cli --doctor` | One-shot remote check with CI-friendly exit codes |
+| `GET /api/doctor` | Dashboard widget, monitoring integrations, custom tooling |
+
+## What doctor checks
+
+Doctor groups findings into sections. Each finding has a severity (`OK`, `WARN`, `FAIL`) and — for non-OK findings — a short remediation hint.
+
+### Environment
+
+- Java version (≥ 21 required)
+- OS name and architecture
+
+### Configuration
+
+- API enabled + persistent token present (warns if only an ephemeral, restart-regenerated token is in use)
+- API bound to `0.0.0.0` without JWT (warn — consider `127.0.0.1` or JWT if internet-facing)
+- Cluster token when cluster mode is enabled (fails if missing — agents cannot connect)
+- Cluster TLS keystore file existence (fails if the configured path does not exist)
+- MySQL / PostgreSQL credentials present when a non-SQLite database is configured
+
+### Storage
+
+- `paths.templates`, `paths.services`, `paths.logs` — existence and writability
+- Free disk space on the services volume (`< 5 GB` warns, `< 1 GB` fails)
+
+### Database
+
+- A `SELECT 1` ping against the configured database to confirm reachability
+
+### Services
+
+- Crashed service count
+- Unhealthy READY services (low TPS or missing SDK reports)
+- Services stuck in `STARTING` / `PREPARING` for more than 10 minutes
+- Services with ≥ 3 restarts (likely flapping — bad plugin, OOM, port conflict)
+
+### Cluster (only when cluster mode is enabled)
+
+- Online vs total agent node count
+- Offline node IDs with the configured `publicHost:agentPort` they should reach
+
+### Module-contributed checks
+
+Installed modules can register their own checks. Out of the box:
+
+- **Resource Packs** — detects LOCAL packs whose `.zip` file has gone missing (fail), and orphan `.zip` files on disk that no pack record references (warn)
+
+See [Writing a module check](#writing-a-module-check) for how to add your own.
+
+## Running doctor
+
+<Tabs items={['Controller console', 'Remote CLI', 'REST API', 'JSON output']}>
+  <Tab value="Controller console">
+    ```text title="nimbus »"
+    doctor
+    ```
+    ```text title="Output"
+    ── Environment ──
+      ✓ Java 21.0.2
+      ✓ Platform: Linux (amd64)
+
+    ── Configuration ──
+      ! API enabled but no persistent token configured
+        → Set [api] token in nimbus.toml or export NIMBUS_API_TOKEN — otherwise a new token is generated on every start
+      ✓ Cluster disabled (single-node mode)
+      ✓ Database: SQLite (embedded)
+
+    ── Storage ──
+      ✓ paths.templates: templates
+      ✓ paths.services: services
+      ✓ paths.logs: logs
+      ✓ 42GB free on services volume
+
+    …
+
+    ! 1 warning(s) — deployment is functional, but consider reviewing
+    ```
+  </Tab>
+  <Tab value="Remote CLI">
+    ```bash title="Terminal"
+    nimbus-cli --profile prod --doctor
+    ```
+
+    Exit codes (CI-friendly):
+
+    | Code | Meaning |
+    |---|---|
+    | `0` | All checks OK |
+    | `1` | Warnings only — deployment is functional |
+    | `2` | At least one failure — operator action required |
+    | `3` | Could not reach controller or parse response |
+
+    ```bash title="Example CI block"
+    nimbus-cli --host prod.nimbus.local --token "$TOKEN" --doctor
+    case $? in
+      0) echo "green" ;;
+      1) echo "warnings — review" ;;
+      2) echo "broken — block deploy"; exit 1 ;;
+      3) echo "controller unreachable"; exit 1 ;;
+    esac
+    ```
+  </Tab>
+  <Tab value="REST API">
+    ```http title="Request"
+    GET /api/doctor HTTP/1.1
+    Host: controller.example.com:8080
+    Authorization: Bearer <admin-token>
+    ```
+
+    ```json title="Response"
+    {
+      "sections": [
+        {
+          "name": "Environment",
+          "findings": [
+            { "level": "OK", "message": "Java 21.0.2", "hint": null },
+            { "level": "OK", "message": "Platform: Linux (amd64)", "hint": null }
+          ]
+        },
+        {
+          "name": "Services",
+          "findings": [
+            {
+              "level": "WARN",
+              "message": "2 service(s) with ≥3 restarts: Lobby-1(4), BedWars-2(3)",
+              "hint": "Recurring crashes often indicate bad plugins, OOM or port conflicts — check logs"
+            }
+          ]
+        }
+      ],
+      "warnCount": 1,
+      "failCount": 0,
+      "status": "ok"
+    }
+    ```
+
+    <Callout type="info">
+      `/api/doctor` is **admin-only** because findings may expose paths, token state and cluster topology. Use the master API token, not the derived service token.
+    </Callout>
+  </Tab>
+  <Tab value="JSON output">
+    From the controller console or the Remote CLI:
+
+    ```bash title="Terminal"
+    # Controller REPL
+    doctor --json
+
+    # Remote CLI
+    nimbus-cli --profile prod --doctor-json
+    ```
+
+    Output is a single-line JSON document with the same shape as the REST response above. Pipe it into `jq` to build dashboards or alerts:
+
+    ```bash title="Terminal"
+    nimbus-cli --profile prod --doctor-json | jq '.sections[].findings[] | select(.level != "OK")'
+    ```
+  </Tab>
+</Tabs>
+
+## Dashboard
+
+The web dashboard exposes doctor as a dedicated page at `/doctor`. The page shows:
+
+- A **summary card** colored by overall status (green / amber / red) with total OK / WARN / FAIL counts
+- One **section card** per check group, with a per-section status badge (e.g. `2 warnings`, `all good`)
+- Per-finding rows with severity icon, message, and remediation hint for non-OK findings
+- Manual **Run again** button and automatic refresh every 60 seconds
+
+The dashboard fetches `/api/doctor` — the same endpoint documented above — so any change to the controller-side checks propagates automatically.
+
+## Writing a module check
+
+Modules can contribute their own checks via the `DoctorCheck` interface in `nimbus-module-api`. Register them from `NimbusModule.init()`:
+
+```kotlin title="MyModule.kt"
+import dev.nimbuspowered.nimbus.module.DoctorCheck
+import dev.nimbuspowered.nimbus.module.DoctorFinding
+import dev.nimbuspowered.nimbus.module.DoctorLevel
+
+class MyModuleDoctorCheck(private val manager: MyManager) : DoctorCheck {
+    override val section = "My Module"
+
+    override suspend fun run(): List<DoctorFinding> {
+        val orphans = manager.findOrphanedEntries()
+        return if (orphans.isEmpty()) {
+            listOf(DoctorFinding(DoctorLevel.OK, "No orphaned entries"))
+        } else {
+            listOf(DoctorFinding(
+                level = DoctorLevel.WARN,
+                message = "${orphans.size} orphaned entries",
+                hint = "Run `mymodule prune` to clean them up"
+            ))
+        }
+    }
+}
+
+class MyModule : NimbusModule {
+    override suspend fun init(context: ModuleContext) {
+        val manager = MyManager(/* … */)
+        context.registerDoctorCheck(MyModuleDoctorCheck(manager))
+    }
+}
+```
+
+### Guidelines
+
+- **Keep checks fast** — the doctor runner is invoked interactively and by auto-refreshing dashboards. Aim for under a second of wall time; avoid network calls.
+- **Do not mutate state** — doctor must be safe to run against production clusters.
+- **Write actionable hints** — every non-OK finding should tell the operator what to do next, ideally naming a specific command or config key.
+- **Fail gracefully** — an uncaught exception in a module check does not break the run; it is captured as a `FAIL` finding under the check's section so the rest of doctor still produces a report.
+
+<Callout type="info">
+  All module checks share the same `DoctorCheck` contract used by the built-in checks. There is no special privilege — a module check is just another contributor to the same report.
+</Callout>
+
+## Permissions
+
+| Surface | Permission / auth |
+|---|---|
+| `doctor` console command | `nimbus.cloud.doctor` |
+| `GET /api/doctor` | Admin API token (master token, not the derived service token) |
+| Dashboard `/doctor` page | Admin API token (stored in browser localStorage) |
+| `nimbus-cli --doctor` | Inherits the profile's token — must be an admin token |

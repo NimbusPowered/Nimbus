@@ -116,6 +116,14 @@ fun cliMain(args: Array<String>) {
 
     val baseUrl = "http://${finalProfile.host}:${finalProfile.port}"
 
+    // Doctor mode: one-shot call to /api/doctor, print, exit with a CI-friendly code.
+    if (parsed.doctor) {
+        val code = runBlocking { runDoctor(httpClient, baseUrl, finalProfile.token, parsed.doctorJson) }
+        httpClient.close()
+        System.exit(code)
+        return
+    }
+
     val completionClient = CompletionClient(httpClient, baseUrl, finalProfile.token)
 
     lateinit var console: CliConsole
@@ -146,7 +154,9 @@ private data class ParsedArgs(
     val saveProfile: String? = null,
     val listProfiles: Boolean = false,
     val help: Boolean = false,
-    val version: Boolean = false
+    val version: Boolean = false,
+    val doctor: Boolean = false,
+    val doctorJson: Boolean = false,
 )
 
 private fun parseArgs(args: Array<String>): ParsedArgs {
@@ -158,6 +168,8 @@ private fun parseArgs(args: Array<String>): ParsedArgs {
     var listProfiles = false
     var help = false
     var version = false
+    var doctor = false
+    var doctorJson = false
 
     var i = 0
     while (i < args.size) {
@@ -170,11 +182,13 @@ private fun parseArgs(args: Array<String>): ParsedArgs {
             "--list-profiles" -> { listProfiles = true; }
             "--help" -> { help = true; }
             "--version", "-v" -> { version = true; }
+            "--doctor" -> { doctor = true; }
+            "--doctor-json" -> { doctor = true; doctorJson = true; }
         }
         i++
     }
 
-    return ParsedArgs(host, port, token, profile, saveProfile, listProfiles, help, version)
+    return ParsedArgs(host, port, token, profile, saveProfile, listProfiles, help, version, doctor, doctorJson)
 }
 
 private fun printUsage() {
@@ -191,6 +205,10 @@ private fun printUsage() {
     println("  --profile <name>       Use a saved connection profile")
     println("  --save-profile <name>  Save current connection as a profile")
     println("  --list-profiles        List all saved profiles")
+    println()
+    println("${BOLD}One-shot modes:$RESET")
+    println("  --doctor               Run /api/doctor and exit (0=ok, 1=warn, 2=fail, 3=unreachable)")
+    println("  --doctor-json          Same as --doctor, but print the raw JSON response")
     println()
     println("${BOLD}Other:$RESET")
     println("  --version, -v          Show version")

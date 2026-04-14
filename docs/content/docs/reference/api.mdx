@@ -40,7 +40,7 @@ Nimbus uses two token levels:
 
 The service token is automatically derived from the admin token using HMAC-SHA256. Game servers receive the restricted service token via the `NIMBUS_API_TOKEN` environment variable, while the Velocity proxy receives the full admin token.
 
-Admin-only endpoints (require the admin token): `/api/reload`, `/api/stress/*`, `/api/files/*`, `/api/config`, `/api/loadbalancer`, `/api/nodes`.
+Admin-only endpoints (require the admin token): `/api/reload`, `/api/stress/*`, `/api/files/*`, `/api/config`, `/api/loadbalancer`, `/api/nodes`, `/api/doctor`.
 
 <Callout title="Rate limiting" type="info">
 The API enforces **per-IP** rate limits: **120 requests/minute** globally and **5 requests/minute** for stress test endpoints. Exceeding the limit returns HTTP 429 (Too Many Requests).

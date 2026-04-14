@@ -504,7 +504,9 @@ fun nimbusMain() = runBlocking {
         sharedDispatcher = dispatcher,
         dedicatedServiceManager = dedicatedServiceManager,
         dedicatedDir = dedicatedDir,
-        portAllocator = portAllocator
+        portAllocator = portAllocator,
+        databaseManager = databaseManager,
+        moduleContext = moduleContext
     )
     console.init()
 
