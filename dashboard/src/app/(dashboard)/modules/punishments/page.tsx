@@ -19,6 +19,23 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -33,6 +50,7 @@ import {
   X,
   Save,
   RefreshCw,
+  Plus,
 } from "@/lib/icons";
 
 interface Punishment {
@@ -105,12 +123,36 @@ function typeClass(type: string): string {
   }
 }
 
+type CreateForm = {
+  target: string;
+  type: "BAN" | "TEMPBAN" | "IPBAN" | "MUTE" | "TEMPMUTE" | "KICK" | "WARN";
+  duration: string;
+  targetIp: string;
+  scope: "NETWORK" | "GROUP" | "SERVICE";
+  scopeTarget: string;
+  reason: string;
+};
+
+const EMPTY_CREATE_FORM: CreateForm = {
+  target: "",
+  type: "BAN",
+  duration: "1d",
+  targetIp: "",
+  scope: "NETWORK",
+  scopeTarget: "",
+  reason: "",
+};
+
 export default function PunishmentsModulePage() {
   const [active, setActive] = useState<Punishment[]>([]);
   const [all, setAll] = useState<Punishment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE_FORM);
+  const [issuing, setIssuing] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +174,65 @@ export default function PunishmentsModulePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * POST a punishment. The controller resolves the target: accepts either a
+   * UUID (used as-is) or a username (Mojang profile API lookup). Name is
+   * always required; UUID is optional and derived server-side.
+   */
+  const issuePunishment = async () => {
+    if (!createForm.target.trim() || !createForm.reason.trim()) return;
+    if (
+      createForm.scope !== "NETWORK" &&
+      !createForm.scopeTarget.trim()
+    ) {
+      setCreateError("Scope target required for GROUP / SERVICE scope.");
+      return;
+    }
+    if (createForm.type === "IPBAN" && !createForm.targetIp.trim()) {
+      setCreateError("IPBAN requires an IP address.");
+      return;
+    }
+
+    setIssuing(true);
+    setCreateError(null);
+    const needsDuration =
+      createForm.type === "TEMPBAN" || createForm.type === "TEMPMUTE";
+
+    const body: Record<string, unknown> = {
+      type: createForm.type,
+      targetName: createForm.target.trim(),
+      reason: createForm.reason.trim(),
+      issuer: "dashboard",
+      issuerName: "Dashboard",
+      scope: createForm.scope,
+    };
+    // Let the server resolve UUID from the name via its Mojang lookup when
+    // the operator types a plain username. If the field looks like a UUID
+    // already, pass it through directly so staff can pre-ban by UUID.
+    const maybeUuid = createForm.target.trim();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(maybeUuid)) {
+      body.targetUuid = maybeUuid;
+    }
+    if (needsDuration) body.duration = createForm.duration;
+    if (createForm.type === "IPBAN") body.targetIp = createForm.targetIp.trim();
+    if (createForm.scope !== "NETWORK") body.scopeTarget = createForm.scopeTarget.trim();
+
+    try {
+      await apiFetch("/api/punishments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      setCreateOpen(false);
+      setCreateForm(EMPTY_CREATE_FORM);
+      await load();
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Failed to issue punishment");
+    } finally {
+      setIssuing(false);
+    }
+  };
 
   const revoke = async (id: number) => {
     if (working !== null) return;
@@ -172,15 +273,205 @@ export default function PunishmentsModulePage() {
     );
   };
 
-  const searchInput = (
-    <div className="relative w-64">
-      <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-      <Input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search player, issuer, reason…"
-        className="pl-9"
-      />
+  const needsDuration =
+    createForm.type === "TEMPBAN" || createForm.type === "TEMPMUTE";
+
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <div className="relative w-64">
+        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search player, issuer, reason…"
+          className="pl-9"
+        />
+      </div>
+      <Dialog open={createOpen} onOpenChange={(v) => {
+        setCreateOpen(v);
+        if (!v) setCreateError(null);
+      }}>
+        <DialogTrigger
+          render={
+            <Button>
+              <Plus className="size-4 mr-1" />
+              New
+            </Button>
+          }
+        />
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Issue punishment</DialogTitle>
+            <DialogDescription>
+              Name resolves via the Mojang API — staff can pre-ban players who
+              haven&apos;t joined yet. UUIDs are accepted directly.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium block mb-1">
+                Player (name or UUID)
+              </label>
+              <Input
+                value={createForm.target}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, target: e.target.value })
+                }
+                placeholder="Notch"
+                autoFocus
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium block mb-1">Type</label>
+                <Select
+                  value={createForm.type}
+                  onValueChange={(v) =>
+                    setCreateForm({
+                      ...createForm,
+                      type: v as CreateForm["type"],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="BAN">Ban (permanent)</SelectItem>
+                      <SelectItem value="TEMPBAN">Ban (temporary)</SelectItem>
+                      <SelectItem value="IPBAN">IP ban</SelectItem>
+                      <SelectItem value="MUTE">Mute (permanent)</SelectItem>
+                      <SelectItem value="TEMPMUTE">Mute (temporary)</SelectItem>
+                      <SelectItem value="KICK">Kick</SelectItem>
+                      <SelectItem value="WARN">Warn</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium block mb-1">Scope</label>
+                <Select
+                  value={createForm.scope}
+                  onValueChange={(v) =>
+                    setCreateForm({
+                      ...createForm,
+                      scope: v as CreateForm["scope"],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="NETWORK">Network-wide</SelectItem>
+                      <SelectItem value="GROUP">Group</SelectItem>
+                      <SelectItem value="SERVICE">Service</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {needsDuration && (
+              <div>
+                <label className="text-xs font-medium block mb-1">
+                  Duration
+                </label>
+                <Input
+                  value={createForm.duration}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, duration: e.target.value })
+                  }
+                  placeholder="30m, 1d, 2w"
+                />
+              </div>
+            )}
+
+            {createForm.type === "IPBAN" && (
+              <div>
+                <label className="text-xs font-medium block mb-1">
+                  IP address
+                </label>
+                <Input
+                  value={createForm.targetIp}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      targetIp: e.target.value,
+                    })
+                  }
+                  placeholder="203.0.113.42"
+                />
+              </div>
+            )}
+
+            {createForm.scope !== "NETWORK" && (
+              <div>
+                <label className="text-xs font-medium block mb-1">
+                  {createForm.scope === "GROUP"
+                    ? "Group name"
+                    : "Service name"}
+                </label>
+                <Input
+                  value={createForm.scopeTarget}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      scopeTarget: e.target.value,
+                    })
+                  }
+                  placeholder={
+                    createForm.scope === "GROUP" ? "BedWars" : "Lobby-1"
+                  }
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-medium block mb-1">Reason</label>
+              <Input
+                value={createForm.reason}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, reason: e.target.value })
+                }
+                placeholder="xray on BedWars"
+                onKeyDown={(e) => e.key === "Enter" && issuePunishment()}
+              />
+            </div>
+
+            {createError && (
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400">
+                {createError}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateOpen(false)}
+              disabled={issuing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={issuePunishment}
+              disabled={
+                issuing ||
+                !createForm.target.trim() ||
+                !createForm.reason.trim()
+              }
+            >
+              {issuing ? "Issuing…" : "Issue"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 
@@ -189,7 +480,7 @@ export default function PunishmentsModulePage() {
       <PageHeader
         title="Punishments"
         description="Network-wide bans, mutes, kicks and warnings."
-        actions={searchInput}
+        actions={headerActions}
       />
 
       {loading ? (
