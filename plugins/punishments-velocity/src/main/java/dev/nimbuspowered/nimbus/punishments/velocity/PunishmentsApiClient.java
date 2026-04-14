@@ -31,7 +31,6 @@ public class PunishmentsApiClient {
     private final Gson gson = new Gson();
 
     private final ConcurrentHashMap<String, CacheEntry> checkCache = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CacheEntry> muteCache = new ConcurrentHashMap<>();
     private static final long CACHE_TTL_MS = 5_000;
 
     public PunishmentsApiClient(String apiUrl, String token, Logger logger) {
@@ -51,17 +50,10 @@ public class PunishmentsApiClient {
         return doCheck("check", uuid.toString(), ip, group, service, checkCache, key);
     }
 
-    /** Scoped mute check — called on chat. */
-    public JsonObject checkMute(UUID uuid, String group, String service) {
-        String key = "mute:" + uuid + "|" + group + "|" + service;
-        return doCheck("mute", uuid.toString(), null, group, service, muteCache, key);
-    }
-
-    /** Remove cached entries for a UUID — called after a PUNISHMENT_ISSUED event. */
+    /** Remove cached login/connect entries for a UUID — called after a PUNISHMENT_ISSUED event. */
     public void invalidate(UUID uuid) {
         String uuidStr = uuid.toString();
         checkCache.keySet().removeIf(k -> k.contains(uuidStr));
-        muteCache.keySet().removeIf(k -> k.contains(uuidStr));
     }
 
     private JsonObject doCheck(

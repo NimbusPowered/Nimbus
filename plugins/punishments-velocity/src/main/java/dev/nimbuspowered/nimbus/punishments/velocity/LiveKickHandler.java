@@ -11,7 +11,6 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.slf4j.Logger;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Applies PUNISHMENT_ISSUED events to currently-connected players in real time.
@@ -22,8 +21,9 @@ import java.util.concurrent.CompletableFuture;
  *   KICK — full disconnect with the kick message.
  *   WARN — leave the session intact, send the kickMessage as a chat line so
  *     the player sees the warning immediately.
- *   MUTE / TEMPMUTE — no disconnect; refresh the MuteCache entry so the next
- *     chat message is blocked without waiting for the cache TTL.
+ *   MUTE / TEMPMUTE — nothing on the proxy. The backend plugin owns its own
+ *     mute cache (3 s TTL) so a chat within seconds of the mute being issued
+ *     still picks up the new state without us having to push updates.
  *
  * Every event also invalidates the LoginListener check cache so a reconnect
  * attempt sees the new punishment with no 5 s lag.
@@ -33,20 +33,17 @@ public class LiveKickHandler {
     private final ProxyServer server;
     private final Logger logger;
     private final LoginListener loginListener;
-    private final MuteCache muteCache;
     private final PunishmentsApiClient api;
 
     public LiveKickHandler(
             ProxyServer server,
             Logger logger,
             LoginListener loginListener,
-            MuteCache muteCache,
             PunishmentsApiClient api
     ) {
         this.server = server;
         this.logger = logger;
         this.loginListener = loginListener;
-        this.muteCache = muteCache;
         this.api = api;
     }
 
@@ -62,7 +59,7 @@ public class LiveKickHandler {
             return;
         }
 
-        // Purge caches so follow-up checks see the new state
+        // Purge the proxy-side login/connect caches so follow-up checks see the new state
         loginListener.invalidate(uuid);
         api.invalidate(uuid);
 
@@ -72,7 +69,7 @@ public class LiveKickHandler {
                 break;
             case "MUTE":
             case "TEMPMUTE":
-                refreshMuteFor(uuid);
+                // Backend plugin handles chat enforcement — nothing to do on proxy
                 break;
             case "BAN":
             case "TEMPBAN":
@@ -98,28 +95,6 @@ public class LiveKickHandler {
         });
     }
 
-    /** Re-fetch the mute status for the player's current server so chat is blocked immediately. */
-    private void refreshMuteFor(UUID uuid) {
-        server.getPlayer(uuid).ifPresent(player -> {
-            ServerConnection conn = player.getCurrentServer().orElse(null);
-            if (conn == null) {
-                muteCache.invalidate(uuid);
-                return;
-            }
-            String service = conn.getServerInfo().getName();
-            String group = deriveGroupName(service);
-            // CompletableFuture — Velocity's scheduler needs a registered @Plugin
-            // instance and we don't want to thread that reference here.
-            CompletableFuture.runAsync(() -> {
-                try {
-                    JsonObject record = api.checkMute(uuid, group, service);
-                    muteCache.put(uuid, group, service, record);
-                } catch (Throwable t) {
-                    logger.warn("Mute refresh failed for {}: {}", uuid, t.getMessage());
-                }
-            });
-        });
-    }
 
     private void disconnectFor(UUID uuid, String type, NimbusEvent evt) {
         server.getPlayer(uuid).ifPresent(player -> {

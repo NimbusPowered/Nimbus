@@ -22,14 +22,19 @@ import org.slf4j.Logger;
  * Responsibilities:
  *   - LoginListener: deny login for NETWORK-scoped bans
  *   - ConnectListener: block ServerPreConnectEvent for scoped bans
- *   - ChatListener: cancel chat for scoped mutes
- *   - LiveKickListener: subscribe to PUNISHMENT_ISSUED to disconnect instantly
+ *   - LiveKickHandler: subscribe to PUNISHMENT_ISSUED for ban/kick/warn
+ *
+ * <p><b>Why no chat mute enforcement here:</b> cancelling signed chat
+ * ({@code PlayerChatEvent.ChatResult.denied()}) at the proxy disconnects
+ * 1.19.1+ clients with "illegal protocol state". Chat mute lives in the
+ * companion backend plugin ({@code nimbus-punishments-backend.jar}) where
+ * {@code AsyncPlayerChatEvent} fires before the broadcast and cancels cleanly.
  */
 @Plugin(
     id = "nimbus-punishments",
     name = "Nimbus Punishments",
     version = "0.0.0",  // replaced at build time from gradle.properties
-    description = "Network-wide ban/mute/kick enforcement for Nimbus-managed Velocity proxies",
+    description = "Network-wide ban/kick/warn enforcement for Nimbus-managed Velocity proxies",
     authors = {"NimbusPowered"}
 )
 public class NimbusPunishmentsPlugin {
@@ -39,7 +44,6 @@ public class NimbusPunishmentsPlugin {
     private PunishmentsApiClient api;
     private NimbusEventStream eventStream;
     private LoginListener loginListener;
-    private MuteCache muteCache;
 
     @Inject
     public NimbusPunishmentsPlugin(ProxyServer server, Logger logger) {
@@ -62,18 +66,16 @@ public class NimbusPunishmentsPlugin {
         if (apiUrl.endsWith("/")) apiUrl = apiUrl.substring(0, apiUrl.length() - 1);
 
         this.api = new PunishmentsApiClient(apiUrl, token, logger);
-        this.muteCache = new MuteCache();
 
         loginListener = new LoginListener(api, logger);
         server.getEventManager().register(this, loginListener);
         server.getEventManager().register(this, new ConnectListener(api, logger));
-        server.getEventManager().register(this, new ChatListener(api, muteCache, logger));
 
         // Subscribe to the controller's event stream so punishments issued elsewhere
         // (console, dashboard, another staff backend) take effect here immediately.
         NimbusClient client = new NimbusClient(apiUrl, token);
         eventStream = client.createEventStream();
-        LiveKickHandler liveKick = new LiveKickHandler(server, logger, loginListener, muteCache, api);
+        LiveKickHandler liveKick = new LiveKickHandler(server, logger, loginListener, api);
         eventStream.onEvent("PUNISHMENT_ISSUED", liveKick::handle);
         try {
             eventStream.connect();
@@ -82,7 +84,7 @@ public class NimbusPunishmentsPlugin {
             logger.warn("Failed to connect event stream: {} — live-kick will not work until reconnect", e.getMessage());
         }
 
-        logger.info("NimbusPunishments enabled — enforcing on Login, ServerPreConnect, PlayerChat");
+        logger.info("NimbusPunishments enabled — enforcing on Login + ServerPreConnect (+ live kick/warn)");
     }
 
     @Subscribe
