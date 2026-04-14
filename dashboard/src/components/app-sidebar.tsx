@@ -27,6 +27,8 @@ import {
   MonitorIcon,
   RadioIcon,
   BoxIcon,
+  GavelIcon,
+  PackageIcon,
   type LucideIcon,
 } from "@/lib/icons"
 import Link from "next/link"
@@ -64,6 +66,8 @@ const iconMap: Record<string, LucideIcon> = {
   Box: BoxIcon,
   Server: ServerIcon,
   Radio: RadioIcon,
+  Gavel: GavelIcon,
+  Package: PackageIcon,
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {

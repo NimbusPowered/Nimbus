@@ -1,6 +1,5 @@
 package dev.nimbuspowered.nimbus.template
 
-import dev.nimbuspowered.nimbus.NimbusVersion
 import dev.nimbuspowered.nimbus.config.NimbusConfig
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
@@ -22,11 +21,11 @@ class PluginDeployer(private val baseDir: Path) {
         config: NimbusConfig,
         softwareResolver: SoftwareResolver? = null
     ) {
-        // Deploy Nimbus Bridge plugin to global_proxy (always overwrite for updates)
-        deployHubPlugin(globalProxyTemplateDir)
-
-        // Deploy Nimbus SDK plugin to global (all backend servers: Paper, Purpur, etc.)
-        deploySdkPlugin(globalTemplateDir)
+        // NOTE: nimbus-sdk.jar and nimbus-bridge.jar are NOT deployed here anymore.
+        // ServiceFactory deploys them on every service prepare, which is self-healing
+        // and keeps `templates/global/plugins/` + `templates/global_proxy/plugins/`
+        // free of Nimbus-managed artefacts. Same applies for all module plugins
+        // (perms, display, punishments, resourcepacks).
 
         // Auto-update Nimbus plugins where the user has placed them (templates + static services)
         autoUpdateNimbusPlugins(templatesDir, staticDir)
@@ -41,70 +40,6 @@ class PluginDeployer(private val baseDir: Path) {
         if (config.bedrock.enabled && softwareResolver != null) {
             deployBedrockPlugins(templatesDir, globalTemplateDir, globalProxyTemplateDir, softwareResolver)
         }
-
-        // Extract optional plugins to plugins/ for easy installation on servers
-        extractOptionalPlugins(baseDir.resolve("plugins"))
-    }
-
-    /**
-     * Tracks deployed plugins in `.nimbus-plugins`.
-     * If a plugin was deployed before but the JAR is missing -> user removed it -> skip.
-     * If a plugin was never deployed -> deploy and track.
-     * If a plugin exists -> overwrite (update).
-     */
-    private fun deployPlugin(globalProxyDir: Path, fileName: String, resourcePath: String) {
-        val pluginsDir = globalProxyDir.resolve("plugins")
-        val targetFile = pluginsDir.resolve(fileName)
-        val trackingFile = globalProxyDir.resolve(".nimbus-plugins")
-
-        // Read tracking list
-        val tracked = if (trackingFile.exists()) {
-            Files.readAllLines(trackingFile).map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-        } else {
-            mutableSetOf()
-        }
-
-        // If previously deployed but JAR was manually removed -> skip
-        if (fileName in tracked && !targetFile.exists()) {
-            logger.debug("{} was removed by user, skipping deploy", fileName)
-            return
-        }
-
-        // Load from classpath resources
-        val resource = object {}.javaClass.classLoader.getResourceAsStream(resourcePath)
-        if (resource == null) {
-            logger.debug("{} not found in resources, skipping", fileName)
-            return
-        }
-
-        if (!pluginsDir.exists()) pluginsDir.createDirectories()
-        resource.use { input ->
-            Files.copy(input, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-
-        // Track the plugin
-        if (fileName !in tracked) {
-            tracked.add(fileName)
-            Files.write(trackingFile, tracked)
-        }
-
-        logger.info("Deployed {} to {}", fileName, targetFile)
-    }
-
-    private fun deployHubPlugin(globalProxyDir: Path) {
-        val version = NimbusVersion.version
-        val versionedResource = "plugins/nimbus-bridge-${version}.jar"
-        // Try versioned resource first, fall back to unversioned for dev builds
-        val resourcePath = if (javaClass.classLoader.getResource(versionedResource) != null) {
-            versionedResource
-        } else {
-            "plugins/nimbus-bridge.jar"
-        }
-        deployPlugin(globalProxyDir, "nimbus-bridge.jar", resourcePath)
-    }
-
-    private fun deploySdkPlugin(globalDir: Path) {
-        deployPlugin(globalDir, "nimbus-sdk.jar", "plugins/nimbus-sdk.jar")
     }
 
     /**
@@ -257,21 +192,6 @@ class PluginDeployer(private val baseDir: Path) {
             Files.copy(proxyKeyFile, targetFile, StandardCopyOption.REPLACE_EXISTING)
         }
         logger.info("Distributed Floodgate key.pem to global templates")
-    }
-
-    /**
-     * Extracts the SDK plugin from the embedded resources into the plugins/ directory
-     * at the Nimbus root. Module plugins are deployed automatically by their respective modules.
-     */
-    private fun extractOptionalPlugins(pluginsDir: Path) {
-        if (!pluginsDir.exists()) pluginsDir.createDirectories()
-
-        val targetFile = pluginsDir.resolve("nimbus-sdk.jar")
-        val resource = object {}.javaClass.classLoader.getResourceAsStream("plugins/nimbus-sdk.jar") ?: return
-        resource.use { input ->
-            Files.copy(input, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-        logger.debug("Extracted nimbus-sdk.jar to {}", pluginsDir)
     }
 
 }

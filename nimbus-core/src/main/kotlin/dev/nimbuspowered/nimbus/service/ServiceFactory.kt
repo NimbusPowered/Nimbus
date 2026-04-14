@@ -597,18 +597,36 @@ class ServiceFactory(
     }
 
     /**
-     * Deploys module-registered plugins to a service's working directory based on
-     * registered [PluginDeployment]s and the service's software compatibility.
+     * Deploys runtime-managed plugins to a service's working directory:
+     *   - Velocity proxies  → `nimbus-bridge.jar` (picks the versioned resource if present)
+     *   - Paper-based backends → `nimbus-sdk.jar` + every [PluginDeployment] a module
+     *     registered via [ModuleContext.registerPluginDeployment]
+     *   - Forge / Fabric / other software → nothing (no Nimbus runtime support yet)
+     *
+     * Copies are from the core JAR's classpath, always with REPLACE_EXISTING — deleted or
+     * modified plugin files are restored on the next service prepare. This keeps
+     * `templates/global/plugins/` and `templates/global_proxy/plugins/` free of
+     * Nimbus-managed artefacts; they're user-owned only.
      */
     private suspend fun resolveModulePlugins(software: ServerSoftware, version: String, workDir: Path, serviceName: String) {
-        val deployments = moduleContext?.pluginDeployments
-        if (deployments.isNullOrEmpty() || software == ServerSoftware.VELOCITY) return
+        val pluginsDir = workDir.resolve("plugins")
+
+        if (software == ServerSoftware.VELOCITY) {
+            if (!pluginsDir.exists()) pluginsDir.createDirectories()
+            deployBridgePlugin(pluginsDir)
+            return
+        }
 
         val isPaperBased = software in listOf(ServerSoftware.PAPER, ServerSoftware.PURPUR, ServerSoftware.PUFFERFISH, ServerSoftware.LEAF, ServerSoftware.FOLIA)
         if (!isPaperBased) return
 
-        val pluginsDir = workDir.resolve("plugins")
         if (!pluginsDir.exists()) pluginsDir.createDirectories()
+
+        // Always deploy the SDK — it's the base layer for every Nimbus-aware plugin
+        deployResourcePlugin(pluginsDir, "nimbus-sdk.jar", "plugins/nimbus-sdk.jar")
+
+        val deployments = moduleContext?.pluginDeployments
+        if (deployments.isNullOrEmpty()) return
 
         val minor = version.split(".").getOrNull(1)?.toIntOrNull() ?: 0
         var needsPacketEvents = false
@@ -640,6 +658,23 @@ class ServiceFactory(
         resource.use { input ->
             Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    /**
+     * Deploys the Nimbus Bridge plugin JAR to a Velocity proxy's plugins folder.
+     * Prefers the versioned resource (`nimbus-bridge-<version>.jar`) and falls back
+     * to the unversioned name — this matches `PluginDeployer`'s historical behaviour
+     * for dev builds where the versioned artefact isn't present.
+     */
+    private fun deployBridgePlugin(pluginsDir: Path) {
+        val version = dev.nimbuspowered.nimbus.NimbusVersion.version
+        val versionedResource = "plugins/nimbus-bridge-$version.jar"
+        val resourcePath = if (javaClass.classLoader.getResource(versionedResource) != null) {
+            versionedResource
+        } else {
+            "plugins/nimbus-bridge.jar"
+        }
+        deployResourcePlugin(pluginsDir, "nimbus-bridge.jar", resourcePath)
     }
 
     /**

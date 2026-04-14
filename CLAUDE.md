@@ -38,7 +38,7 @@ Install scripts: `install.sh`, `install.ps1`, `install-agent.sh`, `install-agent
 java -jar nimbus-core/build/libs/nimbus-core-<version>-all.jar
 ```
 
-`shadowJar` also builds and embeds module JARs (perms, display, scaling, players) into `controller-modules/` inside the fat JAR.
+`shadowJar` also builds and embeds module JARs (perms, display, scaling, players, punishments, resourcepacks) into `controller-modules/` inside the fat JAR.
 
 Version is defined once in `gradle.properties` (`nimbusVersion=x.y.z`).
 
@@ -69,9 +69,11 @@ Core (root):
 
 Plugins (`plugins/`):
 - `plugins/sdk` — Server SDK (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed to backend servers)
-- `plugins/bridge` — Velocity plugin: hub commands + cloud bridge (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
+- `plugins/bridge` — Velocity plugin: hub commands + cloud bridge + punishment login enforcement (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
 - `plugins/perms` — Permissions plugin: builtin or LuckPerms provider (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed, configurable)
 - `plugins/display` — Display plugin: server selector signs + NPCs via FancyNpcs (Spigot 1.13+ signs, Paper 1.20+ NPCs, Folia compatible)
+- `plugins/punishments` — Punishments plugin: in-game `/ban` `/tempban` `/mute` `/tempmute` `/kick` `/warn` `/unban` `/unmute` `/history` commands + chat mute listener (cross-version, Folia compatible)
+- `plugins/resourcepacks` — Resource packs plugin: applies network-wide packs on player join, 1.20.3+ multi-pack stack, telemetry reporting (cross-version, Folia compatible)
 
 Controller Modules (`modules/`):
 - `modules/api` — Module API: interfaces for external module developers (NimbusModule, ModuleContext, ModuleCommand, Migration)
@@ -79,6 +81,8 @@ Controller Modules (`modules/`):
 - `modules/display` — Display module: server selector signs + NPCs config (extracted from core)
 - `modules/scaling` — Smart Scaling module: time-based schedules, predictive warmup, player count history
 - `modules/players` — Player module: centralized tracking, session history, cross-server management (controller module, auto-deployed)
+- `modules/punishments` — Punishments module: network-wide bans, tempbans, ipbans, mutes, kicks, warnings with auto-expiry loop (migration range 5000+)
+- `modules/resourcepacks` — Resource pack registry: URL-referenced + locally hosted packs, GLOBAL/GROUP/SERVICE assignments, streaming upload with SHA-1 (migration range 6000+)
 
 Other:
 - `dashboard` — Web Dashboard (ALPHA): Next.js + shadcn/ui management UI, connects to controller REST API + WebSocket. Live at `dashboard.nimbuspowered.org`. Separate app, not embedded in core JAR
@@ -135,6 +139,8 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - `config/modules/display/*.toml` — Display configs per group (signs + NPCs)
 - `config/modules/scaling/*.toml` — Smart Scaling configs per group (schedules + warmup)
 - `config/modules/players/` — Player module config (tracking, session history)
+- `config/modules/punishments/messages.toml` — Punishment kick/mute message templates (&-color codes, placeholders `{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`)
+- `data/resourcepacks/<uuid>.zip` — Locally hosted resource pack files (streamed in, SHA-1 computed during upload)
 - `config/modules/syncproxy/motd.toml` — MOTD + maintenance mode config
 - `config/modules/syncproxy/tablist.toml` — Tab list header, footer, player format
 - `config/modules/syncproxy/chat.toml` — Chat format settings
@@ -171,10 +177,11 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - Graceful shutdown order: game servers → lobbies → proxies
 - Shutdown requires confirmation: `shutdown` then `shutdown confirm` within 30s
 - NimbusPerms auto-deployed to backend servers via module-registered `PluginDeployment`
+- All Nimbus-managed plugins (SDK + every module's plugin) are deployed at runtime on **every service prepare** via `ServiceFactory.resolveModulePlugins()`. They never land in `templates/global/plugins/` — so templates stay user-owned only. Deleted plugins self-heal on next service start
 - Bedrock support: Geyser + Floodgate auto-downloaded from GeyserMC API, key.pem centrally managed
 - Permission system: groups, inheritance, tracks, meta, weight, audit log, debug — central DB on controller
 - LuckPerms support: optional provider in NimbusPerms, syncs display data to controller for proxy features
-- Database migrations: `MigrationManager` auto-applies versioned schema changes on startup; core uses V1 (baseline) + V2 (audit); modules register migrations via `ModuleContext.registerMigrations()`
+- Database migrations: `MigrationManager` auto-applies versioned schema changes on startup; core uses V1 (baseline) + V2 (audit); modules register migrations via `ModuleContext.registerMigrations()`. Module-specific ranges: perms 1000+, scaling 2000+, players 3000+, display 4000+, punishments 5000+, resourcepacks 6000+
 - Audit logging: `AuditCollector` subscribes to EventBus, batch-writes to `audit_log` table; `audit` console command + `GET /api/audit` endpoint
 - CLI session tracking: `CliSessionTracker` records Remote CLI connections in `cli_sessions` table; `sessions` console command (active/history); `CliSessionConnected`/`CliSessionDisconnected` events displayed in local console
 - Event actor tracking: `NimbusEvent.actor` field identifies trigger source (`system`, `console`, `api:admin`, `api:service`)
@@ -194,6 +201,8 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - Warm pool: `warm_pool_size` configures pre-staged services per group, PREPARED state between PREPARING and STARTING
 - Service deployments: `deploy_on_stop = true` copies changed files back to template on service stop
 - Player tracking: Bridge reports player events via `POST /api/proxy/events`, Player Module subscribes via EventBus
+- Punishments: controller module holds canonical records + an in-memory cache of active bans/mutes keyed by UUID & IP. Bridge enforces on Velocity `PreLoginEvent` via `/api/punishments/check/{uuid}?ip=` with its own 5s TTL cache; backend plugin enforces mutes on chat. Superseding writes automatically revoke prior active punishments of the same class. Expiry loop deactivates tempbans/tempmutes every 30s (configurable). Permission nodes: `nimbus.punish.ban`, `nimbus.punish.mute`, ..., `nimbus.punish.bypass` (skip mute enforcement)
+- Resource packs: controller module persists pack registry + assignments; backend plugin fetches `/api/resourcepacks/for-group/<group>` on player join with 10s local cache. Pack stack order is GLOBAL < GROUP < SERVICE, priority ascending within scope. Paper 1.20.3+ uses multi-pack UUID API via reflection; older versions fall back to the single highest-priority pack. Local pack files served unauthenticated at `/api/resourcepacks/files/{uuid}.zip` (SHA-1 hash in `setResourcePack` call prevents tampering)
 - Web Dashboard (ALPHA): `dashboard.nimbuspowered.org` — browser-based UI connecting to controller API. Runs entirely client-side, API token stored in browser localStorage. CORS must include dashboard origin
 
 ## Cross-Version Compatibility
@@ -224,6 +233,8 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - REST: `/api/services`, `/api/services/health` (aggregated health summary), `/api/groups`, `/api/status`, `/api/players`, `/api/maintenance`, `/api/stress`, `/api/reload`, `/api/shutdown`, `/api/loadbalancer`, `/api/nodes`, `/api/metrics`, `/api/audit` (admin-only audit log), `/api/scaling/*` (smart scaling module), `/api/permissions/*` (perms module), `/api/displays/*` (display module), `/api/players/*` (player module), `/api/console/complete` (tab completion for Remote CLI), `/api/modpacks/*` (modpack import, CurseForge, server pack upload), `/api/plugins/*` (plugin search/install), `/api/software/*` (server software versions), `/api/cluster/bootstrap` (cert material for agent setup wizard, gated by cluster token), `/api/services/{name}/state/{manifest,file,sync}` (state sync pull/push for `[group.sync]` services, served on the TLS cluster port, gated by cluster token)
 - Proxy events: `POST /api/proxy/events` — generic proxy event reporting (player connect/disconnect/switch)
 - Player module: `/api/players/online`, `/api/players/history/{uuid}`, `/api/players/info/{uuid}`, `/api/players/stats`
+- Punishments module: `GET /api/punishments`, `GET /api/punishments/{id}`, `GET /api/punishments/player/{uuid}` (history), `GET /api/punishments/check/{uuid}?ip=` (fast proxy login check, cached), `GET /api/punishments/mute/{uuid}`, `POST /api/punishments`, `DELETE /api/punishments/{id}` (revoke)
+- Resource packs module: `GET /api/resourcepacks`, `POST /api/resourcepacks` (URL), `POST /api/resourcepacks/upload` (multipart stream, SHA-1 hashed), `DELETE /api/resourcepacks/{id}`, `POST /api/resourcepacks/{id}/assignments` (GLOBAL/GROUP/SERVICE), `GET /api/resourcepacks/for-group/{group}?service=` (plugin-facing stack), `POST /api/resourcepacks/status` (telemetry). **Public (no auth):** `GET /api/resourcepacks/files/{uuid}.zip` — MC clients fetch locally hosted packs here, protected by SHA-1 hash negotiation
 - WebSocket: `/api/events` (live events), `/api/services/{name}/console` (bidirectional), `/api/console/stream` (Remote CLI: multiplexed command execution, events, screen sessions) — auth via `Authorization` header or `?token=` query param
 - `/api/health` is always public (no auth), all other endpoints (including `/api/metrics`) require auth
 - Rate limiting: 120 requests/minute global, 5 requests/minute for stress endpoints

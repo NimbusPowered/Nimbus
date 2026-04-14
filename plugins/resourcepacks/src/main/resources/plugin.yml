@@ -1,0 +1,8 @@
+name: NimbusResourcePacks
+version: '${version}'
+main: dev.nimbuspowered.nimbus.resourcepacks.NimbusResourcePacksPlugin
+description: Applies network-wide resource packs assigned by the Nimbus controller
+author: NimbusPowered
+depend:
+  - NimbusSDK
+folia-supported: true

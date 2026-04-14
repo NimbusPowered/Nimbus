@@ -1,123 +1,130 @@
 /**
- * Drop-in Phosphor Icons replacement for the lucide-react icons used across
- * the dashboard. Each export keeps the ORIGINAL lucide name so call sites only
- * need an import-path swap:
+ * Central re-export of the lucide-react icons used across the dashboard.
  *
- *   -import { Server, Clock } from "lucide-react"
- *   +import { Server, Clock } from "@/lib/icons"
+ * Call sites should import from `@/lib/icons` rather than `lucide-react`
+ * directly, so any future library swap or per-icon tweak only touches
+ * this one file. Some names are exported twice (e.g. `Server` and
+ * `ServerIcon`, `FolderTree` and `FolderTreeIcon`) because the call sites
+ * mix both spellings — they resolve to the same lucide component.
  *
- * All icons use Phosphor's "regular" weight (the default) — the rounded,
- * friendly look. Phosphor icons are already React components that accept
- * `className`, `size`, `weight`, `color` and standard SVG props, so we just
- * re-export them under the names the rest of the app expects.
+ * Aliases handle a few renames between older lucide releases and the
+ * shadcn/ui scaffolding still in use:
+ *   - `Loader2`          → `LoaderCircle`
+ *   - `MoreHorizontal`   → `Ellipsis`
+ *   - `MoreVertical`     → `EllipsisVertical`
  */
 "use client";
 
-import type { Icon as PhosphorIconComponent } from "@phosphor-icons/react";
 import {
-  ArrowClockwise,
-  ArrowLeft as PhArrowLeft,
-  ArrowSquareOut,
-  ArrowsClockwise,
-  Broadcast,
-  CaretDown,
-  CircleNotch,
-  Clock as PhClock,
-  Cpu as PhCpu,
-  Cube,
-  DotsThree,
-  DotsThreeVertical,
-  DownloadSimple,
-  FloppyDisk,
-  Gauge as PhGauge,
-  HardDrives,
-  Lightning,
-  MagnifyingGlass,
-  Memory,
+  Activity,
+  ArrowLeft,
+  Box,
+  ChevronDown,
+  Clock,
+  Cpu,
+  Download,
+  Ellipsis,
+  EllipsisVertical,
+  ExternalLink,
+  FolderTree,
+  Gauge,
+  Gavel,
+  LayoutDashboard,
+  LoaderCircle,
+  LogOut,
+  MemoryStick,
   Monitor,
-  Network as PhNetwork,
-  Package as PhPackage,
-  PaperPlaneTilt,
-  Pencil as PhPencil,
-  Play as PhPlay,
-  Plug as PhPlug,
-  Plus as PhPlus,
-  Pulse,
-  Shield as PhShield,
-  SignOut,
-  Signpost as PhSignpost,
-  SquaresFour,
-  Square as PhSquare,
-  Scroll,
+  Network,
+  Package,
+  PackageSearch,
+  Pencil,
+  Play,
+  Plug,
+  Plus,
+  Radio,
+  RefreshCw,
+  RotateCw,
+  Save,
+  ScrollText,
+  Search,
+  Send,
+  Server,
+  Shield,
+  Signpost,
+  Square,
   Terminal,
-  Trash,
-  TreeStructure,
-  UploadSimple,
-  UserCheck as PhUserCheck,
-  Users as PhUsers,
-  X as PhX,
-} from "@phosphor-icons/react";
+  Trash2,
+  Upload,
+  UserCheck,
+  Users,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
-// Phosphor ships its own `Icon` type that accepts className/size/weight/color
-// and standard SVG attrs. We re-export it under the lucide alias so any
-// code that used `type LucideIcon` keeps working without changes.
-export type LucideIcon = PhosphorIconComponent;
+// Re-export the lucide `LucideIcon` type so call sites that import it from
+// here keep working without having to also import from lucide-react.
+export type { LucideIcon };
 
-// ── Mapped exports ──────────────────────────────────────────────
-// Name on the left = the lucide import name used across the dashboard.
-// Name on the right = the matching Phosphor icon. Where lucide had both a
-// "plain" and "Icon"-suffixed alias (e.g. `Server` and `ServerIcon`), we
-// export both pointing at the same Phosphor component.
+// ── Icon exports ────────────────────────────────────────────────
+// Name on the left is the public API exposed by this module. Where the
+// codebase uses both a plain and an "Icon"-suffixed alias, we export both
+// pointing at the same lucide component.
 
-export const Activity = Pulse;
-export const ArrowLeft = PhArrowLeft;
-export const BoxIcon = Cube;
-export const ChevronDownIcon = CaretDown;
-export const Clock = PhClock;
-export const Cpu = PhCpu;
-export const Download = DownloadSimple;
-export const EllipsisVerticalIcon = DotsThreeVertical;
-export const ExternalLinkIcon = ArrowSquareOut;
-export const FolderTree = TreeStructure;
-export const FolderTreeIcon = TreeStructure;
-export const Gauge = PhGauge;
-export const LayoutDashboardIcon = SquaresFour;
-export const Loader2 = CircleNotch;
-export const LogOutIcon = SignOut;
-export const MemoryStick = Memory;
+export {
+  Activity,
+  ArrowLeft,
+  Clock,
+  Cpu,
+  Download,
+  FolderTree,
+  Gauge,
+  Gavel,
+  MemoryStick,
+  Network,
+  Package,
+  PackageSearch,
+  Pencil,
+  Play,
+  Plug,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Save,
+  ScrollText,
+  Search,
+  Send,
+  Server,
+  Shield,
+  Signpost,
+  Square,
+  Trash2,
+  Upload,
+  UserCheck,
+  Users,
+  X,
+};
+
+// Aliases for names used at call sites.
+export const BoxIcon = Box;
+export const ChevronDownIcon = ChevronDown;
+export const EllipsisVerticalIcon = EllipsisVertical;
+export const ExternalLinkIcon = ExternalLink;
+export const FolderTreeIcon = FolderTree;
+export const GavelIcon = Gavel;
+export const LayoutDashboardIcon = LayoutDashboard;
+export const PackageIcon = Package;
+export const Loader2 = LoaderCircle;
+export const LogOutIcon = LogOut;
 export const MonitorIcon = Monitor;
-export const MoreHorizontal = DotsThree;
-export const MoreVertical = DotsThreeVertical;
-export const Network = PhNetwork;
-export const NetworkIcon = PhNetwork;
-export const Package = PhPackage;
-// Phosphor doesn't have a "PackageSearch" combo, but Package is close enough
-// semantically for the only site that uses it (plugin installer).
-export const PackageSearch = PhPackage;
-export const Pencil = PhPencil;
-export const Play = PhPlay;
-export const Plug = PhPlug;
-export const PlugIcon = PhPlug;
-export const Plus = PhPlus;
-export const RadioIcon = Broadcast;
-export const RefreshCw = ArrowsClockwise;
-export const RotateCw = ArrowClockwise;
-export const Save = FloppyDisk;
-export const ScrollText = Scroll;
-export const ScrollTextIcon = Scroll;
-export const Search = MagnifyingGlass;
-export const Send = PaperPlaneTilt;
-export const Server = HardDrives;
-export const ServerIcon = HardDrives;
-export const Shield = PhShield;
-export const ShieldIcon = PhShield;
-export const Signpost = PhSignpost;
-export const Square = PhSquare;
+export const MoreHorizontal = Ellipsis;
+export const MoreVertical = EllipsisVertical;
+export const NetworkIcon = Network;
+export const PlugIcon = Plug;
+export const RadioIcon = Radio;
+export const ScrollTextIcon = ScrollText;
+export const ServerIcon = Server;
+export const ShieldIcon = Shield;
 export const TerminalIcon = Terminal;
-export const Trash2 = Trash;
-export const Upload = UploadSimple;
-export const UserCheck = PhUserCheck;
-export const Users = PhUsers;
-export const UsersIcon = PhUsers;
-export const X = PhX;
-export const ZapIcon = Lightning;
+export const UsersIcon = Users;
+export const ZapIcon = Zap;

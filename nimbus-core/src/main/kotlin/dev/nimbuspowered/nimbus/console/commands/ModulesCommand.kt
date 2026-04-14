@@ -10,11 +10,7 @@ import dev.nimbuspowered.nimbus.module.ModulePluginInfo
 import org.jline.terminal.Terminal
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
-import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.name
 
 class ModulesCommand(
     private val moduleManager: ModuleManager,
@@ -120,7 +116,6 @@ class ModulesCommand(
                 val info = available.find { it.id == id }
                 println("  ${ConsoleFormatter.success("●")} Installed ${ConsoleFormatter.info(info?.name ?: id)}")
                 installed++
-                if (info != null) offerPluginDeploy(info)
             }
         }
         if (installed > 0) {
@@ -137,7 +132,6 @@ class ModulesCommand(
             ModuleManager.InstallResult.INSTALLED -> {
                 val info = moduleManager.discoverAvailable().find { it.id == id }
                 println("${ConsoleFormatter.success("●")} Installed ${ConsoleFormatter.info(info?.name ?: id)}")
-                if (info != null) offerPluginDeploy(info)
                 println(ConsoleFormatter.warn("  Restart Nimbus to activate the module."))
             }
             ModuleManager.InstallResult.ALREADY_INSTALLED -> {
@@ -171,44 +165,11 @@ class ModulesCommand(
     // ── Plugin linkage ─────────────────────────────────────
 
     /**
-     * After installing a module, offer to deploy its related plugins
-     * to all backend groups via `global/plugins/`.
-     */
-    private fun offerPluginDeploy(info: ModuleInfo) {
-        val plugins = info.plugins
-        if (plugins.isEmpty() || templatesDir == null) return
-
-        val globalPluginsDir = templatesDir.resolve("global").resolve("plugins")
-
-        // Check which plugins are not yet deployed globally
-        val missing = plugins.filter { p ->
-            !globalPluginsDir.resolve(p.fileName).exists()
-        }
-        if (missing.isEmpty()) return
-
-        println()
-        val pluginNames = missing.joinToString(", ") { ConsoleFormatter.info(it.displayName) }
-        println(ConsoleFormatter.hint("  ${info.name} needs server-side plugins: $pluginNames"))
-
-        val options = listOf(
-            InteractivePicker.Option("global", "Deploy to all backends", "install to templates/global/plugins/"),
-            InteractivePicker.Option("skip", "Skip for now", "install later with: plugins install")
-        )
-        val choice = InteractivePicker.pickOne(terminal, options)
-        if (choice == 0) {
-            if (!globalPluginsDir.exists()) globalPluginsDir.createDirectories()
-            for (plugin in missing) {
-                val resource = javaClass.classLoader.getResourceAsStream(plugin.resourcePath)
-                if (resource != null) {
-                    resource.use { Files.copy(it, globalPluginsDir.resolve(plugin.fileName), StandardCopyOption.REPLACE_EXISTING) }
-                    println("    ${ConsoleFormatter.success("+")} ${plugin.fileName} → global/plugins/")
-                }
-            }
-        }
-    }
-
-    /**
-     * After uninstalling a module, warn about orphaned server-side plugins.
+     * After uninstalling a module, clean up legacy plugin JARs that earlier
+     * Nimbus versions wrote into `templates/global/plugins/` or per-group
+     * template folders. New installs never place module plugins in templates —
+     * they are deployed on every service prepare via ServiceFactory — so this
+     * exists purely to help users clean up historical deployments.
      */
     private fun warnOrphanedPlugins(info: ModuleInfo) {
         val plugins = info.plugins

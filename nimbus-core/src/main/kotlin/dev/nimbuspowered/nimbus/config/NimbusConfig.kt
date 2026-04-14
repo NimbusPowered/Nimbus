@@ -15,6 +15,8 @@ data class NimbusConfig(
     val loadbalancer: LoadBalancerConfig = LoadBalancerConfig(),
     @Suppress("unused") // backward compat: old configs may have [permissions] section
     val permissions: PermissionsConfig = PermissionsConfig(),
+    val punishments: PunishmentsConfig = PunishmentsConfig(),
+    val resourcepacks: ResourcePacksConfig = ResourcePacksConfig(),
     val bedrock: BedrockConfig = BedrockConfig(),
     val cluster: ClusterConfig = ClusterConfig(),
     val audit: AuditConfig = AuditConfig(),
@@ -131,6 +133,30 @@ data class LoadBalancerConfig(
 data class PermissionsConfig(
     @SerialName("deploy_plugin")
     val deployPlugin: Boolean = true
+)
+
+@Serializable
+data class PunishmentsConfig(
+    @SerialName("deploy_plugin")
+    val deployPlugin: Boolean = true,
+    /** Ban/mute check cache TTL on proxy login (seconds). Higher = less DB load, slower revoke propagation. */
+    @SerialName("check_cache_ttl")
+    val checkCacheTtl: Int = 5,
+    /** How often expired tempbans/tempmutes are deactivated (seconds). */
+    @SerialName("expiry_check_interval")
+    val expiryCheckInterval: Int = 30
+)
+
+@Serializable
+data class ResourcePacksConfig(
+    @SerialName("deploy_plugin")
+    val deployPlugin: Boolean = true,
+    /** Maximum size for uploaded resource pack files (bytes). Default 250 MB. */
+    @SerialName("max_upload_bytes")
+    val maxUploadBytes: Long = 250L * 1024 * 1024,
+    /** Public base URL used by clients to fetch locally hosted packs. Empty = derive from API bind. */
+    @SerialName("public_base_url")
+    val publicBaseUrl: String = ""
 )
 
 @Serializable
