@@ -39,6 +39,7 @@ public class NimbusPunishmentsPlugin {
     private PunishmentsApiClient api;
     private NimbusEventStream eventStream;
     private LoginListener loginListener;
+    private MuteCache muteCache;
 
     @Inject
     public NimbusPunishmentsPlugin(ProxyServer server, Logger logger) {
@@ -61,20 +62,19 @@ public class NimbusPunishmentsPlugin {
         if (apiUrl.endsWith("/")) apiUrl = apiUrl.substring(0, apiUrl.length() - 1);
 
         this.api = new PunishmentsApiClient(apiUrl, token, logger);
+        this.muteCache = new MuteCache();
 
         loginListener = new LoginListener(api, logger);
         server.getEventManager().register(this, loginListener);
         server.getEventManager().register(this, new ConnectListener(api, logger));
-        server.getEventManager().register(this, new ChatListener(api, logger));
+        server.getEventManager().register(this, new ChatListener(server, api, muteCache, logger));
 
-        // Subscribe to the controller's event stream for live-kick when a punishment
-        // is issued against a currently-connected player. Without this, the offender
-        // keeps their session until they disconnect.
+        // Subscribe to the controller's event stream so punishments issued elsewhere
+        // (console, dashboard, another staff backend) take effect here immediately.
         NimbusClient client = new NimbusClient(apiUrl, token);
         eventStream = client.createEventStream();
-        eventStream.onEvent("PUNISHMENT_ISSUED", evt -> {
-            new LiveKickHandler(server, logger, loginListener).handle(evt);
-        });
+        LiveKickHandler liveKick = new LiveKickHandler(server, logger, loginListener, muteCache, api);
+        eventStream.onEvent("PUNISHMENT_ISSUED", liveKick::handle);
         try {
             eventStream.connect();
             logger.info("Connected to controller event stream for live punishment propagation");

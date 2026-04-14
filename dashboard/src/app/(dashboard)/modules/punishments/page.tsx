@@ -31,6 +31,8 @@ import {
   Clock,
   Search,
   X,
+  Save,
+  RefreshCw,
 } from "@/lib/icons";
 
 interface Punishment {
@@ -224,6 +226,7 @@ export default function PunishmentsModulePage() {
               <TabsTrigger value="history">
                 History ({filtered(all).length})
               </TabsTrigger>
+              <TabsTrigger value="messages">Messages</TabsTrigger>
             </TabsList>
 
             <TabsContent value="active" className="mt-4">
@@ -254,6 +257,10 @@ export default function PunishmentsModulePage() {
                     : "Complete record of every punishment ever issued."
                 }
               />
+            </TabsContent>
+
+            <TabsContent value="messages" className="mt-4">
+              <MessagesEditor />
             </TabsContent>
           </Tabs>
         </div>
@@ -392,6 +399,143 @@ function PunishmentTable({
             ))}
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Messages editor tab ─────────────────────────────────────
+
+interface MessageTemplates {
+  ban: string;
+  tempban: string;
+  ipban: string;
+  mute: string;
+  tempmute: string;
+  kick: string;
+  broadcast_issued: string;
+  broadcast_revoked: string;
+}
+
+const MESSAGE_FIELDS: Array<{ key: keyof MessageTemplates; label: string; hint: string }> = [
+  { key: "ban", label: "Ban", hint: "Permanent network-wide ban" },
+  { key: "tempban", label: "Tempban", hint: "Temporary ban — use {remaining}" },
+  { key: "ipban", label: "IP Ban", hint: "Keyed on IP; shown on reconnect" },
+  { key: "mute", label: "Mute", hint: "Sent to player when chat is blocked" },
+  { key: "tempmute", label: "Tempmute", hint: "Sent per chat attempt while muted" },
+  { key: "kick", label: "Kick / Warn", hint: "One-shot disconnect, also used for warnings" },
+  { key: "broadcast_issued", label: "Audit: issued", hint: "Console/audit log line" },
+  { key: "broadcast_revoked", label: "Audit: revoked", hint: "Console/audit log line" },
+];
+
+function MessagesEditor() {
+  const [templates, setTemplates] = useState<MessageTemplates | null>(null);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const t = await apiFetch<MessageTemplates>("/api/punishments/messages");
+      setTemplates(t);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load messages");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async () => {
+    if (!templates) return;
+    setWorking(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const t = await apiFetch<MessageTemplates>("/api/punishments/messages", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(templates),
+      });
+      setTemplates(t);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  if (!templates) {
+    return <Skeleton className="h-96 rounded-xl" />;
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-6 space-y-4">
+        <div className="rounded-md bg-muted/40 p-3 text-sm">
+          <div className="font-medium mb-1">Placeholders</div>
+          <div className="text-muted-foreground text-xs space-x-3">
+            <code>{"{target}"}</code>
+            <code>{"{issuer}"}</code>
+            <code>{"{reason}"}</code>
+            <code>{"{remaining}"}</code>
+            <code>{"{expires}"}</code>
+            <code>{"{type}"}</code>
+          </div>
+          <div className="text-muted-foreground text-xs mt-2">
+            Color codes: <code>&amp;c</code> red, <code>&amp;a</code> green,{" "}
+            <code>&amp;7</code> gray, <code>&amp;l</code> bold, <code>\n</code> newline.
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {MESSAGE_FIELDS.map((field) => (
+            <div key={field.key} className="space-y-1">
+              <label className="text-xs font-medium flex items-center justify-between">
+                <span>{field.label}</span>
+                <span className="text-muted-foreground font-normal">{field.hint}</span>
+              </label>
+              <textarea
+                className="w-full min-h-[96px] rounded-md border border-input bg-background p-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                value={templates[field.key]}
+                onChange={(e) =>
+                  setTemplates({ ...templates, [field.key]: e.target.value })
+                }
+                spellCheck={false}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 pt-2 border-t">
+          <Button size="sm" onClick={save} disabled={working}>
+            <Save className="size-4 mr-1" />
+            Save
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={load}
+            disabled={working}
+          >
+            <RefreshCw className="size-4 mr-1" />
+            Reload
+          </Button>
+          {saved && (
+            <span className="text-xs text-green-600 dark:text-green-400">
+              Saved — rendering live on new punishments
+            </span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

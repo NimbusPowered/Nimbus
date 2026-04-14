@@ -1,59 +1,91 @@
 package dev.nimbuspowered.nimbus.punishments.velocity;
 
 import com.google.gson.JsonObject;
-import com.velocitypowered.api.event.EventTask;
 import com.velocitypowered.api.event.PostOrder;
-import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.PlayerChatEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.slf4j.Logger;
 
+import java.util.UUID;
+
 /**
  * Cancels chat at the proxy for muted players.
  *
- * Running here instead of on each backend means a single cancel for the whole
- * network — no backend plugin needed, no inconsistency across server versions.
- * For signed chat (1.19.1+) this still works: {@link PlayerChatEvent} fires as
- * Velocity forwards the message, and denying the result prevents it from
- * reaching other players. The sender's client may briefly echo the message
- * locally (client-side) but no other player sees it.
+ * <h2>Why this is synchronous</h2>
+ * On Velocity 1.19.1+, chat messages carry a signature that the proxy verifies
+ * before forwarding. If we returned {@code EventTask.async} from the handler,
+ * our {@code setResult(denied())} would race the signature-forwarding path and
+ * the client would see {@code A Proxy Plugin caused an illegal protocol state}.
  *
- * Staff with {@code nimbus.punish.bypass} skip the check — we can't rely on
- * Velocity's own permission check here because there's no subject setup yet for
- * mutes, so we read the permission via {@code player.hasPermission}.
+ * So we read from a pre-populated {@link MuteCache} instead — the cache is
+ * warmed on {@link ServerConnectedEvent} (fires before the player can chat)
+ * and invalidated on {@code PUNISHMENT_ISSUED} events. The handler itself is
+ * a plain {@code void}, decides from the cache, and returns immediately.
+ *
+ * Staff with {@code nimbus.punish.bypass} skip the check entirely.
  */
 public class ChatListener {
 
     private final PunishmentsApiClient api;
+    private final MuteCache cache;
+    private final ProxyServer server;
     private final Logger logger;
 
-    public ChatListener(PunishmentsApiClient api, Logger logger) {
+    public ChatListener(ProxyServer server, PunishmentsApiClient api, MuteCache cache, Logger logger) {
+        this.server = server;
         this.api = api;
+        this.cache = cache;
         this.logger = logger;
     }
 
+    /**
+     * Warm the cache for the player's new context. This event fires on every
+     * server hop so scoped mutes automatically rescope — the previous entry
+     * is overwritten with one tagged to the new (group, service) pair.
+     *
+     * Runs async because the HTTP call shouldn't block Velocity's join path
+     * — and chat can't happen until ServerConnectedEvent completes anyway.
+     */
+    @Subscribe(order = PostOrder.LATE)
+    public void onConnected(ServerConnectedEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String service = event.getServer().getServerInfo().getName();
+        String group = deriveGroupName(service);
+
+        // Off the main thread so we don't block the join
+        server.getScheduler()
+            .buildTask(new Object(), () -> {
+                JsonObject record = api.checkMute(uuid, group, service);
+                cache.put(uuid, group, service, record);
+            })
+            .schedule();
+    }
+
     @Subscribe(order = PostOrder.EARLY)
-    public EventTask onChat(PlayerChatEvent event) {
-        return EventTask.async(() -> {
-            Player player = event.getPlayer();
-            if (player.hasPermission("nimbus.punish.bypass")) return;
+    public void onChat(PlayerChatEvent event) {
+        Player player = event.getPlayer();
+        if (player.hasPermission("nimbus.punish.bypass")) return;
 
-            ServerConnection current = player.getCurrentServer().orElse(null);
-            String service = current == null ? null : current.getServerInfo().getName();
-            String group = service == null ? null : deriveGroupName(service);
+        ServerConnection current = player.getCurrentServer().orElse(null);
+        String service = current == null ? null : current.getServerInfo().getName();
+        String group = service == null ? null : deriveGroupName(service);
 
-            JsonObject record = api.checkMute(player.getUniqueId(), group, service);
-            if (record == null) return;
+        JsonObject record = cache.get(player.getUniqueId(), group, service);
+        if (record == null) return;
 
-            event.setResult(PlayerChatEvent.ChatResult.denied());
-            Component msg = LegacyComponentSerializer.legacySection()
-                .deserialize(MessageBuilder.formatMuteLine(record));
-            player.sendMessage(msg);
-        });
+        // Sync deny — no EventTask.async, so signed chat verification sees a
+        // consistent "denied" result and doesn't emit the illegal-protocol-state error.
+        event.setResult(PlayerChatEvent.ChatResult.denied());
+        Component msg = LegacyComponentSerializer.legacySection()
+            .deserialize(MessageBuilder.formatMuteLine(record));
+        player.sendMessage(msg);
     }
 
     private static String deriveGroupName(String serverName) {

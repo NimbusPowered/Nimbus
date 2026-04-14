@@ -43,7 +43,7 @@ class PunishmentsModule : NimbusModule {
 
     private lateinit var manager: PunishmentManager
     private lateinit var ctx: ModuleContext
-    private lateinit var messages: PunishmentsMessages
+    private lateinit var messageStore: PunishmentsMessagesStore
 
     override suspend fun init(context: ModuleContext) {
         ctx = context
@@ -54,7 +54,10 @@ class PunishmentsModule : NimbusModule {
         context.registerMigrations(listOf(PunishmentsV1_Baseline, PunishmentsV2_Scope))
         manager = PunishmentManager(db)
 
-        messages = PunishmentsMessagesLoader.loadOrCreate(context.moduleConfigDir(id))
+        messageStore = PunishmentsMessagesStore(
+            context.moduleConfigDir(id).resolve("messages.toml")
+        )
+        messageStore.loadOrCreate()
 
         if (config?.punishments?.deployPlugin != false) {
             // Enforcement runs on Velocity (proxy-wide), not on each backend.
@@ -70,8 +73,8 @@ class PunishmentsModule : NimbusModule {
         registerEventFormatters(context)
 
         val resolver = buildPlayerResolver(context)
-        context.registerCommand(PunishCommand(manager, eventBus, resolver))
-        context.registerRoutes({ punishmentRoutes(manager, eventBus) })
+        context.registerCommand(PunishCommand(manager, eventBus, resolver, messageStore))
+        context.registerRoutes({ punishmentRoutes(manager, messageStore, eventBus) })
 
         context.registerCompleter("punish") { args, prefix ->
             when (args.size) {
@@ -149,6 +152,6 @@ class PunishmentsModule : NimbusModule {
 
     override fun disable() {}
 
-    /** Expose the loaded messages so other parts (e.g. Bridge-facing endpoint) can read them. */
-    fun messages(): PunishmentsMessages = messages
+    /** Exposed so tests / other modules can read the active templates without touching disk. */
+    fun messages(): PunishmentsMessages = messageStore.current()
 }

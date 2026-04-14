@@ -13,7 +13,11 @@ import dev.nimbuspowered.nimbus.module.punishments.PunishmentRecord
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentScope
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentType
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentsEvents
+import dev.nimbuspowered.nimbus.module.punishments.PunishmentsMessages
+import dev.nimbuspowered.nimbus.module.punishments.PunishmentsMessagesStore
 import dev.nimbuspowered.nimbus.module.punishments.RevokePunishmentRequest
+import dev.nimbuspowered.nimbus.module.punishments.renderPunishmentMessage
+import dev.nimbuspowered.nimbus.module.punishments.templateFor
 import dev.nimbuspowered.nimbus.module.punishments.toResponse
 import io.ktor.http.*
 import io.ktor.server.request.*
@@ -24,6 +28,7 @@ import java.time.Instant
 
 fun Route.punishmentRoutes(
     manager: PunishmentManager,
+    messages: PunishmentsMessagesStore,
     eventBus: EventBus
 ) {
     route("/api/punishments") {
@@ -38,6 +43,18 @@ fun Route.punishmentRoutes(
             val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
             val records = manager.list(active, type, limit, offset)
             call.respond(PunishmentListResponse(records.map { it.toResponse() }, records.size))
+        }
+
+        // ── Messages (templates) ────────────────────────────────────
+        // Separate top-level block so routing doesn't mistake "messages" for a {id}.
+
+        get("messages") {
+            call.respond(messages.current())
+        }
+
+        put("messages") {
+            val next = call.receive<PunishmentsMessages>()
+            call.respond(messages.update(next))
         }
 
         // GET /api/punishments/{id}
@@ -58,13 +75,15 @@ fun Route.punishmentRoutes(
         }
 
         /*
-         * GET /api/punishments/check/{uuid}?ip=x.x.x.x[&group=Lobby][&service=Lobby-1]
+         * GET /api/punishments/check/{uuid}?ip=[&group=&service=]
          *
-         * Without `group`/`service`: returns only NETWORK-scoped active bans — used by
-         *   the proxy on LoginEvent to deny proxy login entirely.
-         * With `group`/`service`:    returns NETWORK + matching GROUP/SERVICE bans —
-         *   used by the proxy on ServerPreConnectEvent to block access to a specific
-         *   backend while letting the player stay on the network.
+         * Without group/service: returns only NETWORK-scoped active bans — used by the
+         *   proxy on LoginEvent to deny login entirely.
+         * With group/service:    returns NETWORK + matching scoped bans — used by the
+         *   proxy on ServerPreConnectEvent to block access to a specific backend.
+         *
+         * Always returns a pre-rendered kickMessage so the proxy plugin doesn't have
+         * to maintain its own templates.
          */
         get("check/{uuid}") {
             val uuid = call.parameters["uuid"]!!
@@ -77,7 +96,7 @@ fun Route.punishmentRoutes(
             } else {
                 manager.checkConnectCached(uuid, ip, group, service)
             }
-            call.respond(record.toCheckResponse())
+            call.respond(record.toCheckResponse(messages.current()))
         }
 
         // GET /api/punishments/mute/{uuid}?group=&service= — scoped mute check
@@ -86,7 +105,7 @@ fun Route.punishmentRoutes(
             val group = call.request.queryParameters["group"]
             val service = call.request.queryParameters["service"]
             val record = manager.checkMuteCached(uuid, group, service)
-            call.respond(record.toCheckResponse())
+            call.respond(record.toCheckResponse(messages.current()))
         }
 
         // POST /api/punishments — issue a new punishment
@@ -140,7 +159,8 @@ fun Route.punishmentRoutes(
                 scope = scope,
                 scopeTarget = if (scope == PunishmentScope.NETWORK) null else req.scopeTarget
             )
-            eventBus.emit(PunishmentsEvents.issued(record))
+            val rendered = renderPunishmentMessage(messages.current().templateFor(record.type), record)
+            eventBus.emit(PunishmentsEvents.issued(record, rendered))
             call.respond(HttpStatusCode.Created, record.toResponse())
         }
 
@@ -162,12 +182,17 @@ fun Route.punishmentRoutes(
     }
 }
 
-/** Turn a matched record (or null) into the compact check response the Bridge expects. */
-private fun PunishmentRecord?.toCheckResponse(): PunishmentCheckResponse {
+/**
+ * Build the compact response the Bridge expects, including a rendered kickMessage
+ * so the proxy plugin can disconnect the player with the configured text without
+ * maintaining its own copy of the templates.
+ */
+private fun PunishmentRecord?.toCheckResponse(messages: PunishmentsMessages): PunishmentCheckResponse {
     if (this == null) return PunishmentCheckResponse(punished = false)
     val remaining = expiresAt?.let {
         try { Duration.between(Instant.now(), Instant.parse(it)).seconds.coerceAtLeast(0) } catch (_: Exception) { null }
     }
+    val rendered = renderPunishmentMessage(messages.templateFor(type), this)
     return PunishmentCheckResponse(
         punished = true,
         type = type.name,
@@ -177,6 +202,7 @@ private fun PunishmentRecord?.toCheckResponse(): PunishmentCheckResponse {
         expiresAt = expiresAt,
         remainingSeconds = remaining,
         scope = scope.name,
-        scopeTarget = scopeTarget
+        scopeTarget = scopeTarget,
+        kickMessage = rendered
     )
 }

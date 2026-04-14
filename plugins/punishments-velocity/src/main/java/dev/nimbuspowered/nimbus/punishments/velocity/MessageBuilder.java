@@ -3,13 +3,25 @@ package dev.nimbuspowered.nimbus.punishments.velocity;
 import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 /** Builds the Adventure {@link Component} a player sees when denied at the proxy. */
 public final class MessageBuilder {
 
     private MessageBuilder() {}
 
+    /**
+     * Prefer the pre-rendered {@code kickMessage} the controller put in the response
+     * (or event data) — it respects the operator's templates from
+     * {@code config/modules/punishments/messages.toml}. Fall back to an in-code
+     * builder if the field is missing (legacy controllers without template support).
+     */
     static Component kickMessage(JsonObject record) {
+        String rendered = optString(record, "kickMessage", "");
+        if (!rendered.isBlank()) {
+            return LegacyComponentSerializer.legacySection().deserialize(rendered);
+        }
+
         String type = record.has("type") ? record.get("type").getAsString() : "BAN";
         String reason = optString(record, "reason", "No reason given");
         String issuer = optString(record, "issuerName", "Console");
@@ -52,7 +64,14 @@ public final class MessageBuilder {
         return msg;
     }
 
+    /**
+     * Mute message for chat feedback. Uses the pre-rendered {@code kickMessage}
+     * field when available (same pipeline as bans), else builds a default line.
+     */
     static String formatMuteLine(JsonObject record) {
+        String rendered = optString(record, "kickMessage", "");
+        if (!rendered.isBlank()) return rendered;
+
         String reason = optString(record, "reason", "No reason");
         Long remaining = record.has("remainingSeconds") && !record.get("remainingSeconds").isJsonNull()
                 ? record.get("remainingSeconds").getAsLong() : null;

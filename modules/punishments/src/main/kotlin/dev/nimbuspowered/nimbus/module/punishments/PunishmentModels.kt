@@ -93,7 +93,13 @@ data class PunishmentCheckResponse(
     val expiresAt: String? = null,
     val remainingSeconds: Long? = null,
     val scope: String? = null,
-    val scopeTarget: String? = null
+    val scopeTarget: String? = null,
+    /**
+     * Pre-rendered kick/mute text (legacy §-code format) based on the templates
+     * in `messages.toml`. Clients should deserialize via Adventure's
+     * `LegacyComponentSerializer.legacySection()` — no client-side templating.
+     */
+    val kickMessage: String? = null
 )
 
 fun PunishmentRecord.toResponse() = PunishmentResponse(

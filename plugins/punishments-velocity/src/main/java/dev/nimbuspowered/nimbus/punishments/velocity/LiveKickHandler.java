@@ -1,33 +1,52 @@
 package dev.nimbuspowered.nimbus.punishments.velocity;
 
 import com.google.gson.JsonObject;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
 import dev.nimbuspowered.nimbus.sdk.NimbusEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.slf4j.Logger;
 
 import java.util.UUID;
 
 /**
- * Receives {@code PUNISHMENT_ISSUED} events from the controller's event stream
- * and disconnects the target if they're online on this proxy.
+ * Applies PUNISHMENT_ISSUED events to currently-connected players in real time.
  *
- * Scope matters: a NETWORK ban disconnects outright, a GROUP/SERVICE ban only
- * boots the player from matching backends (sends them to a lobby instead).
- * Chat-only mutes and warnings leave the session intact but invalidate the
- * mute cache so the next chat message is immediately blocked.
+ * Behaviour per type:
+ *   BAN / TEMPBAN / IPBAN — full disconnect if NETWORK-scoped, or reroute to a
+ *     lobby if GROUP/SERVICE-scoped and the player is on the matching backend.
+ *   KICK — full disconnect with the kick message.
+ *   WARN — leave the session intact, send the kickMessage as a chat line so
+ *     the player sees the warning immediately.
+ *   MUTE / TEMPMUTE — no disconnect; refresh the MuteCache entry so the next
+ *     chat message is blocked without waiting for the cache TTL.
+ *
+ * Every event also invalidates the LoginListener check cache so a reconnect
+ * attempt sees the new punishment with no 5 s lag.
  */
 public class LiveKickHandler {
 
     private final ProxyServer server;
     private final Logger logger;
     private final LoginListener loginListener;
+    private final MuteCache muteCache;
+    private final PunishmentsApiClient api;
 
-    public LiveKickHandler(ProxyServer server, Logger logger, LoginListener loginListener) {
+    public LiveKickHandler(
+            ProxyServer server,
+            Logger logger,
+            LoginListener loginListener,
+            MuteCache muteCache,
+            PunishmentsApiClient api
+    ) {
         this.server = server;
         this.logger = logger;
         this.loginListener = loginListener;
+        this.muteCache = muteCache;
+        this.api = api;
     }
 
     public void handle(NimbusEvent evt) {
@@ -42,17 +61,66 @@ public class LiveKickHandler {
             return;
         }
 
-        // Always purge the cache so subsequent check calls see the new punishment
+        // Purge caches so follow-up checks see the new state
         loginListener.invalidate(uuid);
+        api.invalidate(uuid);
 
-        // Only BAN / TEMPBAN / IPBAN / KICK cause immediate disconnect
-        if (!type.endsWith("BAN") && !type.equals("KICK")) return;
+        switch (type) {
+            case "WARN":
+                sendWarnMessage(uuid, evt);
+                break;
+            case "MUTE":
+            case "TEMPMUTE":
+                refreshMuteFor(uuid);
+                break;
+            case "BAN":
+            case "TEMPBAN":
+            case "IPBAN":
+            case "KICK":
+                disconnectFor(uuid, type, evt);
+                break;
+            default:
+                // Unknown type — future-proofing, no-op
+                break;
+        }
+    }
 
+    private void sendWarnMessage(UUID uuid, NimbusEvent evt) {
+        server.getPlayer(uuid).ifPresent(player -> {
+            String rendered = evt.get("kickMessage");
+            Component msg = rendered != null && !rendered.isBlank()
+                ? LegacyComponentSerializer.legacySection().deserialize(rendered)
+                : Component.text("You have been warned.", NamedTextColor.YELLOW);
+            player.sendMessage(msg);
+            logger.info("Warned {}: {}", player.getUsername(),
+                evt.get("reason") != null ? evt.get("reason") : "no reason");
+        });
+    }
+
+    /** Re-fetch the mute status for the player's current server so chat is blocked immediately. */
+    private void refreshMuteFor(UUID uuid) {
+        server.getPlayer(uuid).ifPresent(player -> {
+            ServerConnection conn = player.getCurrentServer().orElse(null);
+            if (conn == null) {
+                muteCache.invalidate(uuid);
+                return;
+            }
+            String service = conn.getServerInfo().getName();
+            String group = deriveGroupName(service);
+            server.getScheduler()
+                .buildTask(new Object(), () -> {
+                    JsonObject record = api.checkMute(uuid, group, service);
+                    muteCache.put(uuid, group, service, record);
+                })
+                .schedule();
+        });
+    }
+
+    private void disconnectFor(UUID uuid, String type, NimbusEvent evt) {
         server.getPlayer(uuid).ifPresent(player -> {
             String scope = evt.get("scope");
             String scopeTarget = evt.get("scopeTarget");
 
-            // Build a JsonObject compatible with MessageBuilder.kickMessage
             JsonObject record = new JsonObject();
             record.addProperty("type", type);
             if (evt.get("reason") != null) record.addProperty("reason", evt.get("reason"));
@@ -62,38 +130,40 @@ public class LiveKickHandler {
             }
             if (scope != null) record.addProperty("scope", scope);
             if (scopeTarget != null) record.addProperty("scopeTarget", scopeTarget);
+            if (evt.get("kickMessage") != null && !evt.get("kickMessage").isBlank()) {
+                record.addProperty("kickMessage", evt.get("kickMessage"));
+            }
 
             Component msg = MessageBuilder.kickMessage(record);
 
-            if (scope == null || "NETWORK".equals(scope)) {
-                // Full disconnect
+            if (scope == null || "NETWORK".equals(scope) || "KICK".equals(type)) {
                 player.disconnect(msg);
-                logger.info("Disconnected {} ({}): network-wide {}", player.getUsername(), uuidStr, type);
-            } else {
-                // Scoped ban: if the player is on the targeted group/service, boot them back to a lobby
-                var conn = player.getCurrentServer().orElse(null);
-                if (conn == null) return;
-                String currentServer = conn.getServerInfo().getName();
-                String currentGroup = deriveGroupName(currentServer);
-                boolean affected =
-                    ("GROUP".equals(scope) && currentGroup.equals(scopeTarget)) ||
-                    ("SERVICE".equals(scope) && currentServer.equals(scopeTarget));
-                if (!affected) return;
+                logger.info("Disconnected {} ({}): {}", player.getUsername(), uuid, type);
+                return;
+            }
 
-                // Try a lobby; fall back to disconnect if none available
-                var lobby = server.getAllServers().stream()
-                    .filter(s -> s.getServerInfo().getName().toLowerCase().startsWith("lobby"))
-                    .filter(s -> !s.getServerInfo().getName().equals(currentServer))
-                    .min(java.util.Comparator.comparingInt(s -> s.getPlayersConnected().size()));
-                if (lobby.isPresent()) {
-                    player.createConnectionRequest(lobby.get()).fireAndForget();
-                    player.sendMessage(msg);
-                    logger.info("Kicked {} from {} due to {} ({}) → {}",
-                        player.getUsername(), currentServer, type, scope, lobby.get().getServerInfo().getName());
-                } else {
-                    player.disconnect(msg.append(Component.newline())
-                        .append(Component.text("No lobby available — disconnected.", NamedTextColor.GRAY)));
-                }
+            // Scoped ban: only boot the player if they're on the targeted backend
+            ServerConnection conn = player.getCurrentServer().orElse(null);
+            if (conn == null) return;
+            String currentServer = conn.getServerInfo().getName();
+            String currentGroup = deriveGroupName(currentServer);
+            boolean affected =
+                ("GROUP".equals(scope) && currentGroup.equals(scopeTarget)) ||
+                ("SERVICE".equals(scope) && currentServer.equals(scopeTarget));
+            if (!affected) return;
+
+            var lobby = server.getAllServers().stream()
+                .filter(s -> s.getServerInfo().getName().toLowerCase().startsWith("lobby"))
+                .filter(s -> !s.getServerInfo().getName().equals(currentServer))
+                .min(java.util.Comparator.comparingInt(s -> s.getPlayersConnected().size()));
+            if (lobby.isPresent()) {
+                player.createConnectionRequest(lobby.get()).fireAndForget();
+                player.sendMessage(msg);
+                logger.info("Kicked {} from {} ({}) → {}",
+                    player.getUsername(), currentServer, type, lobby.get().getServerInfo().getName());
+            } else {
+                player.disconnect(msg.append(Component.newline())
+                    .append(Component.text("No lobby available — disconnected.", NamedTextColor.GRAY)));
             }
         });
     }

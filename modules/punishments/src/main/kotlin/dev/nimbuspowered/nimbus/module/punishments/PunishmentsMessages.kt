@@ -7,12 +7,17 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Message templates for punishment-related output shown to players.
- * Loaded from `config/modules/punishments/messages.toml`.
  *
- * Placeholders are simple `{name}` tokens:
+ * Persisted at `config/modules/punishments/messages.toml` and live-editable
+ * through `PUT /api/punishments/messages` (→ Dashboard editor). A singleton
+ * [PunishmentsMessagesStore] holds the active copy and handles atomic file
+ * write-through so operators don't need to restart the controller.
+ *
+ * Placeholders (replaced in [renderPunishmentMessage]):
  *   {type}, {target}, {issuer}, {reason}, {duration}, {expires}, {remaining}
  */
 @Serializable
@@ -48,9 +53,7 @@ data class PunishmentsMessages(
 
 /**
  * Render a message template with placeholder substitution.
- *
- * @param template the raw template (with &-color codes)
- * @param record   the punishment record to derive placeholders from
+ * Outputs §-prefixed legacy color codes so Adventure / legacy chat both work.
  */
 fun renderPunishmentMessage(template: String, record: PunishmentRecord): String {
     val remaining = record.expiresAt?.let {
@@ -73,46 +76,77 @@ fun renderPunishmentMessage(template: String, record: PunishmentRecord): String 
 }
 
 /**
- * Load or create `messages.toml` in the module's config dir.
- * If the file is missing or malformed, defaults are written back so the operator can edit them.
+ * Pick the right template for a given punishment type.
+ * WARN falls through to the generic "ban" line since we don't normally display
+ * warnings at the proxy — a client-side toast is enough.
  */
-object PunishmentsMessagesLoader {
-    private val logger = LoggerFactory.getLogger(PunishmentsMessagesLoader::class.java)
-    private const val FILE_NAME = "messages.toml"
+fun PunishmentsMessages.templateFor(type: PunishmentType): String = when (type) {
+    PunishmentType.BAN -> ban
+    PunishmentType.TEMPBAN -> tempban
+    PunishmentType.IPBAN -> ipban
+    PunishmentType.MUTE -> mute
+    PunishmentType.TEMPMUTE -> tempmute
+    PunishmentType.KICK -> kick
+    PunishmentType.WARN -> kick
+}
 
-    fun loadOrCreate(configDir: Path): PunishmentsMessages {
-        val file = configDir.resolve(FILE_NAME)
+/**
+ * Thread-safe holder for the active message set + file write-through.
+ * One instance per module — exposed through the [PunishmentsModule] so routes
+ * can read + update it without touching the filesystem directly.
+ */
+class PunishmentsMessagesStore(private val file: Path) {
+
+    private val logger = LoggerFactory.getLogger(PunishmentsMessagesStore::class.java)
+    private val ref = AtomicReference(PunishmentsMessages())
+
+    fun current(): PunishmentsMessages = ref.get()
+
+    /**
+     * Replace the current message set and atomically rewrite messages.toml.
+     * Returns the freshly stored value so callers can echo it back.
+     */
+    fun update(next: PunishmentsMessages): PunishmentsMessages {
+        ref.set(next)
+        persist(next)
+        return next
+    }
+
+    fun loadOrCreate() {
         if (!Files.exists(file)) {
-            writeDefault(file)
-            return PunishmentsMessages()
+            persist(ref.get())
+            return
         }
-        return try {
+        try {
             val text = Files.readString(file)
-            Toml(inputConfig = TomlInputConfig(ignoreUnknownNames = true))
-                .decodeFromString(PunishmentsMessages.serializer(), text)
+            ref.set(Toml(inputConfig = TomlInputConfig(ignoreUnknownNames = true))
+                .decodeFromString(PunishmentsMessages.serializer(), text))
         } catch (e: Exception) {
-            logger.warn("Failed to parse {} — using defaults ({})", file, e.message)
-            PunishmentsMessages()
+            logger.warn("Failed to parse {} — keeping defaults ({})", file, e.message)
         }
     }
 
-    private fun writeDefault(file: Path) {
+    private fun persist(messages: PunishmentsMessages) {
         Files.createDirectories(file.parent)
-        val defaults = PunishmentsMessages()
         val content = buildString {
             appendLine("# Punishment messages — shown to players on kick / chat mute.")
-            appendLine("# Use &-color codes (e.g. &c for red). Placeholders: {target} {issuer} {reason} {remaining} {expires}")
+            appendLine("# Use &-color codes (e.g. &c for red). Placeholders: {target} {issuer} {reason} {remaining} {expires} {type}")
+            appendLine("# Edit here or via the Web Dashboard — both write to this file.")
             appendLine()
-            appendLine("ban = ${defaults.ban.toTomlString()}")
-            appendLine("tempban = ${defaults.tempban.toTomlString()}")
-            appendLine("ipban = ${defaults.ipban.toTomlString()}")
-            appendLine("mute = ${defaults.mute.toTomlString()}")
-            appendLine("tempmute = ${defaults.tempmute.toTomlString()}")
-            appendLine("kick = ${defaults.kick.toTomlString()}")
-            appendLine("broadcast_issued = ${defaults.broadcastIssued.toTomlString()}")
-            appendLine("broadcast_revoked = ${defaults.broadcastRevoked.toTomlString()}")
+            appendLine("ban = ${messages.ban.toTomlString()}")
+            appendLine("tempban = ${messages.tempban.toTomlString()}")
+            appendLine("ipban = ${messages.ipban.toTomlString()}")
+            appendLine("mute = ${messages.mute.toTomlString()}")
+            appendLine("tempmute = ${messages.tempmute.toTomlString()}")
+            appendLine("kick = ${messages.kick.toTomlString()}")
+            appendLine("broadcast_issued = ${messages.broadcastIssued.toTomlString()}")
+            appendLine("broadcast_revoked = ${messages.broadcastRevoked.toTomlString()}")
         }
-        Files.writeString(file, content)
+        // Write atomically via a sibling temp file to avoid a half-written TOML
+        // if the process dies mid-write (operator would lose all templates).
+        val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
+        Files.writeString(tmp, content)
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 
     private fun String.toTomlString(): String =

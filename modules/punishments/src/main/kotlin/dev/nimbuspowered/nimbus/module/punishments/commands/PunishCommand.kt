@@ -13,6 +13,9 @@ import dev.nimbuspowered.nimbus.module.punishments.PunishmentRecord
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentScope
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentType
 import dev.nimbuspowered.nimbus.module.punishments.PunishmentsEvents
+import dev.nimbuspowered.nimbus.module.punishments.PunishmentsMessagesStore
+import dev.nimbuspowered.nimbus.module.punishments.renderPunishmentMessage
+import dev.nimbuspowered.nimbus.module.punishments.templateFor
 import java.time.Duration
 import java.time.Instant
 
@@ -28,8 +31,15 @@ fun interface PlayerResolver {
 class PunishCommand(
     private val manager: PunishmentManager,
     private val eventBus: EventBus,
-    private val resolver: PlayerResolver
+    private val resolver: PlayerResolver,
+    private val messages: PunishmentsMessagesStore
 ) : Command {
+
+    /** Emit PUNISHMENT_ISSUED with the fully rendered kick text attached. */
+    private suspend fun emitIssued(record: PunishmentRecord) {
+        val rendered = renderPunishmentMessage(messages.current().templateFor(record.type), record)
+        eventBus.emit(PunishmentsEvents.issued(record, rendered))
+    }
 
     override val name = "punish"
     override val description = "Network-wide ban/mute/kick/warn management"
@@ -186,7 +196,7 @@ class PunishCommand(
             scope = parsed.scope,
             scopeTarget = parsed.target
         )
-        eventBus.emit(PunishmentsEvents.issued(record))
+        emitIssued(record)
 
         val durationStr = DurationParser.format(duration)
         val scopeStr = when (parsed.scope) {
@@ -220,7 +230,7 @@ class PunishCommand(
             issuer = "console",
             issuerName = "Console"
         )
-        eventBus.emit(PunishmentsEvents.issued(record))
+        emitIssued(record)
         output.success("IPBAN issued against $name ($ip) — $reason")
     }
 
