@@ -344,12 +344,14 @@ export function PlayerSheet({
                 render={
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between text-left focus-visible:outline-none cursor-pointer"
+                    className="flex w-full items-center justify-between gap-2 border-b pb-1.5 text-left focus-visible:outline-none cursor-pointer"
                   />
                 }
               >
                 <div className="flex items-center gap-2">
-                  <SectionLabel>Punishments</SectionLabel>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Punishments
+                  </span>
                   <Badge variant="secondary" className="text-[10px] font-normal">
                     {punishments.length}
                   </Badge>
@@ -425,12 +427,14 @@ export function PlayerSheet({
                   render={
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between text-left focus-visible:outline-none cursor-pointer"
+                      className="flex w-full items-center justify-between gap-2 border-b pb-1.5 text-left focus-visible:outline-none cursor-pointer"
                     />
                   }
                 >
                   <div className="flex items-center gap-2">
-                    <SectionLabel>Session history</SectionLabel>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Session history
+                    </span>
                     <Badge
                       variant="secondary"
                       className="text-[10px] font-normal"
