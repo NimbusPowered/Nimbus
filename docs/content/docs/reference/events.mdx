@@ -1521,3 +1521,17 @@ A generic catch-all event fired by modules through `ModuleContext`. The `type` s
   }
 }
 ```
+
+#### Built-in module event types
+
+First-party modules shipped with Nimbus emit the following `MODULE_EVENT` sub-types:
+
+| `moduleId` | `type` | Fired when |
+|---|---|---|
+| `punishments` | `PUNISHMENT_ISSUED` | A punishment is created. `data` includes `id`, `type`, `target`, `targetUuid`, `issuer`, `reason`, `expiresAt`, `scope`, optional `scopeTarget`, and a pre-rendered `kickMessage` |
+| `punishments` | `PUNISHMENT_REVOKED` | A punishment is revoked by an admin. `data`: `id`, `type`, `target`, `revokedBy`, `reason` |
+| `punishments` | `PUNISHMENT_EXPIRED` | A TEMPBAN / TEMPMUTE auto-expires. `data`: `id`, `type`, `target` |
+| `resourcepacks` | `RESOURCE_PACK_CREATED` | A pack is registered or uploaded. `data` includes the pack id, name, and UUID |
+| `resourcepacks` | `RESOURCE_PACK_DELETED` | A pack (and its local file, if any) is deleted |
+| `resourcepacks` | `RESOURCE_PACK_ASSIGNED` | A pack is attached to a GLOBAL / GROUP / SERVICE scope |
+| `resourcepacks` | `RESOURCE_PACK_STATUS` | A player reports accept/decline/load status (backend telemetry). `data`: `playerUuid`, `packUuid`, `status` |

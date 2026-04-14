@@ -2702,3 +2702,302 @@ List available versions for a specific server software.
   "versions": ["1.21.4", "1.21.3", "1.21.1", "1.20.6", "1.20.4"]
 }
 ```
+
+---
+
+## Punishments
+
+Provided by the **Punishments** module (migration range 5000+). Network-wide bans, tempbans, IP bans, mutes, tempmutes, kicks, and warnings, plus a live kick/mute endpoint that the Velocity + backend plugins use for enforcement.
+
+<Callout type="info">
+The Velocity plugin (`plugins/punishments-velocity`) calls `/api/punishments/check/{'{'}uuid{'}'}` on `LoginEvent` (NETWORK-scoped) and `ServerPreConnectEvent` (NETWORK + scoped). The backend plugin (`plugins/punishments-backend`) calls `/api/punishments/mute/{'{'}uuid{'}'}` on `AsyncPlayerChatEvent`. Both cache responses for a few seconds to handle bursts; scoped queries pass `group=` and `service=` query params.
+</Callout>
+
+### GET /api/punishments
+
+List punishments. Defaults to active only.
+
+**Query Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `active` | `true` | `true` for only active entries, `false` for everything |
+| `type` | — | Filter by type: `BAN`, `TEMPBAN`, `IPBAN`, `MUTE`, `TEMPMUTE`, `KICK`, `WARN` |
+| `limit` | `50` | Page size (max 500) |
+| `offset` | `0` | Offset for pagination |
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "records": [
+    {
+      "id": 42,
+      "type": "TEMPBAN",
+      "targetUuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+      "targetName": "Notch",
+      "targetIp": null,
+      "reason": "hacking",
+      "issuer": "console",
+      "issuerName": "Console",
+      "issuedAt": "2026-04-14T12:34:56Z",
+      "expiresAt": "2026-04-21T12:34:56Z",
+      "active": true,
+      "revokedAt": null,
+      "revokedBy": null,
+      "revokedReason": null,
+      "scope": "GROUP",
+      "scopeTarget": "BedWars"
+    }
+  ],
+  "total": 1
+}
+```
+
+### GET /api/punishments/{'{'}id{'}'}
+
+Fetch a single punishment by ID.
+
+### GET /api/punishments/player/{'{'}uuid{'}'}
+
+Return a player's punishment history (active + revoked + expired), newest first. `limit` query param caps at 500, default 100.
+
+### GET /api/punishments/check/{'{'}uuid{'}'}
+
+Fast proxy-login check. Results are cached in-memory on the controller.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `ip` | Player IP — required for IPBAN matching |
+| `group` | If set, also returns GROUP-scoped bans matching this group |
+| `service` | If set, also returns SERVICE-scoped bans matching this service name |
+
+Without `group` or `service`, only NETWORK-scoped active bans are considered (what the Velocity `LoginListener` uses). With either, NETWORK + matching scoped bans are considered (what the `ConnectListener` uses on `ServerPreConnectEvent`).
+
+**Response:**
+
+```json title="Response (200 OK — not punished)"
+{ "punished": false }
+```
+
+```json title="Response (200 OK — punished)"
+{
+  "punished": true,
+  "type": "TEMPBAN",
+  "reason": "hacking",
+  "issuerName": "Console",
+  "issuedAt": "2026-04-14T12:34:56Z",
+  "expiresAt": "2026-04-21T12:34:56Z",
+  "remainingSeconds": 604800,
+  "scope": "GROUP",
+  "scopeTarget": "BedWars",
+  "kickMessage": "&c&lYou are banned!\n&7Reason: &fhacking\n&7Expires: &f6d 23h"
+}
+```
+
+`kickMessage` is pre-rendered using the current message templates so the proxy plugin can disconnect without maintaining its own copy.
+
+### GET /api/punishments/mute/{'{'}uuid{'}'}
+
+Backend-plugin-facing mute check (scoped). Same query params as above; returns the same response shape as `/check`.
+
+### POST /api/punishments
+
+Issue a new punishment. Accepts either a username or a UUID for the target — unknown usernames are resolved via the Mojang profile API, so staff can pre-ban players who have never joined the network.
+
+**Request:**
+
+```json title="Request"
+{
+  "type": "TEMPBAN",
+  "targetName": "Griefer",
+  "targetUuid": null,
+  "targetIp": null,
+  "duration": "7d",
+  "reason": "hacking",
+  "issuer": "api:admin",
+  "issuerName": "Admin",
+  "scope": "GROUP",
+  "scopeTarget": "BedWars"
+}
+```
+
+- `targetName` is required. If `targetUuid` is blank and `targetName` is not UUID-shaped, it is resolved via Mojang.
+- `duration` is required for `TEMPBAN` / `TEMPMUTE`, ignored for others. Uses the `30s`, `15m`, `2h`, `7d`, `30d` format.
+- `scope` defaults to `NETWORK`. `GROUP` / `SERVICE` require a non-empty `scopeTarget`.
+- `targetIp` is required for `IPBAN`.
+
+| Status | Description |
+|---|---|
+| 201 | Punishment issued |
+| 400 | Validation failed (missing fields, bad duration, missing scopeTarget) |
+| 404 | Username could not be resolved via Mojang |
+
+### DELETE /api/punishments/{'{'}id{'}'}
+
+Revoke an active punishment. Accepts an optional JSON body:
+
+```json title="Request"
+{
+  "revokedBy": "Admin",
+  "reason": "appealed"
+}
+```
+
+Returns `409` if the punishment is already revoked or expired.
+
+### GET /api/punishments/messages
+
+Return the active kick/mute/warn templates.
+
+### PUT /api/punishments/messages
+
+Update the templates. Persists atomically to `config/modules/punishments/messages.toml` and becomes authoritative immediately — no restart. Placeholders: `{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`. `&` colour codes are supported.
+
+---
+
+## Resource Packs
+
+Provided by the **Resource Packs** module (migration range 6000+). URL-referenced and locally-hosted packs with GLOBAL / GROUP / SERVICE assignments.
+
+### GET /api/resourcepacks
+
+List all registered packs.
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "packs": [
+    {
+      "id": 1,
+      "uuid": "b1e4…",
+      "name": "MainPack",
+      "url": "https://cdn.example.com/main.zip",
+      "sha1Hash": "abc123…",
+      "promptMessage": "",
+      "force": true,
+      "source": "URL",
+      "fileSize": 0,
+      "createdAt": "2026-04-14T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+`source` is `URL` or `LOCAL`. For `LOCAL` packs, `url` points at the Nimbus-hosted download (`/api/resourcepacks/files/{'{'}uuid{'}'}.zip`).
+
+### GET /api/resourcepacks/{'{'}id{'}'}
+
+Fetch a single pack.
+
+### POST /api/resourcepacks
+
+Register a new URL-referenced pack.
+
+**Request:**
+
+```json title="Request"
+{
+  "name": "MainPack",
+  "url": "https://cdn.example.com/main.zip",
+  "sha1Hash": "b2c3d4e5f6…",
+  "promptMessage": "Please accept the server pack",
+  "force": true
+}
+```
+
+- `url` must be `http://` or `https://`.
+- `sha1Hash` is required and must be 40 hex characters.
+
+### POST /api/resourcepacks/upload
+
+Upload a local pack `.zip`. Raw-body streaming upload — matches the `ModpackRoutes` pattern: no multipart parsing, no in-memory buffering. The file streams through a 64 KiB transfer buffer with SHA-1 computed during write, and is atomically moved into `data/resourcepacks/<uuid>.zip` with `fd.sync()`.
+
+**Content-Type:** `application/octet-stream`.
+
+**Query Parameters:**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Display name for the pack |
+| `force` | No | `true` to force players to accept |
+| `prompt` | No | Optional prompt message |
+
+| Status | Description |
+|---|---|
+| 201 | Upload accepted, pack registered |
+| 400 | Missing `name` query param |
+| 413 | Pack exceeds configured max upload size |
+
+### DELETE /api/resourcepacks/{'{'}id{'}'}
+
+Delete a pack and, for `LOCAL` packs, the underlying file.
+
+### GET /api/resourcepacks/assignments
+
+List all assignments. Optional `packId` query param filters to one pack.
+
+### POST /api/resourcepacks/{'{'}id{'}'}/assignments
+
+Attach a pack to a scope.
+
+**Request:**
+
+```json title="Request"
+{
+  "scope": "GROUP",
+  "target": "BedWars",
+  "priority": 10
+}
+```
+
+- `scope` — `GLOBAL`, `GROUP`, or `SERVICE`. `GLOBAL` ignores `target`; the others require it.
+- `priority` — higher numbers layer *on top* within the same scope. Resolution order is `GLOBAL < GROUP < SERVICE`, so a service-scoped pack always overrides a group-scoped pack regardless of priorities.
+
+### DELETE /api/resourcepacks/assignments/{'{'}id{'}'}
+
+Remove a specific assignment.
+
+### GET /api/resourcepacks/for-group/{'{'}group{'}'}
+
+Backend-plugin-facing endpoint. Returns the ordered stack of packs a backend should apply. Pass `service=<name>` to include SERVICE-scoped assignments too.
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "packs": [
+    {
+      "uuid": "b1e4…",
+      "url": "https://controller.example.com/api/resourcepacks/files/b1e4….zip",
+      "sha1Hash": "abc123…",
+      "force": true,
+      "promptMessage": ""
+    }
+  ]
+}
+```
+
+For `LOCAL` packs, `url` is the public download endpoint; for `URL` packs, the original URL is returned.
+
+### POST /api/resourcepacks/status
+
+Telemetry endpoint the backend plugin calls from `PlayerResourcePackStatusEvent`. Emits `RESOURCE_PACK_STATUS` on the event stream.
+
+**Request:**
+
+```json title="Request"
+{
+  "playerUuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+  "packUuid": "b1e4…",
+  "status": "SUCCESSFULLY_LOADED"
+}
+```
+
+### GET /api/resourcepacks/files/{'{'}uuid{'}'}.zip
+
+**Public endpoint — no authentication required.** Minecraft clients don't send bearer tokens; the SHA-1 hash negotiated during `setResourcePack()` is what protects against tampering. Response streams through Ktor's `respondOutputStream` with a 64 KiB transfer buffer so large packs don't spike server RAM. Cached for 1 hour (`Cache-Control: public, max-age=3600`).

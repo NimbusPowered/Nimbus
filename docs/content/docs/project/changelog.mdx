@@ -13,6 +13,70 @@ All notable changes to this project are documented in this file. The format is b
 
 ---
 
+## [0.9.0] - 2026-04-14
+
+Two new first-party modules — **Punishments** and **Resource Packs** — plus a refactor of how Nimbus deploys its own plugins. Templates are now fully user-owned: the SDK, Bridge, and every module's plugin are deployed on each service prepare and never written into `templates/global/` or `templates/global_proxy/`.
+
+### Added
+
+- **Punishments module** — Network-wide BAN / TEMPBAN / IPBAN / MUTE / TEMPMUTE / KICK / WARN with auto-expiry, audit trail, and a companion Velocity plugin that enforces on Mojang-verified login
+  - `PunishmentManager` holds canonical records plus an in-memory active-ban/mute cache keyed by UUID and IP; superseding writes automatically revoke prior active punishments of the same class; expiry loop deactivates tempbans/tempmutes every 30 s
+  - **Scope support** (NETWORK / GROUP / SERVICE) — ban a player from a single group or a single service instead of the whole network. Multiple punishments can coexist against the same player (e.g. `BedWars` ban + network-wide mute)
+  - Console command `punish` with subcommands `ban / tempban / ipban / mute / tempmute / kick / warn / unban / unmute / history / list` (`--group` / `--service` flags for scope)
+  - In-game command `/cloud punish …` via the Bridge (honours the same permission nodes as the console command)
+  - **Mojang UUID lookup** — `punish ban <name>` resolves the real UUID through api.mojang.com, so staff can pre-ban players who have never joined the network. The same path is used by `POST /api/punishments` for dashboard-issued punishments
+  - **Editable kick/mute messages** — `config/modules/punishments/messages.toml` with placeholders (`{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`). A dedicated **WARN** template is separate from KICK. Live-editable through the dashboard — `GET/PUT /api/punishments/messages` persists atomically and becomes authoritative immediately, no restart
+  - REST API: `GET /api/punishments`, `GET /api/punishments/{id}`, `GET /api/punishments/player/{uuid}` (history), `GET /api/punishments/check/{uuid}?ip=&group=&service=` (proxy login/connect check, cached), `GET /api/punishments/mute/{uuid}?group=&service=`, `POST /api/punishments` (accepts username or UUID, with scope + scopeTarget), `DELETE /api/punishments/{id}` (revoke with reason + actor)
+  - Permission nodes: `nimbus.punish.ban`, `nimbus.punish.tempban`, `nimbus.punish.ipban`, `nimbus.punish.mute`, `nimbus.punish.tempmute`, `nimbus.punish.kick`, `nimbus.punish.warn`, `nimbus.punish.unban`, `nimbus.punish.unmute`, `nimbus.punish.history`, `nimbus.punish.bypass` (skip mute enforcement)
+  - **Velocity punishments plugin** (`plugins/punishments-velocity/`) — auto-deployed to every proxy on prepare:
+    - `LoginListener`: denies login for NETWORK-scoped bans at `LoginEvent` (real Mojang UUID, post-auth)
+    - `ConnectListener`: blocks `ServerPreConnectEvent` for GROUP/SERVICE-scoped bans — player stays on the network, just can't enter banned backends
+    - `LiveKickHandler`: subscribes to `PUNISHMENT_ISSUED` on the event stream so bans take effect instantly for already-connected players
+    - `PunishmentsApiClient`: 5 s TTL caches for login / connect / mute checks
+  - **Punishments backend plugin** (`plugins/punishments-backend/`) — minimal Paper/Spigot/Folia plugin auto-deployed to every backend: listens to `AsyncPlayerChatEvent` and cancels it for muted players. Fetches mute state from `/api/punishments/mute/{uuid}?group=&service=` with a 3 s TTL cache to handle chat bursts; scope respects the backend's own service name + group. Exists because on Minecraft 1.19.1+ signed chat cannot be safely cancelled from Velocity — see *Fixed* below
+  - Migrations: `PunishmentsV1_Baseline` (v5000 — tables + indexes), `PunishmentsV2_Scope` (v5001 — `scope` + `scope_target` columns; pre-existing rows default to `NETWORK`)
+  - Events: `PUNISHMENT_ISSUED` (carries a pre-rendered `kickMessage`), `PUNISHMENT_REVOKED`
+
+- **Resource Packs module** — Network-wide resource pack registry with URL-referenced and locally-hosted packs, prioritised assignment stacks, and a companion backend plugin that applies them on player join
+  - URL-referenced packs (`POST /api/resourcepacks` with SHA-1) or locally-hosted packs (`POST /api/resourcepacks/upload` — raw-body streaming upload, SHA-1 computed during write, atomic rename with `fd.sync()` so a crash can't leave a partially-flushed file in the canonical location)
+  - **Assignment scopes**: GLOBAL < GROUP < SERVICE, with priority ordering within each scope. A service sees all assignments for its name + group + global, sorted by `(scope-priority, priority)`
+  - **Multi-pack stacks** on 1.20.3+ — the backend plugin uses the multi-pack UUID API via reflection so you can layer GLOBAL base packs + GROUP overlays on modern clients; older servers fall back to the single highest-priority pack
+  - **Public download endpoint** `GET /api/resourcepacks/files/{uuid}.zip` — unauthenticated because Minecraft clients don't send bearer tokens; the SHA-1 hash negotiated during `setResourcePack()` protects against tampering. Response streams through Ktor's `respondOutputStream` with a 64 KiB transfer buffer so 250 MB packs don't spike server RAM
+  - **Telemetry** — backend plugin reports `PlayerResourcePackStatusEvent` results to `POST /api/resourcepacks/status`, surfaced as the `RESOURCE_PACK_STATUS` event on the event stream
+  - Console command `resourcepack <list|add|upload|remove|assign|unassign|assignments>`
+  - Locally-hosted pack files live under `data/resourcepacks/<uuid>.zip`
+  - Backend plugin fetches `GET /api/resourcepacks/for-group/{group}?service=` on player join with a 10 s local cache
+  - Migration: `ResourcePacksV1_Baseline` (v6000 — pack + assignment tables)
+  - Events: `RESOURCE_PACK_CREATED`, `RESOURCE_PACK_DELETED`, `RESOURCE_PACK_ASSIGNED`, `RESOURCE_PACK_STATUS`
+
+- **Module API — `PluginTarget` for proxy plugins** — `PluginDeployment` gained a `target: PluginTarget` field (`BACKEND` default, `VELOCITY` for proxies). Modules can now register plugins for proxies too, not just backends (`ServiceFactory.resolveModulePlugins` iterates per-target on every service prepare)
+
+- **Mojang profile API lookup helper** — `MojangUuidLookup` resolves a username to a canonical `(uuid, name)` pair via `api.mojang.com`, used by the Punishments REST API and the `punish` console command so staff can name-ban players who have never joined the network
+
+- **Dashboard — Punishments page** — tabs for active vs history, inline filter, per-type badge styling, mc-heads avatars, revoke button with confirmation, **New** dialog with username-or-UUID input, type selector (all seven kinds), duration field for TEMPBAN/TEMPMUTE, target IP for IPBAN, and scope picker (NETWORK / GROUP / SERVICE with a scope-target field). **Messages** tab with per-type textareas, placeholder reference, and save/reload buttons — changes go live immediately, no restart
+
+- **Dashboard — Resource Packs page** — URL add dialog with Name / URL / SHA-1 / Prompt / Force fields and inline validation; separate Upload dialog with file picker, auto-populated name, prompt + force flags, and an HTTPS-proxy fallback for dashboards served over HTTPS against HTTP controllers; assignment manager with scope + priority; per-pack remove buttons
+
+- **Dashboard — PlayerSheet integration** — the player detail drawer now has collapsible **Punishments** (active badge count, auto-opens when entries exist) and **Session history** sections. Read-only — the issue/revoke workflow lives on the dedicated Punishments page
+
+### Changed
+
+- **BREAKING: Templates are fully user-owned** — `templates/global/plugins/` and `templates/global_proxy/plugins/` no longer receive `nimbus-sdk.jar`, `nimbus-bridge.jar`, or any module-provided plugin. All of them are now deployed at runtime on every service prepare via `ServiceFactory.resolveModulePlugins()`, using `REPLACE_EXISTING` so deleted/modified files self-heal on next start. Only `bridge.json` config and Bedrock (Geyser/Floodgate) plugins remain written into templates. **Migration for existing installs:** delete the Nimbus-managed JARs from your `templates/global/plugins/` and `templates/global_proxy/plugins/` directories (anything matching `nimbus-*.jar`); they will be re-deployed on the next service start. If you leave them in place they'll simply be overwritten
+- `modules` console command no longer offers to deploy plugins into templates — the old `offerPluginDeploy` path has been removed. Module plugins are runtime-deployed per service
+- `ServiceFactory.prepare` now reuses the lowest-numbered CRASHED/STOPPED slot instead of advancing to fresh numbers, so a crashed `Lobby-1` stays `Lobby-1` across respawn cycles (important for sync canonical state keyed by name)
+- Dashboard — dropped `@hugeicons/*`, `@phosphor-icons/react`, and `@tabler/icons-react`; all icons now flow through `@/lib/icons` backed by `lucide-react`. Smaller bundle, consistent stroke weights
+
+### Fixed
+
+- **Signed-chat disconnect on mute** — cancelling `PlayerChatEvent` from a Velocity `EventTask.async` handler on Minecraft 1.19.1+ races signature verification and the client sees *"A Proxy Plugin caused an illegal protocol state"* (kicked instead of muted). Chat mute enforcement moved to the new `punishments-backend` plugin, which cancels `AsyncPlayerChatEvent` synchronously — the correct place to deny signed chat. The Velocity-side chat listener is gone
+- **Duplicate mute notification** — previously both the Velocity plugin and the backend plugin sent the mute warning; now only the backend plugin does (which is also the one actually blocking the message)
+- **Mute cache never populated** — `ChatListener` pre-fetch and `LiveKickHandler` refresh both called `server.getScheduler().buildTask(new Object(), …)`. Velocity's scheduler requires a registered `@Plugin` as task owner — passing a plain `Object` makes the call throw, the task never runs, the cache stays empty, and the sync chat handler falls through to allow. Swapped both call sites to `CompletableFuture.runAsync`
+- **Punishments by username never matched real players** — dashboard-issued punishments fell back to `00000000-…` when `targetUuid` was omitted. `POST /api/punishments` now accepts explicit UUIDs, UUID-shaped strings in the `targetName` field, or plain usernames (resolved via `MojangUuidLookup` off the IO dispatcher). Unknown names return `404` with a clear message, and canonical Mojang casing is echoed back so audit entries stay consistent
+- **WARN reused the KICK template** — WARN now has its own template (`"&e&l⚠ Warning &7from &f{issuer}\n&7Reason: &f{reason}"` by default), separately editable in the dashboard
+- **Resource pack upload returned 401** — the dashboard client was reading the token from the wrong localStorage key and sending `multipart/form-data`, but the route expects `application/octet-stream`. Client switched to the shared `apiUpload()` helper (correct key + HTTPS-proxy fallback); route uses `call.receiveStream()` to match the `ModpackRoutes` pattern — no multipart parsing, no in-memory buffering of 250 MB packs
+
+---
+
 ## [0.8.2] - 2026-04-13
 
 Hardening release: 14 cross-verified audit findings resolved across resilience, security, and operational safety. All fixes are backwards-compatible — existing configs work without changes.

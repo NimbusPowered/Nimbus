@@ -137,12 +137,9 @@ Templates define what files get copied into a service instance when it starts. N
 
 ```text title="Directory Structure"
 templates/
-├── global/            # Layer 1: All backend servers
+├── global/            # Layer 1: All backend servers (user-owned)
+├── global_proxy/      # Layer 1: All proxy servers (user-owned)
 │   └── plugins/
-│       └── nimbus-sdk.jar
-├── global_proxy/      # Layer 1: All proxy servers
-│   └── plugins/
-│       ├── nimbus-bridge.jar
 │       └── nimbus-bridge/
 │           └── bridge.json
 └── lobby/             # Layer 2: Group-specific
@@ -154,21 +151,23 @@ templates/
 
 When Nimbus starts a `Lobby` service, it merges templates in order:
 
-1. **`templates/global/`** — Copied first. Contains files shared across all backend servers (Paper, Purpur, Leaf, etc.). The nimbus-sdk plugin is auto-deployed here.
+1. **`templates/global/`** — Copied first. Contains files shared across all backend servers (Paper, Purpur, Leaf, etc.).
 2. **`templates/lobby/`** — Copied second, overwriting any conflicts. Contains the group-specific server JAR, plugins, and configuration.
 
 For proxy services, `templates/global_proxy/` is used instead of `templates/global/`.
 
-<Callout title="Auto-deployed plugins" type="info">
-Nimbus automatically deploys `nimbus-bridge.jar` to `global_proxy/plugins/` and `nimbus-sdk.jar` to `global/plugins/`. When [Bedrock support](/docs/guide/proxy-setup#bedrock-support) is enabled, Geyser is deployed to `global_proxy/plugins/` and Floodgate to both `global/plugins/` and `global_proxy/plugins/`. You don't need to manage these manually.
+<Callout title="Runtime-deployed plugins" type="info">
+From v0.9.0 on, Nimbus-managed plugins (the SDK, the Bridge, and every module's companion plugin — Punishments, Resource Packs, Perms, Display, …) are **no longer written into templates**. They are deployed on every service prepare with `REPLACE_EXISTING`, so deleted or modified copies self-heal on the next start.
+
+Only config files that admins may want to edit — like `plugins/nimbus-bridge/bridge.json` — and Bedrock components (Geyser on the proxy, Floodgate on both sides, when Bedrock support is enabled) are still written into templates. Everything else stays in `templates/` only if *you* put it there.
 </Callout>
 
 ### What to Put in Templates
 
 | Location | Contents |
 |---|---|
-| `templates/global/plugins/` | Plugins shared across all backend servers |
-| `templates/global_proxy/plugins/` | Plugins shared across all proxies |
+| `templates/global/plugins/` | *Your own* plugins shared across all backend servers (Nimbus's SDK is not here — see the runtime-deploy callout above) |
+| `templates/global_proxy/plugins/` | *Your own* plugins shared across all proxies (Nimbus's Bridge is not here) |
 | `templates/<group>/` | Server JAR (auto-downloaded), group-specific plugins, `server.properties`, world files, etc. |
 
 ## Scaling

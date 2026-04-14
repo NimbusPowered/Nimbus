@@ -378,6 +378,48 @@ Even with `deploy_plugin = false`, the permission system on the controller (grou
 
 ---
 
+## `[punishments]`
+
+Controls the Punishments module (ban/mute/kick/warn enforcement). See the [Punishments guide](/docs/guide/punishments).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `deploy_plugin` | Boolean | `true` | Deploy the `nimbus-punishments.jar` (Velocity) and `nimbus-punishments-backend.jar` (Paper-family) enforcement plugins at runtime on every service prepare. |
+| `check_cache_ttl` | Int | `5` | Ban/mute check cache TTL in seconds. Higher = less DB load, slower revoke propagation. |
+| `expiry_check_interval` | Int | `30` | How often the expiry loop runs (seconds). Deactivates TEMPBANs / TEMPMUTEs that have passed their `expiresAt`. |
+
+```toml title="config/nimbus.toml"
+[punishments]
+deploy_plugin = true
+check_cache_ttl = 5
+expiry_check_interval = 30
+```
+
+<Callout type="info">
+Even with `deploy_plugin = false`, the REST API, console `punish` command, and database records remain fully functional — only automatic enforcement on proxies and backends is skipped. Use this if you want to integrate with a different ban plugin but still keep Nimbus as the system of record.
+</Callout>
+
+---
+
+## `[resourcepacks]`
+
+Controls the Resource Packs module. See the [Resource Packs guide](/docs/guide/resourcepacks).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `deploy_plugin` | Boolean | `true` | Deploy the `nimbus-resourcepacks.jar` applier plugin at runtime on every backend service prepare. |
+| `max_upload_bytes` | Long | `262144000` (250 MB) | Maximum size for uploaded pack `.zip` files. Enforced by both the REST API and the console `resourcepack upload` command. |
+| `public_base_url` | String | `""` | Public URL base the backend plugin should use to fetch locally-hosted packs. Leave empty to derive from the API bind. Override when the controller sits behind a reverse proxy with a different hostname than backends can reach. |
+
+```toml title="config/nimbus.toml"
+[resourcepacks]
+deploy_plugin = true
+max_upload_bytes = 524288000     # 500 MB
+public_base_url = "https://packs.example.com"
+```
+
+---
+
 ## `[bedrock]`
 
 Bedrock Edition crossplay support via [Geyser](https://geysermc.org/) + [Floodgate](https://geysermc.org/). When enabled, Bedrock Edition players (mobile, console, Windows 10/11) can join your Java Edition network.

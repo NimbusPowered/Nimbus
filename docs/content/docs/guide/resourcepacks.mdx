@@ -1,0 +1,155 @@
+---
+title: Resource Packs Guide
+description: Network-wide resource pack registry with URL-referenced or locally-hosted packs, GLOBAL / GROUP / SERVICE assignments, priority stacking, and multi-pack support on 1.20.3+.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Resource Packs module (shipped with Nimbus 0.9.0+) gives you a single place to register resource packs and decide which servers get which packs. Packs can be referenced by URL or uploaded directly to Nimbus. A companion backend plugin applies them on player join and reports telemetry back to the controller.
+
+## What you can do
+
+- **Register packs** by URL (hosted elsewhere) or by uploading a `.zip` directly to Nimbus
+- **Assign** them to `GLOBAL`, a specific `GROUP`, or a single `SERVICE`
+- **Stack** multiple packs on 1.20.3+ clients — e.g. a GLOBAL base pack with GROUP-specific overlays per minigame
+- **Force-accept** or make packs optional, with a custom prompt message
+- **Monitor** accept/decline/load telemetry via the event stream
+
+## Adding a pack
+
+### From a URL
+
+Hosting packs on a CDN? Just register the URL with Nimbus. Pre-compute the SHA-1 or let Nimbus do it:
+
+```text title="Nimbus — register by URL"
+resourcepack add MainPack https://cdn.example.com/main.zip --force
+```
+
+Without the `--force` flag players can skip the pack. Pass `--prompt "Please accept our pack"` to set a custom prompt message shown in the Minecraft pack dialog.
+
+Nimbus streams the URL once during `add` to compute the SHA-1 hash automatically, so the pack's integrity is pinned from that moment on.
+
+### Upload to Nimbus
+
+If you'd rather not host packs yourself, upload the `.zip` directly:
+
+```text title="Nimbus — upload a local zip"
+resourcepack upload MainPack ./packs/main.zip --force
+```
+
+The upload streams through a 64 KiB transfer buffer with SHA-1 hashed during the write, then the file is atomically moved into `data/resourcepacks/<uuid>.zip` with `fd.sync()` — so even a sudden crash can't leave a partially-flushed pack in the canonical location. The 250 MB default limit is configurable in `nimbus.toml`:
+
+```toml title="config/nimbus.toml"
+[resourcepacks]
+max_upload_bytes = 524288000   # 500 MB
+public_base_url = ""           # leave empty to derive from the API bind
+```
+
+Once uploaded, Nimbus exposes the pack file at a public endpoint:
+
+```text
+GET /api/resourcepacks/files/<uuid>.zip
+```
+
+This endpoint is **unauthenticated** — Minecraft clients don't send bearer tokens. Tampering protection comes from the SHA-1 hash negotiated during `setResourcePack()`, not from the URL being secret. The response streams through Ktor's `respondOutputStream` with a 64 KiB transfer buffer, so a 250 MB pack doesn't spike server RAM.
+
+### From the dashboard
+
+Open **Modules → Resource Packs**:
+
+- **Add URL** — dialog with Name / URL / SHA-1 / Prompt / Force fields, inline validation
+- **Upload .zip** — dialog with file picker (name auto-populated from the filename), prompt + force flags; when the dashboard is served over HTTPS against an HTTP controller, the upload transparently falls back to the chunked HTTPS proxy
+- Inline **assignment manager** — scope selector + priority per assignment
+- Per-pack **Remove** button
+
+## Assigning packs
+
+Packs don't apply to anything until you assign them. Three scope kinds:
+
+| Scope | Applies to |
+|---|---|
+| `GLOBAL` | Every backend on the network |
+| `GROUP` | All services in one group (e.g. every `Lobby` instance) |
+| `SERVICE` | One specific service instance (e.g. `Lobby-1`) |
+
+```text title="Nimbus — assigning"
+resourcepack assign 1 global 0
+resourcepack assign 2 group BedWars 10
+resourcepack assign 3 service Lobby-1 20
+```
+
+**Priority** is an integer ordering within the same scope — higher priorities sit *on top* of lower ones. The effective stack a backend sees is ordered by `(scope-priority, priority)`:
+
+```text
+GLOBAL (scope-priority 0)  →  GROUP (scope-priority 1)  →  SERVICE (scope-priority 2)
+```
+
+So a service-level pack always layers above group and global packs, regardless of the numeric priorities.
+
+List current assignments at any time:
+
+```text title="Nimbus"
+resourcepack assignments
+resourcepack assignments 1    # just pack #1
+```
+
+## How the backend plugin applies packs
+
+`nimbus-resourcepacks.jar` is deployed to every backend service on prepare (templates stay untouched — see the note below). On player join, it calls:
+
+```text
+GET /api/resourcepacks/for-group/<group>?service=<name>
+```
+
+with a 10 s local cache. The response is the ordered stack for that service.
+
+### Minecraft 1.20.3+
+
+The plugin uses the multi-pack UUID API via reflection, so **every pack in the stack is sent** to the player. That's what makes GLOBAL + GROUP layering work in practice — the client merges the layers in order, with later packs overriding earlier ones.
+
+### Older Minecraft
+
+Older servers don't support multi-pack, so the plugin falls back to sending only the **highest-priority** pack in the stack (the last one in the resolved order). Design your priorities accordingly if you need to support older clients.
+
+### Telemetry
+
+When a client reports `SUCCESSFULLY_LOADED`, `DECLINED`, `FAILED_DOWNLOAD`, etc., the backend plugin fires `PlayerResourcePackStatusEvent` and the plugin forwards it to `POST /api/resourcepacks/status`. This surfaces as the `RESOURCE_PACK_STATUS` event on the WebSocket event stream — handy for tracking decline rates or investigating "pack not loading" reports.
+
+<Callout title="No templates touched" type="info">
+`nimbus-resourcepacks.jar` is deployed at runtime on every backend service prepare with `REPLACE_EXISTING`. Deleted or modified copies self-heal on the next service start, and the JAR never lands in `templates/global/plugins/` — so your template directory stays fully user-owned.
+</Callout>
+
+## REST API
+
+The full endpoint reference is on the [API Reference page](/docs/reference/api#resource-packs). A few highlights:
+
+```bash title="Terminal"
+# Register a URL pack
+curl -X POST http://nimbus:8080/api/resourcepacks \
+  -H "Authorization: Bearer $NIMBUS_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"MainPack","url":"https://cdn.example.com/main.zip","sha1Hash":"abc…","force":true}'
+
+# Upload a local pack (raw body, no multipart)
+curl -X POST "http://nimbus:8080/api/resourcepacks/upload?name=MainPack&force=true" \
+  -H "Authorization: Bearer $NIMBUS_API_TOKEN" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @./main.zip
+
+# Attach to BedWars
+curl -X POST http://nimbus:8080/api/resourcepacks/1/assignments \
+  -H "Authorization: Bearer $NIMBUS_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"GROUP","target":"BedWars","priority":10}'
+```
+
+## Events
+
+Fired on the `/api/events` WebSocket and available to custom modules:
+
+| Event | Fired when |
+|---|---|
+| `RESOURCE_PACK_CREATED` | A pack is registered or uploaded |
+| `RESOURCE_PACK_DELETED` | A pack (and its local file, if any) is deleted |
+| `RESOURCE_PACK_ASSIGNED` | A pack is attached to a scope |
+| `RESOURCE_PACK_STATUS` | A player reports accept/decline/load status |

@@ -1,0 +1,193 @@
+---
+title: Punishments Guide
+description: Network-wide bans, tempbans, IP bans, mutes, kicks, and warnings with proxy-side enforcement, scoped punishments, and editable kick/mute messages.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Punishments module (shipped with Nimbus 0.9.0+) is a complete ban/mute system for Minecraft networks. Canonical records live on the controller; enforcement happens on the proxy (logins, server switches) and on backends (chat mutes). No backend-plugin setup is required — the enforcement plugins are **runtime-deployed on every service prepare**, so templates stay clean.
+
+## What it gives you
+
+| Type | Blocks | Duration |
+|---|---|---|
+| `BAN` | Network login (and optional IP) | Permanent until revoked |
+| `TEMPBAN` | Network login | Time-limited, auto-expires |
+| `IPBAN` | Any login from the IP | Permanent until revoked |
+| `MUTE` | Chat on all backends | Permanent until revoked |
+| `TEMPMUTE` | Chat on all backends | Time-limited, auto-expires |
+| `KICK` | One-off kick from the network | n/a |
+| `WARN` | Chat notification to the player | n/a |
+
+Every punishment is recorded to the database regardless of whether it actively blocks anything, so `KICK` and `WARN` still show up in a player's history.
+
+## Scoped punishments
+
+By default, punishments are **network-wide**. With a scope flag, you can restrict enforcement to a group or a single service — a common pattern for arena-specific bans.
+
+| Scope | Behaviour |
+|---|---|
+| `NETWORK` (default) | Blocks login on the whole network (bans) or chat anywhere (mutes) |
+| `GROUP:<name>` | Player stays on the network, but can't connect to any backend in that group |
+| `SERVICE:<name>` | Same, limited to one specific service instance |
+
+A player can carry several punishments of different scopes at once — e.g. a `BedWars` group ban **plus** a network-wide mute. Issuing a new punishment of the same type + scope automatically revokes the previous one.
+
+```text title="Nimbus — Scoped examples"
+punish tempban Griefer 7d --group BedWars hacking
+punish mute Spammer spamming in chat
+punish ban ExploitUser --service Lobby-1 using a sign exploit
+```
+
+## Issuing punishments
+
+### From the console
+
+```text title="Nimbus"
+nimbus » punish ban Notch using unfair mods
+✓ BAN issued — Notch (scope=NETWORK)
+nimbus » punish tempmute Spammer 1h spam
+✓ TEMPMUTE issued — Spammer for 1h
+nimbus » punish history Notch
+── Punishments for Notch ─────────────
+#12  BAN      scope=NETWORK  reason=using unfair mods  by=Console
+```
+
+`punish` resolves player names through the Mojang profile API, so **you can pre-ban players who have never joined**. Pass a UUID directly if you prefer. Canonical Mojang casing is stored in the audit entry.
+
+See the full subcommand list on the [Console Commands](/docs/guide/commands#punish) page.
+
+### From the dashboard
+
+Open **Modules → Punishments** and click **New**. The dialog accepts a username or UUID, offers all seven types, reveals a duration field for TEMPBAN/TEMPMUTE and a target-IP field for IPBAN, and exposes a scope picker (NETWORK / GROUP / SERVICE).
+
+The Punishments page also has:
+
+- **Tabs** for active vs history
+- **Filter** for fast search across names/reasons
+- **Revoke** button per entry (with confirmation)
+- Per-type badge styling and mc-heads avatars
+
+The **PlayerSheet** drawer shows a read-only punishments section with an "N active" badge — any changes happen on the dedicated Punishments page, not in the drawer.
+
+### In-game
+
+With the Bridge's `/cloud` command loaded and the right permission nodes assigned, staff can use any of the `punish` subcommands in-game:
+
+```text title="In-game"
+/cloud punish tempban Griefer 7d --group BedWars hacking
+/cloud punish unmute Notch
+/cloud punish history Notch
+```
+
+### From the REST API
+
+See the [Punishments API reference](/docs/reference/api#punishments) for the full endpoint list.
+
+```bash title="Terminal"
+curl -X POST http://nimbus:8080/api/punishments \
+  -H "Authorization: Bearer $NIMBUS_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "TEMPBAN",
+    "targetName": "Griefer",
+    "duration": "7d",
+    "reason": "hacking",
+    "issuer": "api:admin",
+    "issuerName": "Admin",
+    "scope": "GROUP",
+    "scopeTarget": "BedWars"
+  }'
+```
+
+## Permissions
+
+All permission nodes for in-game use are LuckPerms-compatible:
+
+| Node | Grants |
+|---|---|
+| `nimbus.punish.ban` | `/cloud punish ban` |
+| `nimbus.punish.tempban` | `/cloud punish tempban` |
+| `nimbus.punish.ipban` | `/cloud punish ipban` |
+| `nimbus.punish.mute` | `/cloud punish mute` |
+| `nimbus.punish.tempmute` | `/cloud punish tempmute` |
+| `nimbus.punish.kick` | `/cloud punish kick` |
+| `nimbus.punish.warn` | `/cloud punish warn` |
+| `nimbus.punish.unban` | `/cloud punish unban` |
+| `nimbus.punish.unmute` | `/cloud punish unmute` |
+| `nimbus.punish.history` | `/cloud punish history` |
+| `nimbus.punish.bypass` | Skip mute enforcement (useful for staff) |
+
+The console-side `punish` command itself is gated by `nimbus.cloud.punish`.
+
+## Editable kick / mute / warn messages
+
+Templates live in `config/modules/punishments/messages.toml` with per-type fields (one per punishment type, plus `warn`). Supported placeholders:
+
+| Placeholder | Expands to |
+|---|---|
+| `{target}` | The punished player's name |
+| `{issuer}` | The staff member who issued the punishment |
+| `{reason}` | Reason text |
+| `{remaining}` | Humanised remaining duration (e.g. `6d 23h`) — tempbans / tempmutes |
+| `{expires}` | ISO expiry timestamp — tempbans / tempmutes |
+
+`&` colour codes are supported (e.g. `&c&l`, `&7`, `&f`).
+
+The default WARN template is `&e&l⚠ Warning &7from &f{issuer}\n&7Reason: &f{reason}` — separate from KICK, so warnings don't read like a kick dialog.
+
+**Live editing:** the dashboard has a **Messages** tab on the Punishments page with one textarea per type and a placeholder reference. Save persists atomically (temp file + atomic rename, so a crashed write can't leave an empty template file) and the next punishment uses the new text — no restart.
+
+You can also edit the TOML file directly and call `PUT /api/punishments/messages` with the new shape, or just restart the controller.
+
+## How enforcement works
+
+Two plugins ship with the module and are deployed automatically:
+
+### Velocity plugin (`nimbus-punishments.jar`)
+
+Deployed to every proxy service on prepare. It handles:
+
+- **`LoginEvent`** — `LoginListener` calls `GET /api/punishments/check/{uuid}?ip=…` (no group/service). Returns any active NETWORK-scoped ban or IPBAN; Velocity disconnects with the pre-rendered `kickMessage`.
+- **`ServerPreConnectEvent`** — `ConnectListener` calls the same endpoint with `group=…&service=…` to also match scoped bans. Player stays on the network and sees the mute-style warning for the scoped backend.
+- **Live kicks** — `LiveKickHandler` subscribes to the `PUNISHMENT_ISSUED` event stream, so bans take effect for already-connected players without waiting for a cache flush. NETWORK bans disconnect fully; scoped bans reroute to lobby.
+- **5 s TTL caches** for login / connect / mute results to absorb bursts.
+
+### Backend plugin (`nimbus-punishments-backend.jar`)
+
+Deployed to every backend service on prepare. A pure chat filter — no commands, no config:
+
+- Listens to `AsyncPlayerChatEvent`; when the event fires it calls `GET /api/punishments/mute/{uuid}?group=&service=` with a 3 s TTL cache and cancels the event if the player is muted.
+- Sends the rendered mute message back to the player only.
+- Sees its own `nimbus.service.*` system properties, so scoped mutes match the backend's real group / service name.
+
+<Callout title="Why a separate backend plugin?" type="info">
+On Minecraft 1.19.1+, cancelling `PlayerChatEvent` from a Velocity `EventTask.async` handler races signature verification — the client sees *"A Proxy Plugin caused an illegal protocol state"* and gets kicked instead of muted. `AsyncPlayerChatEvent` fires synchronously on the backend before the message is broadcast, so cancellation is coherent. Paper's signed-chat code path still respects `setCancelled(true)` here.
+</Callout>
+
+<Callout title="No templates touched" type="info">
+Neither plugin is written into `templates/global/` or `templates/global_proxy/`. Both are streamed onto the service's `plugins/` directory on every prepare with `REPLACE_EXISTING`, so a deleted or modified copy self-heals on the next service start. Operators don't need to manage the JARs manually — or remember to remove them if they uninstall the module.
+</Callout>
+
+## Events
+
+Both events appear on the `/api/events` WebSocket and can be subscribed to from custom modules:
+
+| Event | Fired when |
+|---|---|
+| `PUNISHMENT_ISSUED` | A punishment is created. Carries a pre-rendered `kickMessage`. |
+| `PUNISHMENT_REVOKED` | A punishment is revoked or expires. |
+
+## Auto-expiry
+
+An expiry loop runs every 30 s and deactivates TEMPBANs / TEMPMUTEs that have passed their `expiresAt` timestamp. Expired records stay in the database for history lookups — they're just flagged `active = false`. The interval is configurable:
+
+```toml title="config/nimbus.toml"
+[punishments]
+check_cache_ttl = 5          # proxy login-check cache TTL (seconds)
+expiry_check_interval = 30   # how often the expiry loop runs (seconds)
+```
+
+## Migrating from other systems
+
+All records are stored in the `punishments` table. Scope columns (`scope`, `scope_target`) are added by migration v5001; pre-existing rows default to `NETWORK`. If you're coming from LiteBans or similar, a one-off SQL insert will line up with the Nimbus schema — see `modules/punishments/src/main/kotlin/.../PunishmentTables.kt` for the exact columns.

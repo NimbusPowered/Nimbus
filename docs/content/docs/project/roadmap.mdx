@@ -33,11 +33,20 @@ These shape what gets built and what gets cut:
 
 ## Now — Current Focus
 
-What's actively being worked on or is next in the queue.
+What's actively being worked on or is next in the queue. Priorities shift as the project grows — expect this section to evolve between releases rather than line up with a specific version number.
 
-### Stabilize for Real-World Use (v0.9.x)
+### Operator-Facing Features
 
-The core engine, cluster system, and module framework are feature-complete for most use cases. The current focus is making everything rock-solid under real operator workloads.
+The core engine, cluster system, and module framework are feature-complete for most use cases, so the next layer of work is what operators actually reach for day-to-day: moderation tooling, asset distribution, player-visible polish. Recent first-party modules (Punishments, Resource Packs) sit in this category, and more will follow wherever real networks hit a gap.
+
+| Goal | Why it matters |
+|------|----------------|
+| **Fill in operator workflows** | Things every network needs but nobody should have to glue together from third-party plugins — punishments, resource packs, reports/appeals, chat filtering, staff tooling. Each lands as its own module so operators can opt in |
+| **Dashboard parity + depth** | Every console workflow should have a first-class dashboard equivalent. Not "a UI for the API", but the thing operators reach for first |
+
+### Stabilization
+
+Making what's already shipped rock-solid under real workloads. This work competes for attention with new features and generally wins when the two collide.
 
 | Goal | Why it matters |
 |------|----------------|
@@ -137,8 +146,8 @@ For detailed release notes, see the [Changelog](/docs/project/changelog).
 
 | Version | Date | Theme |
 |---------|------|-------|
-| **v0.8.1** | April 13, 2026 | 15 production-critical fixes + cluster TLS keystore bug |
-| **v0.8.0** | April 12, 2026 | Production readiness audit — 65 findings resolved across security, stability, and performance |
+| **v0.9.0** | April 14, 2026 | Punishments + Resource Packs modules, runtime plugin deployment (templates fully user-owned), Velocity + backend enforcement plugins, scoped bans |
+| **v0.8.0 – v0.8.2** | April 12–13, 2026 | Production readiness audit — 94 findings resolved across security, stability, data integrity, performance; cluster TLS keystore restart bug |
 | **v0.7.0 – v0.7.3** | April 11–12, 2026 | Multi-node cluster — TLS setup wizard, placement pinning, state sync, failover, daemon mode |
 | **v0.6.0 – v0.6.2** | April 10, 2026 | Dedicated services — single-instance servers, unified memory reading, dashboard design system |
 | **v0.5.0 – v0.5.3** | April 9, 2026 | Modded support — client routing, mod list matching, NeoForwarding, protocol filtering |

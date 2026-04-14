@@ -22,6 +22,8 @@
     "cluster-tls",
     "bedrock",
     "permissions",
+    "punishments",
+    "resourcepacks",
     "stress-testing"
   ]
 }

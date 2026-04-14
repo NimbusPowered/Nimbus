@@ -684,6 +684,95 @@ Show the permission audit log with recent changes. Defaults to 20 entries.
 
 ---
 
+## Punishments
+
+The Punishments module adds the `punish` console command (and `/cloud punish …` in-game via the Bridge) for managing network-wide bans, mutes, kicks, and warnings. See the [Punishments guide](/docs/guide/punishments) for the full concept overview.
+
+### `punish`
+
+Issue, revoke, list, and inspect punishments.
+
+**Syntax:** `punish <ban|tempban|ipban|mute|tempmute|kick|warn|unban|unmute|history|list> <args...>`
+
+**Permission:** `nimbus.cloud.punish` (console). In-game subcommands honour LuckPerms-style nodes: `nimbus.punish.ban`, `nimbus.punish.tempban`, `nimbus.punish.ipban`, `nimbus.punish.mute`, `nimbus.punish.tempmute`, `nimbus.punish.kick`, `nimbus.punish.warn`, `nimbus.punish.unban`, `nimbus.punish.unmute`, `nimbus.punish.history`, plus `nimbus.punish.bypass` to skip mute enforcement.
+
+| Subcommand | Syntax |
+|---|---|
+| `ban` | `punish ban <player> [--group <g>\|--service <s>] <reason>` |
+| `tempban` | `punish tempban <player> <duration> [--group <g>\|--service <s>] <reason>` |
+| `ipban` | `punish ipban <player> <ip> <reason>` |
+| `mute` | `punish mute <player> [--group <g>\|--service <s>] <reason>` |
+| `tempmute` | `punish tempmute <player> <duration> [--group <g>\|--service <s>] <reason>` |
+| `kick` | `punish kick <player> <reason>` |
+| `warn` | `punish warn <player> <reason>` |
+| `unban` | `punish unban <player> [--group <g>\|--service <s>]` |
+| `unmute` | `punish unmute <player> [--group <g>\|--service <s>]` |
+| `history` | `punish history <player>` |
+| `list` | `punish list [type]` |
+
+**Player identity:** pass a current username, a raw UUID, or a name that has never joined the network. Unknown names are resolved through the Mojang profile API, so you can pre-ban players before their first login. The canonical Mojang casing is used for audit entries.
+
+**Scope:** without `--group` or `--service`, the punishment is **network-wide**. `--group <name>` limits enforcement to backends in that group; `--service <name>` limits it to that single service instance. Players stay on the network and just can't enter the banned backends. A player can carry multiple punishments of different scopes simultaneously (e.g. a `BedWars` ban plus a network-wide mute).
+
+**Durations:** `30s`, `15m`, `2h`, `7d`, `30d` — any combination of `s/m/h/d` suffixes.
+
+```text title="Nimbus"
+nimbus » punish tempban Griefer 7d --group BedWars hacking
+✓ TEMPBAN issued — Griefer until 2026-04-21 (scope=GROUP:BedWars)
+nimbus » punish mute Spammer spamming chat
+✓ MUTE issued — Spammer (scope=NETWORK)
+nimbus » punish history Griefer
+── Punishments for Griefer ────────────
+#42  TEMPBAN  scope=GROUP:BedWars  exp=7d  reason=hacking
+#17  KICK     reason=afk   2026-04-10
+```
+
+**Tab completion:** player names (online + recent history).
+
+### Editable messages
+
+Kick/mute/warn templates live in `config/modules/punishments/messages.toml` with placeholders `{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`. The templates are hot-reloaded — edits via the dashboard (`GET/PUT /api/punishments/messages`) or direct file edits followed by a controller restart both take effect immediately.
+
+---
+
+## Resource Packs
+
+### `resourcepack`
+
+Manage the network-wide resource pack registry. Packs can be referenced by URL or uploaded directly to Nimbus (stored under `data/resourcepacks/<uuid>.zip`). Assignments attach packs to GLOBAL, a GROUP, or a single SERVICE with priority ordering.
+
+**Syntax:** `resourcepack <list|add|upload|remove|assign|unassign|assignments>`
+
+**Permission:** `nimbus.cloud.resourcepack`.
+
+| Subcommand | Syntax |
+|---|---|
+| `list` | `resourcepack list` |
+| `add` | `resourcepack add <name> <url> [--force] [--prompt <msg>]` |
+| `upload` | `resourcepack upload <name> <path> [--force] [--prompt <msg>]` |
+| `remove` | `resourcepack remove <id>` |
+| `assign` | `resourcepack assign <id> <global\|group <name>\|service <name>> [priority]` |
+| `unassign` | `resourcepack unassign <assignment-id>` |
+| `assignments` | `resourcepack assignments [pack-id]` |
+
+`add` streams the URL once to compute SHA-1 so you don't have to hash by hand. `upload` streams a local `.zip` through a 64 KiB transfer buffer into `data/resourcepacks/` with SHA-1 hashing and an atomic rename.
+
+**Priority stack:** when multiple packs apply to the same service, the stack order is **GLOBAL < GROUP < SERVICE**, with `priority` ascending within each scope. On Minecraft 1.20.3+ the backend plugin uses the multi-pack UUID API so every pack in the stack is sent; older servers fall back to the single highest-priority pack.
+
+```text title="Nimbus"
+nimbus » resourcepack add MainPack https://cdn.example.com/main.zip --force
+ℹ Downloading https://cdn.example.com/main.zip to compute SHA-1…
+✓ Registered 'MainPack' (#1) — sha1=b2c3…
+nimbus » resourcepack assign 1 global 0
+✓ Assigned pack #1 to GLOBAL (priority=0, assignment #1)
+nimbus » resourcepack assign 1 group BedWars 10
+✓ Assigned pack #1 to GROUP 'BedWars' (priority=10, assignment #2)
+```
+
+See the [Resource Packs guide](/docs/guide/resourcepacks) for the backend plugin's behaviour, the public download endpoint, and telemetry.
+
+---
+
 ## Plugin Management
 
 ### `plugins`

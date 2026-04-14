@@ -146,7 +146,7 @@ The `ModuleContext` is passed to `init()` and provides access to the Nimbus runt
 | `registerCommand(cmd)` | — | Register a console command. |
 | `unregisterCommand(name)` | — | Unregister a command by name. |
 | `registerRoutes(block, auth)` | — | Register API routes with the given auth level. |
-| `registerPluginDeployment(d)` | — | Register a plugin JAR to deploy to backend services. |
+| `registerPluginDeployment(d)` | — | Register a plugin JAR to deploy to services (backend or Velocity — see below). |
 | `registerEventFormatter(type, fn)` | — | Register a console formatter for module events. |
 | `registerCompleter(cmd, fn)` | — | Register tab completion for a command. |
 | `getService(type)` | `T?` | Retrieve a core service by class. Returns null if unavailable. |
@@ -331,6 +331,48 @@ override suspend fun init(context: ModuleContext) {
     }
 }
 ```
+
+## Plugin Deployments
+
+Modules commonly ship a companion server-side plugin — a permissions plugin, a punishments enforcer, a resource-pack applier, etc. Instead of asking operators to drop JARs into their templates by hand, register a `PluginDeployment`: Nimbus bundles the JAR as a resource inside your module, and `ServiceFactory.resolveModulePlugins` deploys it to the service's plugin directory on every prepare (with `REPLACE_EXISTING`, so deleted or modified copies self-heal on next start).
+
+```kotlin title="PluginDeployment"
+import dev.nimbuspowered.nimbus.module.PluginDeployment
+import dev.nimbuspowered.nimbus.module.PluginTarget
+
+override suspend fun init(context: ModuleContext) {
+    // Paper / Purpur / Pufferfish / Leaf / Folia — the usual backends.
+    context.registerPluginDeployment(PluginDeployment(
+        resourcePath = "plugins/my-plugin.jar",
+        fileName = "my-plugin.jar",
+        displayName = "MyPlugin",
+        minMinecraftVersion = 17,          // Optional: deploy only on 1.17+
+        foliaRequiresPacketEvents = false,
+        target = PluginTarget.BACKEND       // Default.
+    ))
+
+    // Velocity proxies — different JAR format (uses @Plugin, not plugin.yml).
+    context.registerPluginDeployment(PluginDeployment(
+        resourcePath = "plugins/my-proxy-plugin.jar",
+        fileName = "my-proxy-plugin.jar",
+        displayName = "MyProxyPlugin",
+        target = PluginTarget.VELOCITY
+    ))
+}
+```
+
+| Field | Purpose |
+|---|---|
+| `resourcePath` | Path inside your module JAR (e.g. `plugins/my-plugin.jar`). Use Gradle resource copying to embed the JAR |
+| `fileName` | Target filename in the service's `plugins/` directory |
+| `displayName` | Shown in console logs when the plugin is deployed |
+| `minMinecraftVersion` | Minor version gate (e.g. `20` for 1.20+); `null` means no restriction |
+| `foliaRequiresPacketEvents` | If `true`, PacketEvents is auto-deployed alongside this plugin on Folia |
+| `target` | `PluginTarget.BACKEND` (default) for Paper-family, `PluginTarget.VELOCITY` for proxies |
+
+<Callout type="info">
+From v0.9.0 on, Nimbus never writes module-registered plugins into `templates/global/plugins/` or `templates/global_proxy/plugins/`. Deployment is **runtime-only, per service prepare** — templates stay fully user-owned. If your module used to depend on the old template-install flow, remove it; the runtime path does the same job with better hygiene (no stale copies left behind when a module is uninstalled).
+</Callout>
 
 ## Building and Deploying
 
