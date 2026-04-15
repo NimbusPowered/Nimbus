@@ -1,74 +1,166 @@
 <div align="center">
 
-<img src="docs/public/banner.svg" alt="Nimbus Cloud" width="460" />
+<img src="docs/public/banner.svg" alt="Nimbus Cloud" width="520" />
 
-**Lightweight Minecraft Cloud System**
+<br />
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Java](https://img.shields.io/badge/Java-21+-ED8B00.svg?style=for-the-badge&logo=openjdk&logoColor=white)](https://adoptium.net)
-[![Gradle](https://img.shields.io/badge/Gradle-8.x-02303A.svg?style=for-the-badge&logo=gradle&logoColor=white)](https://gradle.org)
-[![Docs](https://img.shields.io/badge/Docs-Read%20the%20Docs-0ea5e9.svg?style=for-the-badge&logo=readthedocs&logoColor=white)](https://NimbusPowered.github.io/Nimbus/)
+### The Minecraft cloud that fits in a single JAR.
 
-Dynamic server management from a single JAR — auto-scaling, multi-node clusters, and a powerful API without the bloat.
+Auto-scaling server instances, multi-node clusters, a modern dashboard,<br/>
+and a first-class REST API — without the bloat of enterprise cloud stacks.
 
-[Documentation](https://NimbusPowered.github.io/Nimbus/) &#183; [Quick Start](#quick-start) &#183; [Dashboard](https://dashboard.nimbuspowered.org) &#183; [API Reference](https://NimbusPowered.github.io/Nimbus/reference/api.html)
+<br />
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Java](https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://adoptium.net)
+[![Release](https://img.shields.io/github/v/release/NimbusPowered/Nimbus?style=for-the-badge&color=22c55e&label=Release)](https://github.com/NimbusPowered/Nimbus/releases)
+[![Docs](https://img.shields.io/badge/Docs-online-0ea5e9?style=for-the-badge&logo=readthedocs&logoColor=white)](https://NimbusPowered.github.io/Nimbus/)
+
+<br />
+
+**[Docs](https://NimbusPowered.github.io/Nimbus/)** &nbsp;·&nbsp;
+**[Quick Start](#quick-start)** &nbsp;·&nbsp;
+**[Dashboard](https://dashboard.nimbuspowered.org)** &nbsp;·&nbsp;
+**[API Reference](https://NimbusPowered.github.io/Nimbus/reference/api.html)**
 
 </div>
+
+<br />
+
+---
+
+## Why Nimbus?
+
+> One binary. One config directory. Zero Docker, zero Kubernetes, zero Redis.
+> Start it on a $5 VPS, scale it to a fleet when you're ready.
+
+Most Minecraft cloud systems either ship a single-server wrapper or drag along a full infrastructure stack. **Nimbus sits in between** — a single `java -jar` that handles dynamic servers, proxies, scaling, clustering, permissions, punishments, resource packs, backups, and a live web dashboard. When you need another machine, drop an agent on it. When you need an API, it's already running.
+
+<br />
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Single Binary
+`java -jar nimbus.jar` and you're running.
+No supervisors, no brokers, no orchestrators.
+The setup wizard takes care of the rest.
+
+</td>
+<td width="33%" valign="top">
+
+### Scales With You
+Start on one box. Drop an agent on a second
+machine when you outgrow it. Services float
+across nodes with live state sync.
+
+</td>
+<td width="33%" valign="top">
+
+### API-First
+Everything the console does, the REST API
+does too. Live WebSocket events, bidirectional
+service consoles, Prometheus metrics.
+
+</td>
+</tr>
+</table>
+
+<br />
 
 ---
 
 ## Features
 
-- **One-Command Install** — single `curl` or PowerShell command installs everything (Java, Nimbus, system service)
-- **Auto-Updates** — checks GitHub Releases on startup, auto-applies patch/minor, prompts for major updates
-- **Single JAR** — `java -jar nimbus.jar` starts everything, no external dependencies
-- **Multi-Node Cluster** — distribute servers across machines with automatic placement, failover, and a built-in TCP load balancer
-- **Auto-Scaling** — spin up/down instances based on real-time player count with configurable thresholds
-- **9 Server Platforms** — Paper, Pufferfish, Purpur, Folia, Velocity, Forge, NeoForge, Fabric, and Custom JARs
-- **Modpack Import** — import any Modrinth modpack with a single command (Fabric, Forge, NeoForge, Quilt)
-- **Velocity-First** — auto-manages proxy server list, forwarding, tab list, MOTD, chat sync, and maintenance mode
-- **Version Compatibility** — supports 1.8.8 to latest via adaptive forwarding + auto-deployed Via plugins
-- **Bedrock Crossplay** — Geyser + Floodgate auto-configured for mobile and console players
-- **Built-in Permissions** — groups, inheritance, tracks, prefixes/suffixes, wildcards, and audit log
-- **Web Dashboard** (BETA) — browser-based management UI at [dashboard.nimbuspowered.org](https://dashboard.nimbuspowered.org). Connects to your controller's API for service management, real-time console, plugin search, stress testing, and more
-- **REST API + WebSocket** — 40+ endpoints, live events, bidirectional console, file management, and metrics
-- **Interactive Console** — JLine3-powered REPL with 28 commands, tab completion, and screen sessions
-- **Performance Optimizer** — Aikar's JVM flags + Paper/Purpur/Pufferfish/Folia config tuning out of the box
-- **Stress Testing** — simulate player load across servers without real Minecraft clients
-- **Crash Recovery** — auto-restarts crashed servers with configurable attempt limits
-- **TOML Config** — one file per server group, human-readable and hot-reloadable
-- **Database** — SQLite (default), MySQL, or PostgreSQL for permissions, metrics, and player data
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Platform & Servers**
+- 9 server platforms — Paper, Purpur, Pufferfish, Leaf, Folia, Velocity, Forge, NeoForge, Fabric
+- Modpack import from Modrinth & CurseForge with a single command
+- Bedrock crossplay via auto-configured Geyser + Floodgate
+- Version support from **1.8.8 → latest** with adaptive Via plugin chain
+- Velocity-first — proxy list, forwarding, tab list, MOTD, chat, maintenance all auto-managed
+
+**Scaling & Cluster**
+- Smart auto-scaling with schedules, predictive warm-up, and player-count history
+- Multi-node cluster with TLS, placement strategies, and failover
+- Built-in TCP load balancer with health checks and circuit breaker
+- Warm pools — pre-staged services ready to spin up in milliseconds
+- State sync — services float across nodes without data loss
+
+</td>
+<td width="50%" valign="top">
+
+**Management & Ops**
+- Web Dashboard (Beta) at [dashboard.nimbuspowered.org](https://dashboard.nimbuspowered.org)
+- Interactive JLine3 console with 34 commands and tab completion
+- Remote CLI — same console experience from anywhere, over WebSocket
+- Scheduled tar+zstd backups with GFS retention and SHA-256 manifests
+- Stress testing — simulate thousands of players without real clients
+- Auto-updates from GitHub Releases with changelog prompts
+
+**Platform Features**
+- Permissions — groups, tracks, prefixes, wildcards, audit log (or LuckPerms)
+- Punishments — network-wide bans, mutes, warnings with auto-expiry
+- Resource packs — URL-referenced or uploaded, stacked by scope
+- REST API + WebSocket — 40+ endpoints, live events, Prometheus metrics
+- Aikar's JVM flags + config tuning out of the box
+
+</td>
+</tr>
+</table>
+
+<br />
+
+---
 
 ## Quick Start
 
-Install and run Nimbus with a single command — Java 21, the latest release, and a start script are set up automatically:
+Java 21, the latest release, and a launch script are installed automatically.
 
-**Linux / macOS:**
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Linux / macOS**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.sh | bash
 ```
 
-**Windows (PowerShell):**
+</td>
+<td width="50%" valign="top">
+
+**Windows (PowerShell)**
 
 ```powershell
 irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.ps1 | iex
 ```
 
-Then start Nimbus:
+</td>
+</tr>
+</table>
+
+Then:
 
 ```bash
 nimbus
 ```
 
-The setup wizard guides you through network name, proxy, Bedrock support, permissions, server groups, and downloads — then starts everything automatically.
+The setup wizard walks you through network name, proxy, Bedrock, permissions, server groups, and JAR downloads — and starts everything for you.
 
-See the [Quick Start Guide](https://NimbusPowered.github.io/Nimbus/guide/quickstart.html) for a full walkthrough.
+<sub>Full walkthrough: [Quick Start Guide](https://NimbusPowered.github.io/Nimbus/guide/quickstart.html)</sub>
 
-### Agent Nodes (Multi-Node)
+<br />
 
-To add remote worker nodes to your cluster:
+<details>
+<summary><b>Agent Nodes — add a worker machine</b></summary>
+
+<br />
 
 ```bash
 # Linux / macOS
@@ -78,9 +170,31 @@ curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-a
 irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.ps1 | iex
 ```
 
-The agent installer prompts for controller connection details and optionally creates a system service.
+The installer prompts for controller address + cluster token and optionally creates a system service.
 
-## Build from Source
+</details>
+
+<details>
+<summary><b>Remote CLI — manage a controller from your laptop</b></summary>
+
+<br />
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-cli.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-cli.ps1 | iex
+```
+
+Standalone JLine3 console, talks to the controller over REST + WebSocket.
+
+</details>
+
+<details>
+<summary><b>Build from source</b></summary>
+
+<br />
 
 ```bash
 git clone https://github.com/NimbusPowered/Nimbus.git
@@ -91,47 +205,64 @@ cd Nimbus
 java -jar nimbus-core/build/libs/nimbus-core-<version>-all.jar
 ```
 
-## Modules
+</details>
 
-| Module | Description |
-|--------|-------------|
-| `nimbus-core` | Main application — console, API, scaling, cluster, load balancer |
-| `nimbus-agent` | Remote agent node for multi-node clusters |
-| `nimbus-protocol` | Shared cluster message types (controller ↔ agent) |
-| `nimbus-bridge` | Velocity plugin — hub commands, proxy sync, permissions |
-| `nimbus-sdk` | Paper server SDK — game states, routing, events, player tracking |
-| `nimbus-perms` | Paper permissions plugin — built-in or LuckPerms provider |
-| `nimbus-display` | Paper display plugin — server selector signs and NPCs |
-| `dashboard` | Web Dashboard (BETA) — Next.js management UI, connects to controller API |
+<br />
+
+---
 
 ## Architecture
 
 ```
-nimbus-core/src/main/kotlin/dev/nimbus/
-├── Nimbus.kt              # Entry point, bootstrap
-├── api/                   # Ktor REST API + WebSocket (40+ endpoints)
-├── cluster/               # NodeManager, PlacementStrategy, ClusterServer
-├── config/                # TOML config loading (NimbusConfig, GroupConfig)
-├── console/               # JLine3 REPL, CommandDispatcher, 28 commands
-├── database/              # Exposed ORM: SQLite/MySQL/PostgreSQL
-├── display/               # Sign/NPC display configs per group
-├── event/                 # Coroutine-based EventBus + sealed Events
-├── group/                 # ServerGroup runtime state, GroupManager
-├── loadbalancer/          # TCP load balancer, health checks, circuit breaker
-├── permissions/           # Permission groups, tracks, wildcards, audit log
-├── proxy/                 # ProxySyncManager (tab list, MOTD, chat, maintenance)
-├── scaling/               # ScalingEngine + ScalingRule (auto-scale by player count)
-├── service/               # Lifecycle, ProcessHandle, PortAllocator, ServerListPing
-├── setup/                 # First-run interactive SetupWizard
-├── stress/                # StressTestManager (simulated player load testing)
-├── template/              # TemplateManager, SoftwareResolver, PerformanceOptimizer
-└── velocity/              # VelocityConfigGen (auto-manage proxy server list)
+                 ┌─────────────────────────────────────────────────┐
+                 │                    Controller                   │
+    Console ─►   │   API · WebSocket · Scaling · Placement · DB    │
+    Dashboard ─► │                                                 │
+    Remote CLI ─►│   Modules: perms · display · scaling · players  │
+                 │            punishments · resourcepacks · backup │
+                 └───────────┬─────────────────────────┬───────────┘
+                             │ TLS cluster             │ TCP LB
+                             ▼                         ▼
+                 ┌───────────────────────┐   ┌─────────────────────┐
+                 │   Agent Node(s)       │   │  Velocity Proxies   │
+                 │   Runs services       │   │  + Bridge plugin    │
+                 └───────────┬───────────┘   └──────────┬──────────┘
+                             │                          │
+                             ▼                          ▼
+                 ┌───────────────────────────────────────────────┐
+                 │   Game Servers · Lobbies · Dedicated          │
+                 │   Paper · Purpur · Fabric · Forge · NeoForge  │
+                 └───────────────────────────────────────────────┘
 ```
+
+<br />
+
+### Project Layout
+
+| Module | Role |
+|--------|------|
+| `nimbus-core` | Controller — console, API, scaling, cluster, load balancer |
+| `nimbus-agent` | Remote worker node for multi-node deployments |
+| `nimbus-protocol` | Shared cluster message types (controller ↔ agent) |
+| `nimbus-cli` | Standalone Remote CLI — no Minecraft deps |
+| `plugins/bridge` | Velocity plugin — hub commands, proxy sync, login gate |
+| `plugins/sdk` | Server-side SDK (Spigot 1.8.8+ → Folia) |
+| `plugins/perms` · `display` · `punishments` · `resourcepacks` | Feature plugins, auto-deployed |
+| `modules/perms` · `scaling` · `players` · `display` · `punishments` · `resourcepacks` · `backup` | Controller-side modules |
+| `dashboard` | Next.js web dashboard (Beta) |
+
+<br />
+
+---
 
 ## Configuration
 
+One TOML file per group. Human-readable, hot-reloadable.
+
 <details>
-<summary><b>config/nimbus.toml</b> — Main Config</summary>
+<summary><b>config/nimbus.toml</b> — main controller config</summary>
+
+<br />
 
 ```toml
 [network]
@@ -141,11 +272,6 @@ bind = "0.0.0.0"
 [controller]
 max_memory = "10G"
 max_services = 20
-heartbeat_interval = 5000
-
-[console]
-colored = true
-log_events = true
 
 [api]
 enabled = true
@@ -155,10 +281,6 @@ token = ""                      # auto-generated on first run
 
 [bedrock]
 enabled = false                 # Geyser + Floodgate auto-configured
-base_port = 19132
-
-[permissions]
-deploy_plugin = true            # auto-deploy NimbusPerms to backends
 
 [cluster]
 enabled = false
@@ -171,19 +293,21 @@ port = 25565
 strategy = "least-players"
 
 [database]
-type = "sqlite"                 # sqlite, mysql, or postgresql
+type = "sqlite"                 # sqlite · mysql · postgresql
 ```
 
 </details>
 
 <details>
-<summary><b>config/groups/lobby.toml</b> — Group Config</summary>
+<summary><b>config/groups/lobby.toml</b> — a server group</summary>
+
+<br />
 
 ```toml
 [group]
 name = "Lobby"
 type = "DYNAMIC"
-template = "Lobby"
+templates = ["base", "lobby"]
 software = "PAPER"
 version = "1.21.4"
 
@@ -196,12 +320,12 @@ min_instances = 1
 max_instances = 4
 players_per_instance = 40
 scale_threshold = 0.8
-idle_timeout = 0
+warm_pool_size = 1
 
 [group.lifecycle]
-stop_on_empty = false
 restart_on_crash = true
 max_restarts = 5
+deploy_on_stop = false
 
 [group.jvm]
 optimize = true                 # Aikar's flags + config tuning
@@ -209,86 +333,114 @@ optimize = true                 # Aikar's flags + config tuning
 
 </details>
 
-## Console Commands
-
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Service** | `list [group]` | Show all running services with status, port, players |
-| | `start <group>` | Start a new instance of a group |
-| | `stop <service>` | Gracefully stop a service |
-| | `restart <service>` | Stop and restart a service |
-| | `screen <service>` | Attach to service console (ESC to detach) |
-| | `exec <service> <cmd>` | Execute a command on a service |
-| | `logs <service> [lines]` | Show recent log output |
-| **Group** | `groups` | List all groups with instance counts |
-| | `info <group>` | Show group config, scaling, and runtime state |
-| | `create` | Interactive group creation wizard |
-| | `import <url\|slug>` | Import a Modrinth modpack as a new group |
-| | `update <group>` | Update software version or switch platforms |
-| | `static group\|service` | Convert to static mode (persistent data) |
-| | `dynamic <group>` | Convert to dynamic mode (fresh from template) |
-| **Network** | `status` | Network overview: groups, players, capacity |
-| | `players [service]` | List all connected players |
-| | `send <player> <srv>` | Transfer a player to another service |
-| | `maintenance` | Toggle maintenance mode (global or per-group) |
-| **Permissions** | `perms group <sub>` | Manage permission groups (create, delete, permissions, display) |
-| | `perms user <sub>` | Manage players (addgroup, check, promote, demote) |
-| | `perms track <sub>` | Manage promotion tracks |
-| | `perms audit` | View permission change audit log |
-| **Cluster** | `cluster <sub>` | Enable/disable cluster mode, manage tokens |
-| | `nodes [name]` | Show connected agent nodes |
-| | `lb [sub]` | Load balancer status, enable/disable, strategy |
-| **Stress** | `stress start <n>` | Start stress test with simulated players |
-| | `stress stop` | Stop active stress test |
-| **System** | `api <sub>` | Start/stop REST API, show token |
-| | `reload` | Hot-reload group and proxy sync configs |
-| | `shutdown` | Ordered shutdown: games → lobbies → proxies |
-
-## API Highlights
-
-```bash
-# Health check (no auth)
-curl http://localhost:8080/api/health
-
-# List services
-curl -H "Authorization: Bearer <token>" http://localhost:8080/api/services
-
-# Start a new instance
-curl -X POST -H "Authorization: Bearer <token>" \
-  http://localhost:8080/api/services/start/BedWars
-
-# Live event stream
-wscat -c "ws://localhost:8080/api/events?token=<token>"
-
-# Prometheus metrics (no auth)
-curl http://localhost:8080/api/metrics
-```
-
-See the full [REST API Reference](https://NimbusPowered.github.io/Nimbus/reference/api.html) for all 40+ endpoints.
-
-## Tech Stack
-
-| Component | Choice |
-|-----------|--------|
-| Language | Kotlin 2.1.10, Java 21 |
-| Build | Gradle + Shadow plugin |
-| Async | kotlinx-coroutines |
-| Config | ktoml (TOML) |
-| Console | JLine 3 |
-| HTTP Client | Ktor Client (CIO) |
-| API Server | Ktor Server (CIO) |
-| Database | Exposed ORM + SQLite/MySQL/PostgreSQL |
-| Downloads | Paper, Purpur, Pufferfish, Velocity, Modrinth, GeyserMC APIs |
-
-## License
-
-MIT — see [LICENSE](LICENSE)
+<br />
 
 ---
 
-<br>
+## Console
+
+<table>
+<tr><th width="18%">Category</th><th>Commands</th></tr>
+<tr>
+<td><b>Service</b></td>
+<td><code>list</code> · <code>start</code> · <code>stop</code> · <code>restart</code> · <code>screen</code> · <code>exec</code> · <code>logs</code></td>
+</tr>
+<tr>
+<td><b>Group</b></td>
+<td><code>groups</code> · <code>info</code> · <code>create</code> · <code>import</code> · <code>update</code> · <code>static</code> · <code>dynamic</code></td>
+</tr>
+<tr>
+<td><b>Network</b></td>
+<td><code>status</code> · <code>players</code> · <code>send</code> · <code>maintenance</code></td>
+</tr>
+<tr>
+<td><b>Permissions</b></td>
+<td><code>perms group</code> · <code>perms user</code> · <code>perms track</code> · <code>perms audit</code></td>
+</tr>
+<tr>
+<td><b>Cluster</b></td>
+<td><code>cluster</code> · <code>nodes</code> · <code>lb</code></td>
+</tr>
+<tr>
+<td><b>Backups</b></td>
+<td><code>backup run</code> · <code>backup list</code> · <code>backup restore</code> · <code>backup verify</code></td>
+</tr>
+<tr>
+<td><b>Stress</b></td>
+<td><code>stress start</code> · <code>stress ramp</code> · <code>stress stop</code> · <code>stress status</code></td>
+</tr>
+<tr>
+<td><b>System</b></td>
+<td><code>api</code> · <code>reload</code> · <code>sessions</code> · <code>audit</code> · <code>shutdown</code></td>
+</tr>
+</table>
+
+<br />
+
+---
+
+## API
+
+```bash
+# Health (public)
+curl http://localhost:8080/api/health
+
+# List services
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/services
+
+# Start a new instance
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/services/start/BedWars
+
+# Live event stream
+wscat -c "ws://localhost:8080/api/events?token=$TOKEN"
+
+# Prometheus metrics
+curl http://localhost:8080/api/metrics
+```
+
+<sub>Full reference: [REST API Docs](https://NimbusPowered.github.io/Nimbus/reference/api.html) — 40+ endpoints, all error-coded.</sub>
+
+<br />
+
+---
+
+## Tech Stack
+
+| Layer | Choice |
+|-------|--------|
+| Language · Build | Kotlin 2.1 · Java 21 · Gradle + Shadow |
+| Async | kotlinx-coroutines (no raw threads) |
+| Config | ktoml |
+| Console | JLine 3 |
+| HTTP | Ktor Client (CIO) · Ktor Server (CIO + Netty for TLS cluster) |
+| Database | Exposed ORM · SQLite / MySQL / PostgreSQL · HikariCP |
+| Compression | Apache Commons Compress · zstd-jni (multi-threaded) |
+| Dashboard | Next.js · shadcn/ui · Tailwind |
+
+<br />
+
+---
+
+## Contributing
+
+Issues, PRs, and feature requests are welcome. Nimbus is developed in the open — open an issue before starting on anything large so we can align on direction.
+
+<br />
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+<br />
+
+---
 
 <div align="center">
+
+<sub>Built for Minecraft network operators who'd rather read a config file than a Helm chart.</sub>
+
+<br /><br />
 
 [![Star History Chart](https://api.star-history.com/svg?repos=NimbusPowered/Nimbus&type=Date)](https://star-history.com/#NimbusPowered/Nimbus&Date)
 
