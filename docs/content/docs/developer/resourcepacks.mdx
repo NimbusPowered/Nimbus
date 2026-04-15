@@ -1,0 +1,208 @@
+---
+title: Resource Packs Module
+description: Network-wide resource pack registry with URL + locally-hosted packs, scoped assignments (GLOBAL/GROUP/SERVICE), streaming upload with SHA-1 hashing, and multi-pack stack resolution.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Resource Packs module (`nimbus-module-resourcepacks`) owns the pack
+registry, stores locally-hosted pack files on disk, resolves the per-player
+pack stack the backend should apply, and serves public pack downloads.
+
+## Architecture
+
+```text title="Directory Structure"
+modules/resourcepacks/
+└── src/main/kotlin/dev/nimbuspowered/nimbus/module/resourcepacks/
+    ├── ResourcePacksModule.kt          # NimbusModule: wiring
+    ├── ResourcePackManager.kt          # CRUD, streaming upload, resolve stack
+    ├── ResourcePackModels.kt           # DTOs + serializers
+    ├── ResourcePackTables.kt           # Exposed tables
+    ├── ResourcePacksEvents.kt          # ModuleEvent factories
+    ├── ResourcePacksDoctorCheck.kt     # doctor integration
+    ├── commands/
+    │   └── ResourcePackCommand.kt      # Console `resourcepack …`
+    ├── migrations/
+    │   └── ResourcePacksV1_Baseline.kt # Range 6000
+    └── routes/
+        └── ResourcePackRoutes.kt       # Authed + public routes
+```
+
+Schema-version range: **6000+**.
+
+## Tables
+
+### `resource_packs`
+
+One row per registered pack.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT (PK) | Autoincrement |
+| `pack_uuid` | VARCHAR(36) (unique) | Used as the UUID in 1.20.3+ multi-pack stacks |
+| `name` | VARCHAR(64) | Display name |
+| `source` | VARCHAR(16) | `"URL"` or `"LOCAL"` |
+| `url` | VARCHAR(1024) | Absolute URL (URL) or relative `/api/resourcepacks/files/<uuid>.zip` (LOCAL) |
+| `sha1_hash` | VARCHAR(40) | 40-char hex — enforced on create, computed during upload |
+| `prompt_message` | VARCHAR(256) | Shown in the client's pack prompt |
+| `force` | BOOL | If true, client is kicked when it declines |
+| `file_size` | LONG | Size in bytes (LOCAL only) |
+| `uploaded_at` | VARCHAR(30) | ISO-8601 |
+| `uploaded_by` | VARCHAR(128) | `"api"`, `"console:<user>"`, etc. |
+
+### `resource_pack_assignments`
+
+Links a pack to a scope + target with a priority.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT (PK) | Autoincrement |
+| `pack_id` | INT | FK → `resource_packs.id` |
+| `scope` | VARCHAR(16) | `"GLOBAL"`, `"GROUP"`, or `"SERVICE"` |
+| `target` | VARCHAR(128) | Group or service name; empty for GLOBAL |
+| `priority` | INT | Lower = earlier in the stack |
+
+Unique index on `(pack_id, scope, target)` prevents duplicate assignments.
+
+## Stack resolution
+
+`ResourcePackManager.resolvePacks(groupName, serviceName, publicBaseUrl)` is
+the plugin-facing query. It returns packs in the order the client should
+apply them:
+
+1. Fetch all assignments matching `scope = GLOBAL`, or
+   `scope = GROUP AND target = groupName`, or
+   `scope = SERVICE AND target = serviceName`.
+2. Sort by `(scopeWeight, priority)` ascending, with
+   `GLOBAL = 0 < GROUP = 1 < SERVICE = 2`.
+3. For LOCAL packs, rewrite the relative `/api/resourcepacks/files/<uuid>.zip`
+   URL to absolute using `publicBaseUrl`.
+4. Return `ResolvedPack` records with `{packUuid, name, url, sha1Hash,
+   promptMessage, force, priority}`.
+
+<Callout type="info">
+Clients on Minecraft 1.20.3+ can apply a multi-pack stack via the reflection-
+based Paper API. Older backends take just the highest-priority pack.
+</Callout>
+
+## Streaming upload
+
+Uploads use **raw `application/octet-stream`** to keep memory flat.
+`POST /api/resourcepacks/upload?name=&force=&prompt=` takes the query string
+for metadata and streams the file body to disk:
+
+```text title="Upload flow (per-request peak: ~64 KiB)"
+Browser: fetch({ body: File })  →  socket stream
+  ▼
+Ktor CIO: receiveStream()       →  backpressured InputStream
+  ▼
+ResourcePackManager.uploadLocalPack:
+    64 KiB buffer loop:
+      read → MessageDigest.update (SHA-1) → write to <uuid>.zip.part
+    (fail fast if size > maxBytes — rejected after 64 KiB, not after full body)
+  ▼
+fsync() → Files.move(tempFile, targetFile, ATOMIC_MOVE)
+```
+
+Max upload size defaults to 250 MiB; configurable via
+`[resourcepacks] max_upload_bytes`. Exceeding it returns HTTP 413 with
+`PAYLOAD_TOO_LARGE`.
+
+## Public download endpoint
+
+`resourcePackPublicRoutes` is registered with `AuthLevel.NONE` because
+Minecraft clients don't send bearer tokens. Tampering is prevented by the
+SHA-1 hash negotiated during `setResourcePack()` — the client rejects the
+pack if the on-wire hash doesn't match.
+
+```text title="GET /api/resourcepacks/files/{name}"
+Validation:
+  • filename must end with ".zip"
+  • {name} stripped of ".zip" must not contain "/", "\", or ".."  (PATH_TRAVERSAL)
+
+Response:
+  • Content-Type: application/zip
+  • Content-Length: Files.size(file)
+  • Cache-Control: public, max-age=3600
+  • Body streamed via respondOutputStream + 64 KiB copy buffer
+```
+
+## Authenticated REST API
+
+All authed routes under `/api/resourcepacks` — service-level auth.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/resourcepacks` | List packs |
+| `GET` | `/api/resourcepacks/{id}` | Single pack |
+| `POST` | `/api/resourcepacks` | Register an external URL pack |
+| `POST` | `/api/resourcepacks/upload?name=&force=&prompt=` | Stream-upload a local pack |
+| `DELETE` | `/api/resourcepacks/{id}` | Delete pack + assignments (removes file if LOCAL) |
+| `GET` | `/api/resourcepacks/assignments?packId=` | List assignments |
+| `POST` | `/api/resourcepacks/{id}/assignments` | Add assignment |
+| `DELETE` | `/api/resourcepacks/assignments/{id}` | Remove assignment |
+| `GET` | `/api/resourcepacks/for-group/{group}?service=` | Plugin-facing stack |
+| `POST` | `/api/resourcepacks/status` | Backend reports accept/decline/load telemetry |
+
+## Events
+
+Emitted as `ModuleEvent("resourcepacks", type, data)`:
+
+| Type | Fired on |
+|---|---|
+| `RESOURCE_PACK_CREATED` | New URL or LOCAL pack registered |
+| `RESOURCE_PACK_DELETED` | Pack removed |
+| `RESOURCE_PACK_ASSIGNED` | Assignment added |
+| `RESOURCE_PACK_UNASSIGNED` | Assignment removed |
+| `RESOURCE_PACK_STATUS` | Backend telemetry: player accept/decline/load |
+
+## Plugin deployment
+
+`ResourcePacksModule.init()` registers a single backend `PluginDeployment`:
+
+```kotlin title="PluginDeployment"
+context.registerPluginDeployment(PluginDeployment(
+    resourcePath = "plugins/nimbus-resourcepacks.jar",
+    fileName = "nimbus-resourcepacks.jar",
+    displayName = "NimbusResourcePacks"
+))
+```
+
+The backend plugin fetches `GET /api/resourcepacks/for-group/<group>?service=`
+on player join (with a short local cache) and applies the stack via the
+Paper API. On 1.20.3+ it reflects into the multi-pack setter; on older
+versions it falls back to the single highest-priority pack.
+
+## Doctor check
+
+`ResourcePacksDoctorCheck` is registered via
+`ModuleContext.registerDoctorCheck`. It verifies the storage dir exists,
+isn't world-writable, and that every LOCAL pack row has a corresponding
+file on disk.
+
+## `publicBaseUrl` resolution
+
+`resolvePublicBaseUrl(config)` runs every time a stack is requested:
+
+1. If `[resourcepacks] public_base_url` is set, use it (trimmed of trailing `/`).
+2. Else fall back to `http://<api.bind>:<api.port>`, replacing
+   `0.0.0.0` with `127.0.0.1`.
+
+Set `public_base_url` when the controller is behind a reverse proxy with
+TLS — otherwise clients try to fetch from the internal bind address.
+
+## Edge cases
+
+- **Invalid SHA-1 on URL register**: rejected with `VALIDATION_FAILED`
+  (must be exactly 40 hex chars).
+- **GROUP/SERVICE assignment without target**: rejected with
+  `VALIDATION_FAILED`.
+- **Delete cascade**: deleting a pack also deletes its assignments and,
+  for LOCAL packs, best-effort deletes the zip file.
+
+## Next steps
+
+- [Resource Packs Guide](/docs/guide/resourcepacks) — Operator workflows
+- [Custom Modules](/docs/developer/modules) — Module API reference
+- [Events Reference](/docs/reference/events) — `MODULE_EVENT` envelope
+- [API Reference](/docs/reference/api) — `/api/resourcepacks/*`

@@ -11,7 +11,7 @@ Nimbus includes an auto-scaling engine that dynamically adjusts the number of ru
 
 The scaling engine runs a continuous loop:
 
-1. Every **heartbeat interval** (default: 5 seconds), ping all `READY` services via [Server List Ping](https://wiki.vg/Server_List_Ping) to update player counts
+1. Every **heartbeat interval** (default: 10 seconds), ping all `READY` services via [Server List Ping](https://wiki.vg/Server_List_Ping) to update player counts
 2. For each **dynamic** group, count players on **routable** services (those with no custom state)
 3. Apply the scale-up and scale-down rules
 

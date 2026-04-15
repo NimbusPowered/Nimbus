@@ -1,0 +1,275 @@
+---
+title: Backup Module
+description: Scheduled tar+zstd snapshots with multi-threaded compression, single-pass SHA-256 manifest, GFS retention, cron scheduler, quiesce via save-off/save-all flush, and live TOML config editing.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Backup module (`nimbus-module-backup`) snapshots services, dedicated
+services, templates, controller config, state-sync canonical data, and the
+Nimbus database itself. Archives are written as `tar.zst` with an embedded
+`MANIFEST.sha256` trailer and pruned via GFS retention.
+
+## Architecture
+
+```text title="Directory Structure"
+modules/backup/
+└── src/main/kotlin/dev/nimbuspowered/nimbus/module/backup/
+    ├── BackupModule.kt             # NimbusModule: wiring, event formatters
+    ├── BackupManager.kt            # Orchestrator: target resolution, quiesce, archive runs
+    ├── BackupArchiver.kt           # tar + zstd pipeline, verify()
+    ├── BackupScheduler.kt          # Minute-tick cron + hourly prune loop
+    ├── BackupRetention.kt          # GFS prune (hourly/daily/weekly/monthly/manual)
+    ├── BackupConfig.kt             # BackupModuleConfig + ConfigManager (TOML)
+    ├── BackupModels.kt             # Types, DTOs, TargetType, Status, RetentionClass
+    ├── BackupEvents.kt             # ModuleEvent factories
+    ├── BackupTables.kt             # Exposed: backups + backup_schedule_log
+    ├── CronExpression.kt           # Hand-rolled 5-field POSIX evaluator
+    ├── DatabaseBackupHelper.kt     # SQLite VACUUM INTO / mysqldump / pg_dump
+    ├── commands/BackupCommand.kt   # Console `backup …`
+    ├── migrations/BackupV1_Baseline.kt # Range 7000
+    └── routes/BackupRoutes.kt      # REST: /api/backups/*
+```
+
+Schema-version range: **7000+**.
+
+All routes are **admin-only** (`AuthLevel.ADMIN`) — backups are sensitive.
+
+## Target model
+
+`BackupTargetType`:
+
+| Type | Source |
+|---|---|
+| `SERVICE` | Non-dedicated service working directory (per-service archive, local node only) |
+| `DEDICATED` | Dedicated service working directory under `paths.dedicated/<name>/` |
+| `TEMPLATES` | `paths.templates` — one archive named `templates-all` |
+| `CONFIG` | `<baseDir>/config/` |
+| `STATE_SYNC` | `paths.services/state/` — canonical store for `[group.sync]` services |
+| `DATABASE` | SQLite `VACUUM INTO` / `mysqldump` / `pg_dump`, staged then archived |
+
+<Callout type="warn">
+Remote-node services are **skipped with PARTIAL status** — cluster-streaming
+backups of remote nodes are deferred to a later milestone. The skip reason is
+written to the `backups` row so operators can see it.
+</Callout>
+
+## Archive pipeline
+
+`BackupArchiver.archive()` streams the source tree through a single composite
+output chain:
+
+```text title="Output chain"
+FileOutputStream(<name>.tar.zst.tmp)
+  └─► DigestingOutputStream (SHA-256 of archive bytes)
+      └─► BufferedOutputStream (256 KiB)
+          └─► ZstdOutputStream   (native multi-threaded compression)
+              │   setLevel(compressionLevel)                // 1..22
+              │   setWorkers(max(1, CPU/2) if workers <= 0)
+              └─► TarArchiveOutputStream
+                     ├─► per file: TarArchiveEntry + MessageDigest.update (SHA-256)
+                     └─► trailing MANIFEST.sha256 entry
+```
+
+Why this beats `tar --zstd` by 3–5×:
+
+1. zstd-jni's `setWorkers(N)` is native multi-threaded; coreutils tar pipes
+   into single-threaded `zstd` by default.
+2. No fork/exec per backup, no stdout pipe copy.
+3. SHA-256 per file is computed in the **same pass** that writes the tar
+   entry — one filesystem read instead of two.
+4. 256 KiB upstream buffer keeps the compressor saturated on worlds with
+   thousands of tiny region files.
+
+On success, `.tmp` is atomically renamed to the final archive name.
+
+### MANIFEST.sha256
+
+A trailing tar entry named `MANIFEST.sha256`, one line per file:
+
+```text title="MANIFEST.sha256"
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  worlds/world/level.dat
+...
+```
+
+`BackupArchiver.verify(archive)` re-reads the archive, recomputes each
+entry's SHA-256, and compares against the manifest — catches silent on-disk
+corruption independent of the outer archive checksum.
+
+## Quiesce
+
+For `SERVICE` / `DEDICATED` targets, the manager sends three commands to the
+live process via `ServiceManager.executeCommand` before archiving:
+
+```text title="Quiesce sequence"
+save-off              # Disable autosave
+save-all flush        # Force a write of the world to disk
+<wait quiesceWaitSeconds>
+...archive source...
+save-on               # Re-enable autosave
+```
+
+Skipped if the service isn't READY/STARTING, or lives on a remote node
+(`nodeId != "local"`), or `[config].quiesceServices = false`.
+
+`ServiceManager` is resolved lazily via `ModuleContext.service<ServiceManager>()`
+after a 10s delay, since it's registered after module `init()`.
+
+## Database dump
+
+`DatabaseBackupHelper.dump(stagingDir)` returns `Success | Skipped | Failed`:
+
+- **SQLite** → runs `VACUUM INTO '<staging>/nimbus.db'` (atomic, inside an
+  implicit transaction — no open DB file concerns).
+- **MySQL** → shells out to `mysqldump`. Missing binary → `Skipped` with
+  a warning; the parent backup records `PARTIAL` and keeps going.
+- **PostgreSQL** → shells out to `pg_dump`. Same missing-binary behaviour.
+
+The staging directory is archived like any other source, then deleted.
+
+## GFS retention
+
+`BackupRetention.prune()` groups rows by `(targetType, targetName,
+scheduleClass)`. For each group, candidates filter to `status IN
+('SUCCESS', 'PARTIAL')`; after sorting by `startedAt DESC`, anything beyond
+the per-class keep budget is deleted (archive file + DB row).
+
+Defaults (from `RetentionConfig`):
+
+| Class | Keep |
+|---|---|
+| `hourly` | 24 |
+| `daily` | 7 |
+| `weekly` | 4 |
+| `monthly` | 3 |
+| `manual` | keep forever when `keepManual = true` (default) |
+
+`FAILED` rows are excluded from the per-class budget (a transient failure
+shouldn't cost a retained snapshot) but age-pruned after
+`failedKeepDays` days (default 7).
+
+Retention budgets are read live from `configManager.getConfig()` via a
+provider lambda, so `PUT /api/backups/config` hot-reloads without a restart.
+
+## Scheduler
+
+`BackupScheduler` has two coroutines on the module's scope:
+
+1. **Minute tick** — after 15s startup delay, aligns to the next minute
+   boundary and evaluates every `ScheduleEntry.cron` against
+   `LocalDateTime.now()`. Matches fire `runScheduledBackup(schedule)` in a
+   detached coroutine; the manager's semaphore caps concurrency.
+2. **Hourly prune** — after 60s, calls `retention.prune()` every hour.
+
+The scheduler updates `backup_schedule_log` with `last_run_at` and
+`last_status` (aggregated across the run's records: any FAILED → FAILED;
+else any PARTIAL → PARTIAL; else SUCCESS).
+
+### Cron evaluator
+
+`CronExpression` is a hand-rolled 5-field POSIX evaluator with lists
+(`1,5,9`), ranges (`1-5`), steps (`0-30/5`, `*/15`), and star (`*`). Days
+are 0–6 (Sun–Sat). `nextAfter(now)` computes the next fire time for
+`describeSchedules()`.
+
+## Concurrency
+
+`BackupManager` uses a volatile `Semaphore(max(1, config.maxConcurrent))`.
+Config changes rebuild the semaphore on the next `currentSemaphore()` call.
+In-flight jobs against the old semaphore still release into it — harmless;
+worst case during a reload is briefly up to `old + new` concurrent jobs.
+
+Each scheduled "run" expands into one archive row per resolved target, so a
+schedule with `targets = ["services", "database"]` on a network of 5
+services produces 6 rows.
+
+## Tables
+
+### `backups`
+
+| Column | Notes |
+|---|---|
+| `id` | LongIdTable PK |
+| `target_type` | `SERVICE` / `DEDICATED` / `TEMPLATES` / `CONFIG` / `STATE_SYNC` / `DATABASE` |
+| `target_name` | Service/dedicated/group name; `"all"` for aggregates |
+| `schedule_class` | `hourly` / `daily` / `weekly` / `monthly` / `manual` |
+| `schedule_name` | From `ScheduleEntry.name`; blank for manual |
+| `started_at` / `completed_at` | ISO-8601 |
+| `status` | `RUNNING` → `SUCCESS` / `FAILED` / `PARTIAL` |
+| `size_bytes` | Archive size |
+| `archive_path` | Relative to `local_destination` |
+| `checksum` | SHA-256 of archive bytes |
+| `error_message` | Populated for FAILED/PARTIAL |
+| `node_id` | `"local"` (remote streaming deferred) |
+| `triggered_by` | `"scheduler"`, `"console:<user>"`, `"api"` |
+
+### `backup_schedule_log`
+
+One row per `schedule_name` (unique index) — tracks `last_run_at`,
+`next_run_at`, `last_status`.
+
+## REST API
+
+All admin-only under `/api/backups`:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/backups` | List, filter by target/status, paginate |
+| `GET` | `/api/backups/{id}` | Single record |
+| `POST` | `/api/backups/trigger` | Trigger a manual run |
+| `DELETE` | `/api/backups/{id}` | Delete archive + row |
+| `POST` | `/api/backups/{id}/verify` | Re-verify SHA-256 against MANIFEST.sha256 |
+| `POST` | `/api/backups/{id}/restore` | Extract into workdir (dry-run / --force supported) |
+| `GET` | `/api/backups/{id}/download` | Stream the archive |
+| `POST` | `/api/backups/prune` | Force a GFS prune |
+| `GET` | `/api/backups/schedules` | Schedule list + next fire times |
+| `GET` | `/api/backups/config` | Current TOML config as JSON |
+| `PUT` | `/api/backups/config` | Replace TOML config (atomic rewrite, hot-reload) |
+
+## Events
+
+Emitted as `ModuleEvent("backup", type, data)`:
+
+| Type | Fired on |
+|---|---|
+| `BACKUP_STARTED` | Archive run begins |
+| `BACKUP_COMPLETED` | Archive run ends SUCCESS or PARTIAL |
+| `BACKUP_FAILED` | Archive run threw |
+| `BACKUP_RESTORED` | Successful restore (dry-runs don't emit) |
+| `BACKUP_PRUNED` | Retention prune removed N rows |
+
+## Restore safety
+
+`restore(id, overridePath, dryRun, force, triggeredBy)` refuses to extract
+over a service's workdir while it is `READY`/`STARTING`/`DRAINING` unless
+the caller passes `force = true`. `dryRun = true` returns the file list
+without writing.
+
+## Config edits
+
+`BackupConfigManager` reads `config/modules/backup/backup.toml` on init and
+atomically rewrites it on `PUT /api/backups/config`. A write watcher reloads
+the in-memory `@Volatile` config snapshot on disk changes, so scheduler,
+retention, and semaphore all pick up new values at their next iteration
+without a restart. Schema validation is provided by `kotlinx.serialization`
+deserialization — malformed payloads are rejected with HTTP 400.
+
+## Edge cases
+
+- **Source missing on disk** → `PARTIAL` with reason `source unavailable`.
+- **Partial archive on failure** → best-effort `Files.deleteIfExists` of the
+  `.tmp` file on throw.
+- **Remote service** → PARTIAL row with reason referencing the node ID.
+- **mysqldump / pg_dump missing** → WARN log, parent run marked PARTIAL,
+  other targets proceed.
+- **Verify on truncated archive** → caught and returned as
+  `VerifyResult(valid = false, errors = ["Archive unreadable: …"])` —
+  never surfaces as a 500.
+
+## Next steps
+
+- [Backup Guide](/docs/guide/backup) — Operator workflows
+- [Backup Config Reference](/docs/config/backup) — Full `backup.toml` schema
+- [Custom Modules](/docs/developer/modules) — Module API reference
+- [Events Reference](/docs/reference/events) — `MODULE_EVENT` envelope
+- [API Reference](/docs/reference/api) — `/api/backups/*`

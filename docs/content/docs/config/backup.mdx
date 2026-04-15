@@ -1,0 +1,188 @@
+---
+title: Backup Module
+description: Configure scheduled tar+zstd snapshots, retention (GFS), scope, excludes, compression, and quiesce behaviour for the Backup module.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Backup module owns a single TOML file at `config/modules/backup/backup.toml`. It is auto-generated with defaults on module install. Edits can be made by hand (picked up on the next scheduler tick + `reload`) or atomically via `PUT /api/backups/config` — both paths validate and hot-reload the scheduler.
+
+## Complete Example
+
+```toml title="config/modules/backup/backup.toml"
+[backup]
+enabled = true
+local_destination = "data/backups"
+max_concurrent = 2
+compression_level = 3
+# 0 = auto (Runtime.availableProcessors() / 2, min 1). zstd-jni runs native
+# multi-threaded compression when workers > 0 — this is the 3-5x speedup
+# over subprocess `tar --zstd`.
+compression_workers = 0
+quiesce_services = true
+quiesce_wait_seconds = 2
+
+[backup.scope]
+services = true
+dedicated = true
+templates = true
+controller_config = true
+state_sync = true
+database = true
+
+[backup.excludes]
+patterns = [
+  "logs/**", "crash-reports/**", "*.log", "*.log.gz",
+  "cache/**", "tmp/**", "*.lock", "session.lock",
+  "*/region/*.mca.tmp", "config/bStats/**", "plugins/bStats/**"
+]
+
+[[backup.schedules]]
+name = "hourly"
+cron = "0 * * * *"
+retention_class = "hourly"
+targets = ["services", "dedicated", "database"]
+
+[[backup.schedules]]
+name = "daily"
+cron = "0 3 * * *"
+retention_class = "daily"
+targets = ["all"]
+
+[[backup.schedules]]
+name = "weekly"
+cron = "0 4 * * 0"
+retention_class = "weekly"
+targets = ["all"]
+
+[backup.retention]
+hourly_keep = 24
+daily_keep = 7
+weekly_keep = 4
+monthly_keep = 3
+keep_manual = true
+# Age in days after which FAILED rows are deleted. 0 = keep forever.
+failed_keep_days = 7
+```
+
+---
+
+## `[backup]`
+
+Top-level module switches and per-job defaults.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `true` | Master switch. When `false`, scheduled jobs do not run and manual triggers return `MODULE_DISABLED`. Config editing is still allowed. |
+| `local_destination` | String | `"data/backups"` | Directory that receives `.tar.zst` archives. Relative paths are resolved against the Nimbus root. Created if missing. |
+| `max_concurrent` | Int | `2` | Max backups running at the same time (enforced by a semaphore). Must be `1..32`. Higher values only help if I/O is not the bottleneck. |
+| `compression_level` | Int | `3` | zstd level. Must be `1..22`. Levels above ~9 have rapidly diminishing returns; 3 is the sweet spot for live server data. |
+| `compression_workers` | Int | `0` | zstd-jni worker thread count. Must be `0..64`. `0` = auto (`Runtime.availableProcessors() / 2`, min 1). Any `> 0` value enables zstd-jni's native multi-threaded mode. |
+| `quiesce_services` | Boolean | `true` | Before archiving a service directory, send `save-off` + `save-all flush` to force a clean on-disk state, then `save-on` to resume autosave. Skipped for stopped services. |
+| `quiesce_wait_seconds` | Int | `2` | Seconds to wait after `save-all flush` before archiving. Must be `0..60`. Give large worlds more time (5–10s) if region files are still being written when tar starts. |
+
+---
+
+## `[backup.scope]`
+
+Master on/off switches per target class. A target still needs to appear in a schedule's `targets` to actually be archived — these keys just gate which classes are considered at all.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `services` | Boolean | `true` | Running + stopped group services under `paths.services`. |
+| `dedicated` | Boolean | `true` | Dedicated services under `paths.dedicated`. |
+| `templates` | Boolean | `true` | Server templates under `paths.templates`. |
+| `controller_config` | Boolean | `true` | The controller's own `config/` tree (`nimbus.toml`, group configs, module configs). |
+| `state_sync` | Boolean | `true` | Canonical state-sync data under `services/state/`. Independent of running services. |
+| `database` | Boolean | `true` | Database dump. SQLite uses `VACUUM INTO`; MySQL / PostgreSQL shell out to `mysqldump` / `pg_dump`. Missing clients are logged as `PARTIAL`. |
+
+---
+
+## `[backup.excludes]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `patterns` | List\<String\> | see example above | Glob patterns (rsync-style). Any path matching any pattern is skipped during archiving. |
+
+Defaults strip log files, crash reports, lock files, partial region writes, and bStats telemetry.
+
+---
+
+## `[[backup.schedules]]`
+
+Zero or more schedules. Each is a cron trigger with its own retention class and target set.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `name` | String | *required* | Unique schedule name (`A-Z a-z 0-9 _ -`). |
+| `cron` | String | *required* | 5-field POSIX cron (`min hour dom mon dow`). Evaluated by a hand-rolled parser; ranges (`0-30`), steps (`*/5`, `0-30/5`), and comma lists are supported. |
+| `retention_class` | String | *required* | One of `hourly`, `daily`, `weekly`, `monthly`, `manual`. Drives which retention counter (`hourly_keep`, ...) applies to archives produced by this schedule. |
+| `targets` | List\<String\> | *required* | Target names to back up in this run (see below). Must be non-empty. |
+
+### Allowed target values
+
+| Token | Archives |
+|-------|----------|
+| `all` | Every scope enabled in `[backup.scope]` |
+| `services` | All group services |
+| `dedicated` | All dedicated services |
+| `templates` | All templates |
+| `config`, `controller_config` | Controller config tree |
+| `database` | Database dump |
+| `state`, `state_sync` | State-sync canonical data |
+
+<Callout type="warn">
+Services placed on remote agent nodes are currently skipped with `PARTIAL` status — cluster-node archive streaming is on the roadmap. Local services and canonical state-sync are unaffected.
+</Callout>
+
+---
+
+## `[backup.retention]`
+
+GFS (Grandfather-Father-Son) retention. Counters are applied per `(targetType, targetName, retention_class)` tuple, so every service, every dedicated service, and every template is pruned independently.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `hourly_keep` | Int | `24` | Archives to keep for `retention_class = "hourly"`. Must be `>= 0`. |
+| `daily_keep` | Int | `7` | Archives to keep for `retention_class = "daily"`. |
+| `weekly_keep` | Int | `4` | Archives to keep for `retention_class = "weekly"`. |
+| `monthly_keep` | Int | `3` | Archives to keep for `retention_class = "monthly"`. |
+| `keep_manual` | Boolean | `true` | When `true`, manual backups (triggered via `backup run` or `POST /api/backups`) are never pruned. |
+| `failed_keep_days` | Int | `7` | Age in days after which `FAILED` rows are deleted. `FAILED` rows do not count against per-class keep budgets, so a chronically failing target would otherwise accumulate rows forever. `0` = keep forever (not recommended). |
+
+---
+
+## Validation Rules
+
+Invalid values cause a `400 Bad Request` from `PUT /api/backups/config` (editor) and prevent hot-reload; the previous in-memory config stays active.
+
+- `compression_level` in `1..22`
+- `compression_workers` in `0..64`
+- `max_concurrent` in `1..32`
+- `quiesce_wait_seconds` in `0..60`
+- All `*_keep` counters `>= 0`, `failed_keep_days >= 0`
+- Schedule names unique, non-blank, match `[A-Za-z0-9_-]+`
+- Schedule `retention_class` in the five allowed values
+- Schedule `cron` must parse
+- Schedule `targets` non-empty, every token in the allowed target list
+
+---
+
+## Archive Layout
+
+Every archive is a `.tar.zst` with a single trailing entry `MANIFEST.sha256` — one line per file:
+
+```text title="MANIFEST.sha256"
+3a9d0e02b6b1...  world/level.dat
+bb7f6c4d2915...  world/region/r.0.0.mca
+```
+
+`backup verify <id>` streams the archive once, recomputes every entry's SHA-256, and compares against the manifest. Tampering or truncation is detected without unpacking.
+
+---
+
+## Related
+
+- [Backup Guide](/docs/guide/backup) — operational workflow, restore, verify, prune
+- [Backup Module Internals](/docs/developer/backup) — archiver pipeline, SHA-256, cron evaluator
+- `GET /api/backups`, `PUT /api/backups/config`, `POST /api/backups`, `POST /api/backups/{id}/verify` — see [API Reference](/docs/reference/api)

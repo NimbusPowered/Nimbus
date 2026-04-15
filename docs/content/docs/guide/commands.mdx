@@ -1020,6 +1020,116 @@ If an update is available the output includes the new version number and a note 
 
 ---
 
+## Diagnostics
+
+### `doctor`
+
+Run a battery of diagnostic checks against the running controller — configuration sanity, port conflicts, database connectivity, module health, template integrity, agent reachability, disk space, Java versions.
+
+**Syntax:** `doctor [--json]`
+
+```text title="Nimbus"
+nimbus » doctor
+── Nimbus Doctor ────────────────────────────────
+[PASS] controller.bind   127.0.0.1:8080 reachable
+[PASS] database          SQLite data/nimbus.db OK (12 tables)
+[WARN] templates         Lobby: EULA not accepted yet
+[PASS] cluster           TLS enabled, 2/2 nodes online
+[FAIL] java              No Java 17 detected for group Hub
+3 PASS, 1 WARN, 1 FAIL
+```
+
+Pass `--json` for machine-readable output (used by the dashboard's **Doctor** page).
+
+See the [Doctor Guide](/docs/guide/doctor) for the full check catalogue and how to extend it.
+
+---
+
+### `modules`
+
+Manage controller modules (perms, display, scaling, players, punishments, resourcepacks, backup, and any third-party JARs dropped into `modules/`).
+
+**Syntax:** `modules [list|install [id]|uninstall <id>]`
+
+| Subcommand | Description |
+|---|---|
+| `modules list` (default) | List loaded + available modules with version and description |
+| `modules install` | Interactive picker for modules not yet installed |
+| `modules install <id>` | Install a specific module by id (`perms`, `display`, `scaling`, `players`, `punishments`, `resourcepacks`, `backup`) |
+| `modules uninstall <id>` | Unload and delete a module JAR |
+
+<Callout type="warn">
+Installing or uninstalling a module requires a controller restart (`shutdown` + `shutdown confirm`) — migrations and embedded plugins are wired at startup.
+</Callout>
+
+---
+
+### `stress`
+
+Simulate player load across backend services without real Minecraft clients. Useful for proxy throughput, scaling-rule tuning, and finding the real `max_players` ceiling of a group.
+
+**Syntax:** `stress [start <players> [group] [--ramp <seconds>] | stop | ramp <players> [--duration <seconds>] | status]`
+
+```text title="Nimbus"
+nimbus » stress start 500 Lobby --ramp 30
+ℹ Ramping to 500 simulated players on group 'Lobby' over 30s...
+nimbus » stress status
+── Stress Test ──────────────────────────────────
+Active: yes    Target: 500    Current: 280    Group: Lobby
+Proxy auto-mirrors total backend player count.
+```
+
+<Callout type="info">
+The scaling engine pauses while a stress test is active — simulated players won't trigger real scale-ups. Proxy groups are never simulated; only backends. See [Stress Testing](/docs/guide/stress-testing).
+</Callout>
+
+---
+
+## Modules
+
+These commands are registered by controller modules and are only available when the corresponding module is installed. See [`modules`](#modules) to install.
+
+### `backup`
+
+Manage backup snapshots, schedules, verification, restore, and retention pruning. Registered by the **backup** module.
+
+**Syntax:** `backup <now|list|status|restore|verify|prune|schedule> [args]`
+
+| Subcommand | Description |
+|---|---|
+| `backup now [--type <scope>] [--target <name>]` | Trigger a manual backup (all scopes by default; `--type services/dedicated/templates/controller_config/state_sync/database`; `--target` for a single service) |
+| `backup list [--limit <n>]` | List recent backups with id, status, size, duration |
+| `backup status` | Active jobs, next scheduled runs, last results |
+| `backup verify <id>` | Recompute SHA-256 against the archive's `MANIFEST.sha256` trailer |
+| `backup restore <id> [--target <path>] [--dry-run] [--force]` | Extract an archive back to the original path or a custom one |
+| `backup prune [--retention-class <class>] [--dry-run]` | Apply GFS retention now |
+| `backup schedule list` | Show every configured schedule and its next fire time |
+| `backup schedule reload` | Re-read `backup.toml` without a controller restart |
+| `backup delete <id>` | Delete an archive (manual backups are otherwise immune to pruning) |
+
+Full workflows, cron syntax, and the GFS retention model live in the [Backup Guide](/docs/guide/backup).
+
+---
+
+### `scaling`
+
+Inspect the Smart Scaling module — time-based schedules, predictive warmup, and player-count history. Registered by the **scaling** module.
+
+**Syntax:** `scaling <status|schedule|history|predict|reload> [group] [args]`
+
+| Subcommand | Description |
+|---|---|
+| `scaling status` | Overview of every group: current/min/max instances, active schedule, next predicted change |
+| `scaling schedule list` | All schedules across groups |
+| `scaling schedule info <group>` | Schedules for a specific group |
+| `scaling history <group> [hours]` | Player-count history (default 24h) used for prediction |
+| `scaling predict <group>` | Next 6h predicted player count + suggested instance count |
+| `scaling reload` | Re-read `config/modules/scaling/*.toml` |
+
+See the [Scaling Guide](/docs/guide/scaling).
+
+---
+
 ## Cluster & Load Balancer
 
 These commands manage multi-node cluster mode. The `cluster` command works regardless of whether cluster mode is currently enabled — it's how you enable it. The `nodes` command is only available when cluster mode is active. The `lb` command is documented above under [Service Management](#lb) — it's independent of cluster mode.

@@ -13,7 +13,11 @@ The SDK supports **Spigot 1.8.8** through the **latest Paper/Folia** versions. C
 
 ## Installation
 
-The SDK is **automatically deployed** to all backend servers (Paper, Purpur, Leaf, Folia, Spigot) via the `templates/global/plugins/` directory. You don't need to install it manually.
+The SDK is **automatically deployed** to every backend service (Paper, Purpur,
+Pufferfish, Leaf, Folia, Spigot) at runtime. On each service prepare,
+`ServiceFactory.resolveModulePlugins()` copies `nimbus-sdk.jar` into the
+service's `plugins/` directory with `REPLACE_EXISTING`. Templates are
+**user-owned**; the SDK is never written into `templates/global/plugins/`.
 
 For development, add it as a compile-only dependency in your plugin project:
 

@@ -35,9 +35,25 @@ line4_offline = "&4✖ Offline"
 
 [display.npc]
 display_name = "&b&lBedWars"
-item = "RED_BED"
 subtitle = "&7{players}/{max_players} online &8| &7{state}"
 subtitle_offline = "&c✖ Offline"
+floating_item = "RED_BED"
+
+[display.npc.status_items]
+ONLINE = "LIME_WOOL"
+STARTING = "YELLOW_WOOL"
+INGAME = "ORANGE_WOOL"
+WAITING = "LIGHT_BLUE_WOOL"
+OFFLINE = "GRAY_WOOL"
+FULL = "RED_WOOL"
+ENDING = "ORANGE_WOOL"
+STOPPING = "RED_WOOL"
+
+[display.npc.inventory]
+title = "&8» &b&lBedWars Servers"
+size = 27
+item_name = "&b{name}"
+item_lore = ["&7Players: &f{players}/{max_players}", "&7State: &f{state}", "", "&aClick to join!"]
 
 [display.states]
 PREPARING = "STARTING"
@@ -74,15 +90,41 @@ Controls NPC appearance in the lobby.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `display_name` | String | `"&b&l{name}"` | NPC name displayed above its head. |
-| `item` | String | `"GRASS_BLOCK"` | Minecraft material name for the item the NPC holds. |
 | `subtitle` | String | `"&7{players}/{max_players} online &8\| &7{state}"` | Subtitle shown below the NPC when online. |
 | `subtitle_offline` | String | `"&c✖ Offline"` | Subtitle shown when no instances are available. |
+| `floating_item` | String | `"GRASS_BLOCK"` | Minecraft material name for the item floating above the NPC's head. |
 
-### Auto-Detected Items
+### `[display.npc.status_items]`
 
-When Nimbus generates a display config, it guesses a fitting NPC item based on the group name:
+Maps resolved state labels to Minecraft material names. The item is shown in the NPC's hand and reused as the per-server item in the selector inventory.
 
-| Group Name Contains | Item |
+| State | Default Material |
+|---|---|
+| `ONLINE` | `LIME_WOOL` |
+| `STARTING` | `YELLOW_WOOL` |
+| `INGAME` | `ORANGE_WOOL` |
+| `WAITING` | `LIGHT_BLUE_WOOL` |
+| `OFFLINE` | `GRAY_WOOL` |
+| `FULL` | `RED_WOOL` |
+| `ENDING` | `ORANGE_WOOL` |
+| `STOPPING` | `RED_WOOL` |
+
+### `[display.npc.inventory]`
+
+The server-selector inventory opened when a player interacts with the NPC (INVENTORY action).
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `title` | String | `"&8» &b&l{name} Servers"` | Inventory window title. |
+| `size` | Int | `27` | Inventory size (must be a multiple of 9). |
+| `item_name` | String | `"&b{name}"` | Display name for each server item. |
+| `item_lore` | List&lt;String&gt; | players / state / join | Lore lines for each server item. Placeholders supported. |
+
+### Auto-Detected Floating Items
+
+When Nimbus generates a display config, it guesses a fitting `floating_item` based on the group name:
+
+| Group Name Contains | Material |
 |--------------------|------|
 | `bedwar` | `RED_BED` |
 | `skywar` | `EYE_OF_ENDER` |
@@ -97,11 +139,8 @@ When Nimbus generates a display config, it guesses a fitting NPC item based on t
 | `faction` | `TNT` |
 | `kitpvp` | `GOLDEN_APPLE` |
 | `duels` | `BOW` |
-| `murder` | `IRON_SWORD` |
 | `tnt` | `TNT` |
 | `party` | `CAKE` |
-| Fabric server | `CRAFTING_TABLE` |
-| Forge server | `ANVIL` |
 | *default* | `GRASS_BLOCK` |
 
 ---

@@ -1,0 +1,148 @@
+---
+title: Proxy Sync (MOTD / Tab / Chat)
+description: Configure network-wide MOTD, maintenance mode, tab list, and chat format applied by the Bridge plugin to every Velocity proxy.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`ProxySyncManager` owns three TOML files under `config/modules/syncproxy/` that together define the network's player-facing proxy behaviour. The Bridge plugin pulls them from the controller and applies them on every Velocity instance, so you only need to configure them once.
+
+All three files are auto-generated with defaults on first start. They may be edited by hand (`reload` to pick up changes) or mutated live through the API / Dashboard — saves are atomic (temp file + rename).
+
+| File | Purpose |
+|------|---------|
+| `config/modules/syncproxy/motd.toml` | MOTD + maintenance mode (global + per-group) |
+| `config/modules/syncproxy/tablist.toml` | Tab list header, footer, player line format |
+| `config/modules/syncproxy/chat.toml` | Chat format and global chat toggle |
+
+All text fields accept [MiniMessage](https://docs.advntr.dev/minimessage/format.html) syntax (tags like `<gradient:...>`, `<bold>`, `<red>`, `<gray>`).
+
+---
+
+## `motd.toml`
+
+### Example
+
+```toml title="config/modules/syncproxy/motd.toml"
+[motd]
+line1 = "<gradient:#58a6ff:#56d4dd><bold>ɴɪᴍʙᴜꜱᴄʟᴏᴜᴅ</bold></gradient>"
+line2 = "<gray>» </gray><gradient:#56d364:#56d4dd>{online} players online</gradient>"
+max_players = -1
+player_count_offset = 0
+
+[maintenance]
+enabled = false
+motd_line1 = "<gradient:#ff6b6b:#ee5a24><bold>ᴍᴀɪɴᴛᴇɴᴀɴᴄᴇ</bold></gradient>"
+motd_line2 = "<gray>We are currently performing maintenance.</gray>"
+protocol_text = "Maintenance"
+kick_message = """<red><bold>Maintenance</bold></red>
+<gray>The server is currently under maintenance.
+Please try again later.</gray>"""
+whitelist = ["00000000-0000-0000-0000-000000000000"]
+
+[maintenance.groups.BedWars]
+enabled = false
+kick_message = "<red>BedWars is currently under maintenance.</red>"
+```
+
+### `[motd]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `line1` | String | Nimbus branded gradient | First MOTD line shown in the server list. |
+| `line2` | String | `<gray>» </gray>...{online} players online...` | Second MOTD line. Supports `{online}` and `{max}` placeholders. |
+| `max_players` | Int | `-1` | Slot count shown to clients. `-1` = derive from the sum of backend `max_players`. Any non-negative value is used verbatim. |
+| `player_count_offset` | Int | `0` | Added to the reported online count. Useful for cosmetic inflation or for hiding admin sessions. |
+
+### `[maintenance]`
+
+Global maintenance lockdown. When `enabled = true`, non-whitelisted players are refused at the proxy with `kick_message`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `false` | Master maintenance switch. |
+| `motd_line1` | String | branded maintenance line | Replaces `[motd] line1` while maintenance is active. |
+| `motd_line2` | String | maintenance subtitle | Replaces `[motd] line2` while maintenance is active. |
+| `protocol_text` | String | `"Maintenance"` | Version/protocol text shown in the server list (shows as red "Outdated-style" label on most clients). |
+| `kick_message` | String | default maintenance kick | Message shown when a non-whitelisted player is refused. |
+| `whitelist` | List\<String\> | `[]` | Player UUIDs that can still connect while maintenance is enabled. |
+
+### `[maintenance.groups.<Group>]`
+
+Per-group maintenance — the proxy still accepts the connection, but forwarding to servers in `<Group>` is blocked with the per-group `kick_message`. Useful when only one game mode needs to be taken down.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `false` | Per-group maintenance switch. |
+| `kick_message` | String | generic per-group kick | Message shown when trying to join this group while it is under maintenance. |
+
+<Callout type="info">
+Global and per-group maintenance are independent. With `[maintenance] enabled = false` but `[maintenance.groups.BedWars] enabled = true`, players can enter the lobby but cannot join BedWars.
+</Callout>
+
+---
+
+## `tablist.toml`
+
+### Example
+
+```toml title="config/modules/syncproxy/tablist.toml"
+[tablist]
+header = """
+<gradient:#58a6ff:#56d4dd><bold>ɴɪᴍʙᴜꜱᴄʟᴏᴜᴅ</bold></gradient>
+ᴍɪɴᴇᴄʀᴀꜰᴛ ᴄʟᴏᴜᴅ ꜱʏꜱᴛᴇᴍ
+
+v{version}
+"""
+footer = """
+<gray>Online</gray> <white>»</white> <gradient:#56d4dd:#b392f0>{online}</gradient><dark_gray>/</dark_gray><gray>{max}</gray>
+<gray>Server</gray> <white>»</white> <green>{server}
+"""
+player_format = "{prefix}{player}{suffix}"
+update_interval = 5
+```
+
+### `[tablist]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `header` | String | Nimbus branded multi-line header | Tab list header sent to every connected player. |
+| `footer` | String | Nimbus branded multi-line footer | Tab list footer sent to every connected player. |
+| `player_format` | String | `"{prefix}{player}{suffix}"` | Per-player tab line. Placeholders: `{prefix}`, `{player}`, `{suffix}` (from the permission system). |
+| `update_interval` | Int | `5` | Seconds between tab list refreshes. Lower values increase proxy → client traffic. |
+
+Header and footer accept these placeholders:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{version}` | Running Nimbus version |
+| `{online}` | Current network player count (with `player_count_offset` applied) |
+| `{max}` | Reported slot count |
+| `{server}` | The backend the viewing player is currently on |
+
+---
+
+## `chat.toml`
+
+### Example
+
+```toml title="config/modules/syncproxy/chat.toml"
+[chat]
+enabled = true
+format = "{prefix}{player}{suffix} <dark_gray>» <gray>{message}"
+```
+
+### `[chat]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `true` | When `false`, the Bridge leaves chat formatting to the underlying server / plugin. Disable if another chat plugin is already formatting messages. |
+| `format` | String | Nimbus default | Chat line template. Placeholders: `{prefix}`, `{player}`, `{suffix}`, `{message}`. `{message}` is inserted as raw text and is never parsed as MiniMessage to prevent tag injection from players. |
+
+---
+
+## Related
+
+- [Permissions](/docs/config/permissions) — source of `{prefix}` and `{suffix}`
+- [Bridge plugin](/docs/developer/bridge) — applies these files on each Velocity instance
+- `PUT /api/maintenance`, `PUT /api/maintenance/groups/{name}` — see [API Reference](/docs/reference/api)

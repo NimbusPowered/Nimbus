@@ -40,6 +40,8 @@ bind = "0.0.0.0"
 max_memory = "10G"
 max_services = 20
 heartbeat_interval = 5000
+scaling_tick_interval = 10
+service_stale_timeout = 300
 
 [console]
 colored = true
@@ -57,7 +59,7 @@ enabled = true
 bind = "127.0.0.1"
 port = 8080
 token = ""
-allowed_origins = ["dashboard.nimbuspowered.org"]
+allowed_origins = ["https://dashboard.nimbuspowered.org", "http://localhost:3000"]
 
 [database]
 type = "sqlite"
@@ -102,6 +104,9 @@ placement_strategy = "least-services"
 enabled = true
 retention_days = 90
 
+[metrics]
+retention_days = 30
+
 [java]
 java_16 = ""
 java_17 = ""
@@ -139,7 +144,8 @@ Resource limits and scaling engine settings.
 | `max_memory` | String | `"10G"` | Total memory budget for all running services. Format: number + `M` or `G` (e.g., `"512M"`, `"8G"`). Validated on startup — Nimbus will not start if the format is invalid. Nimbus will not start new services if the total allocated memory would exceed this limit. |
 | `max_services` | Int | `20` | Maximum number of concurrent services across all groups. Enforced as a global hard cap by the scaling engine — no new instances are started once this limit is reached, regardless of per-group `max_instances` settings. Also enforced by the warm pool manager. |
 | `heartbeat_interval` | Long | `5000` | Interval in milliseconds between scaling engine evaluation cycles. Each cycle checks player counts and applies scaling rules. |
-| `scaling_tick_interval` | Int | `10` | Interval in seconds between scaling engine evaluation ticks. Lower values (e.g., 5) make scaling more responsive for fast-paced game modes. Higher values reduce CPU overhead on large clusters. |
+| `scaling_tick_interval` | Long | `10` | Interval in seconds between scaling engine evaluation ticks. Lower values (e.g., 5) make scaling more responsive for fast-paced game modes. Higher values reduce CPU overhead on large clusters. |
+| `service_stale_timeout` | Long | `300` | Seconds a service can remain READY without any heartbeat or API activity before being flagged as stale. `0` disables the check. Stale services are surfaced by the `doctor` command and the health API. |
 
 ```toml title="config/nimbus.toml"
 [controller]
@@ -208,7 +214,7 @@ REST API and WebSocket server configuration.
 | `bind` | String | `"127.0.0.1"` | Bind address for the API server. Use `127.0.0.1` for local-only access (recommended) or `0.0.0.0` for remote access. |
 | `port` | Int | `8080` | Port for the API server. |
 | `token` | String | `""` | Bearer token for API authentication. If empty, Nimbus auto-generates a random token on **every start** and logs it to the console. Set a permanent token for production. |
-| `allowed_origins` | List\<String\> | `["dashboard.nimbuspowered.org"]` | CORS allowed origins. The official dashboard is included by default. Empty list allows all origins (with a warning). Use hostnames without scheme — both `http` and `https` are allowed automatically. |
+| `allowed_origins` | List\<String\> | `["https://dashboard.nimbuspowered.org", "http://localhost:3000"]` | CORS allowed origins. The hosted dashboard and local dev server (`http://localhost:3000`) are included by default. Empty list allows all origins (with a warning). Hostnames without scheme are accepted too — both `http` and `https` variants are allowed automatically. |
 | `trust_forwarded_for` | Boolean | `false` | Trust `X-Forwarded-For` header for rate limiting. Enable when running behind a reverse proxy (Nginx, Traefik, Cloudflare) so rate limits apply to real client IPs instead of the proxy address. **Leave disabled** unless you control the proxy — spoofable otherwise. |
 | `jwt_enabled` | Boolean | `false` | Enable JWT scoped token generation. When enabled, the `POST /api/tokens` endpoint becomes available for generating scoped JWT tokens with fine-grained permissions. Legacy bearer tokens always work regardless of this setting. |
 
@@ -540,6 +546,25 @@ retention_days = 90
 ```
 
 Recorded events: service lifecycle (start/stop/crash), scaling decisions, group changes, maintenance toggles, config reloads, module lifecycle, API start/stop. Each entry includes timestamp, actor, action, target, and details. Query via `audit` console command or `GET /api/audit`.
+
+---
+
+## `[metrics]`
+
+Retention policy for time-series metrics collected by `MetricsCollector` (player counts, service events, scaling decisions).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `retention_days` | Long | `30` | Days to retain metrics rows before auto-pruning. Lower values reduce database growth on high-traffic networks. |
+
+```toml title="config/nimbus.toml"
+[metrics]
+retention_days = 30
+```
+
+<Callout type="info">
+Metrics are exposed via `GET /api/metrics` (Prometheus format). See [API Reference](/docs/reference/api) for scrape configuration.
+</Callout>
 
 ---
 

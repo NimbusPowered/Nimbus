@@ -1,0 +1,271 @@
+---
+title: Migrating from CloudNet
+description: Concept map, config translation table, and step-by-step recipe for migrating a CloudNet v4 network to Nimbus.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This guide walks through moving a CloudNet v4 setup to Nimbus. The two systems solve the same problem (run dynamic Minecraft services + Velocity proxy), but their mental model and configuration surface differ. Most migrations take an afternoon once the concept map is clear.
+
+<Callout type="info">
+Nimbus is intentionally **smaller** than CloudNet. If your setup relies on CloudNet modules that don't have a Nimbus equivalent (see [Things CloudNet has that Nimbus doesn't](#things-cloudnet-has-that-nimbus-doesn-t) below), plan to reimplement that behaviour before cutting over — or keep those workloads on CloudNet.
+</Callout>
+
+## Concept map
+
+| CloudNet | Nimbus | Notes |
+|---|---|---|
+| **Task** (e.g. `Lobby`, `BedWars`) | **Group** (`config/groups/<Name>.toml`) | 1:1 mapping. Name, software, template, min/max services. |
+| **Service** (a task instance) | **Service** (a group instance named `<Group>-<N>`) | Same concept — a running JVM. |
+| **Node** (a CloudNet node in a cluster) | **Agent node** (`nimbus-agent` connected to a controller) | Nimbus has one **controller** + N **agents**; CloudNet is flat nodes-with-a-head. |
+| **Head node** | **Controller** (`nimbus-core`) | Nimbus always has exactly one. No head-node election. |
+| **Template** (stored in `local/templates/`) | **Template** (`templates/<Name>/`) | Same idea, different on-disk layout. Stacking is supported: `templates = ["base", "overlay"]`. |
+| **Template storage (local, S3, SFTP)** | **Local filesystem only** | No remote template storage driver yet. Agents pull templates from the controller via REST. |
+| **Static service** | `[group.sync] enabled = true` + placement pin, **or** a `config/dedicated/<Name>.toml` dedicated service | CloudNet's `static = true` has two distinct use cases in Nimbus — see below. |
+| **Bridge module (proxy ↔ node sync)** | **nimbus-bridge** Velocity plugin + built-in proxy sync | Auto-deployed. Handles server list, tab, chat, MOTD, punishments. |
+| **Signs module** | **Display module** | Server-selector signs + (Paper 1.20+) NPCs. `config/modules/display/<Group>.toml`. |
+| **SyncProxy** | **Proxy sync** (built-in) | `config/modules/syncproxy/motd.toml`, `tablist.toml`, `chat.toml`. MOTD, tab header/footer, chat format, maintenance. |
+| **CloudPerms** | **Perms module** | Groups, tracks, meta, weight, audit log. Optional LuckPerms backend. |
+| **SmartModule (smart scaling)** | **Scaling module** | Time-based schedules + predictive warmup. `config/modules/scaling/<Group>.toml`. |
+| **Labyrinth / REST module** | **Built-in REST API + WebSocket** | `/api/*` with Bearer token auth, no extra module needed. |
+| **Web UI (CloudNet Web)** | **Dashboard** (`dashboard.nimbuspowered.org`, BETA) | Hosted dashboard talks to your controller via the REST API. |
+| **ServiceConfigurationPreparer** | Template + `ServiceFactory` + auto-downloads | Nimbus handles JAR download, EULA, forwarding config, Via plugins, Geyser/Floodgate automatically. |
+
+### Things CloudNet has that Nimbus doesn't
+
+Be honest about these before you migrate:
+
+- **S3/SFTP template storage drivers.** Nimbus stores templates locally on the controller. Agents pull them via the cluster REST endpoint.
+- **Console-less headless mode.** Nimbus is console-only by design — you run it in `tmux`/`screen` or under `systemd`, and manage remotely via the [Remote CLI](/docs/guide/remote-cli) or [Dashboard](/docs/guide/dashboard).
+- **Per-task Java version selection beyond what `SoftwareResolver` infers.** Nimbus picks the JDK from the server software + MC version; override with the top-level `[group] java_path = "..."` key (JVM args/flags live separately under `[group.jvm]`).
+- **Multi-head cluster (no single point of failure for the head).** Nimbus has one controller. HA is a follow-up item.
+- **NPM-style module marketplace.** Nimbus has a fixed module set + the option to drop third-party JARs into `modules/`. No registry yet.
+
+If any of these are load-bearing in your setup, stop and talk to the team before migrating.
+
+## Config translation
+
+### Task → Group
+
+CloudNet task JSON (`local/tasks/Lobby.json`, simplified):
+
+```json
+{
+  "name": "Lobby",
+  "runtime": "jvm",
+  "minServiceCount": 2,
+  "maxHeapMemory": 1024,
+  "processConfiguration": {
+    "environment": "MINECRAFT_SERVER",
+    "maxHeapMemorySize": 1024
+  },
+  "templates": [{"prefix": "Lobby", "name": "default"}],
+  "staticServices": false,
+  "maintenance": false
+}
+```
+
+Equivalent Nimbus group (`config/groups/Lobby.toml`):
+
+```toml title="config/groups/Lobby.toml"
+[group]
+name = "Lobby"
+software = "paper"
+mc_version = "1.21.4"
+templates = ["Lobby"]
+
+[group.resources]
+memory = "1G"
+max_players = 50
+
+[group.scaling]
+min_instances = 2
+max_instances = 4
+```
+
+### Proxy task → Proxy group
+
+CloudNet proxy tasks use `environment = "VELOCITY"`. In Nimbus, the group's `software` field drives everything:
+
+```toml title="config/groups/Proxy.toml"
+[group]
+name = "Proxy"
+software = "velocity"
+templates = ["Proxy"]
+
+[group.resources]
+memory = "512M"
+max_players = 500
+
+[group.scaling]
+min_instances = 1
+max_instances = 2
+```
+
+Nimbus auto-generates `velocity.toml` with the correct forwarding mode (`modern` if all backends are ≥ 1.13, else `legacy`). Don't manually maintain the `servers {}` list — Nimbus rewrites it every time a backend starts.
+
+### Static service → dedicated service or sync group
+
+CloudNet's "static services" cover two cases. Map each to the right Nimbus primitive:
+
+**Case A — a single named server that must stay put (e.g. the Survival world):**
+
+Use a **dedicated service**:
+
+```toml title="config/dedicated/Survival.toml"
+name = "Survival"
+software = "paper"
+mc_version = "1.21.4"
+port = 30100
+proxy_enabled = true
+
+[dedicated.resources]
+memory = "4G"
+
+[dedicated.sync]
+enabled = true   # optional — enables DR via controller canonical
+```
+
+**Case B — a group of instances whose world persists across restarts but can move between nodes:**
+
+Use a regular group with state sync:
+
+```toml title="config/groups/Hub.toml"
+[group]
+name = "Hub"
+software = "paper"
+
+[group.sync]
+enabled = true
+
+[group.scaling]
+min_instances = 1
+max_instances = 1
+```
+
+See [Cluster Topologies — State sync deep-dive](/docs/guide/cluster-topologies#state-sync-deep-dive) for the trade-offs.
+
+### Node → agent
+
+CloudNet cluster nodes all look the same. Nimbus splits into controller + agents:
+
+1. Keep one CloudNet head. That machine runs **nimbus-core**.
+2. Every additional CloudNet node becomes a Nimbus **agent** (`nimbus-agent`) on the same host.
+
+See [Multi-Node Guide](/docs/guide/multi-node) for the cluster setup. The bootstrap URL flow handles TLS pinning automatically.
+
+### Permissions (CloudPerms → Perms module)
+
+CloudPerms groups, inheritance, and prefix/suffix map onto the Nimbus Perms module 1:1. Export CloudPerms groups as JSON, then re-create them in Nimbus via the `perms` console command or the [Permissions API](/docs/reference/api#permissions). If your install uses **LuckPerms**, keep using it — the Perms module has an optional LuckPerms backend (set `provider = "luckperms"` in the perms config); all display logic (prefix/suffix for tab, chat) still flows through Nimbus.
+
+### Signs (Signs module → Display module)
+
+CloudNet's signs module stores layout in a Mongo/JSON store; Nimbus stores it per group in `config/modules/display/<Group>.toml`. Layouts aren't automatically migratable — re-place signs in-game after migration. The Display module additionally supports NPCs (Paper 1.20+ only, via FancyNpcs).
+
+### SyncProxy (MOTD, tab, maintenance)
+
+| CloudNet SyncProxy | Nimbus path |
+|---|---|
+| `motd.json` | `config/modules/syncproxy/motd.toml` |
+| `tabList.json` | `config/modules/syncproxy/tablist.toml` |
+| `whitelist` / `maintenance` | `config/modules/syncproxy/motd.toml` + runtime `maintenance` console command |
+
+Chat format, which CloudNet doesn't really own, lives in `config/modules/syncproxy/chat.toml`.
+
+## Migration recipe
+
+<Callout type="warn">
+Do not run CloudNet and Nimbus against the same Velocity config simultaneously. Both systems will rewrite the server list and fight each other. Migrate in a maintenance window with CloudNet stopped.
+</Callout>
+
+### 1. Inventory
+
+Before touching anything, write down:
+
+- Every CloudNet task: name, template, min/max services, memory, software, MC version.
+- Every static service: name, port, which node hosts it, whether world data needs to survive.
+- Cluster node list + which services are pinned to which node.
+- Permission groups, tracks, and any prefix/suffix setup (or LuckPerms location).
+- External integrations (panel, Discord bots, billing) that hit CloudNet's REST API — these will need to be re-pointed.
+
+### 2. Install Nimbus on a parallel host (or same host, different ports)
+
+```bash title="Terminal"
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.sh | bash
+```
+
+Run the setup wizard. **Pick the same modules you were using on CloudNet:** perms, display, scaling. Install **punishments**, **resourcepacks**, and **backup** if you want them — CloudNet had no direct equivalents. You can skip them and install later with `modules install <id>`.
+
+### 3. Copy templates
+
+Copy CloudNet's `local/templates/<Prefix>/<Name>/` into `templates/<GroupName>/`. The on-disk layout is identical. Global plugins that CloudNet kept in `local/templates/.GLOBAL/` should **not** be copied — Nimbus auto-deploys its managed plugins (SDK, bridge, perms, display, punishments, resourcepacks) at runtime, so templates stay user-owned.
+
+Delete any `CloudNet-*.jar` or `PluginSystem-*.jar` from the copied templates. Those are CloudNet's own plugins and will conflict.
+
+### 4. Author group configs
+
+Translate each task JSON into `config/groups/<Name>.toml` using the table above. Keep old names — players won't see a change.
+
+### 5. Author dedicated services for static workloads
+
+Each CloudNet static service becomes either a dedicated service (one box, fixed port) or a sync-enabled group (floats across agents). See the [concept map](#config-translation).
+
+Copy the CloudNet static service's working directory (`local/services/<Name>/`) into Nimbus's location:
+- Dedicated: `<paths.dedicated>/<Name>/`
+- Sync group (single instance): controller will seed canonical from the first start — copy to `services/state/<Name>/` before starting.
+
+### 6. Migrate permissions
+
+Easiest path: `perms import` from a flat TOML (see [Permissions Guide](/docs/guide/permissions)). Export CloudPerms to JSON, write a small script that emits TOML matching Nimbus's expected shape, then import.
+
+If you're on LuckPerms: configure the Perms module to use LuckPerms as backend (`config/modules/perms/perms.toml` → `provider = "luckperms"`). Zero data migration.
+
+### 7. Cluster setup
+
+If you had CloudNet nodes, install `nimbus-agent` on each:
+
+```bash title="Terminal"
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.sh | bash
+```
+
+On the controller: `cluster bootstrap-url` prints the token + fingerprint. Paste into each agent's setup wizard.
+
+Pin groups that were CloudNet-node-specific via `[group.placement] node = "<agent-name>"` (see [Cluster Topologies](/docs/guide/cluster-topologies#placement-pinning)).
+
+### 8. Smoke test
+
+- `start Lobby`, `start Proxy`. Confirm the proxy registers backends (`list`, Velocity `/server`).
+- Join with a test account, hit `/lobby`, check perms, check MOTD.
+- Trigger scaling: `stress start 100 Lobby --ramp 30`.
+- Verify display-module signs repaint (they'll be empty — re-place in-game).
+
+### 9. Cut over
+
+1. Point your DNS / load balancer at the new proxy's address. If you're re-using the same machine, stop CloudNet first, then start Nimbus on the original port.
+2. Keep CloudNet installed but stopped for a week as rollback safety.
+3. Update external integrations to use the Nimbus REST API — see the [API reference](/docs/reference/api). The Bearer-token model is simpler than CloudNet's REST module.
+
+### 10. Clean up
+
+Once you've run for a week with no regressions: delete CloudNet's `local/` directory, remove the CloudNet systemd unit, revoke its REST tokens.
+
+## Common pitfalls
+
+<Callout type="warn">
+**Velocity `forwarding.secret` mismatch.** CloudNet generates its own forwarding secret. Nimbus generates its own. If you copy the old `velocity.toml` into a Nimbus proxy template, Nimbus will patch the `forwarding-secret` path to its own value, but the *backend* Paper servers still hold the old secret. Solution: let Nimbus manage both sides — don't copy `velocity.toml` or `paper-global.yml` forwarding config from CloudNet.
+</Callout>
+
+<Callout type="warn">
+**Static service copy-over.** Copying `local/services/<Name>/` for a CloudNet static service works, but if the directory contains CloudNet's `wrapper.jar` or `.cloudnet/` metadata, delete those files before starting in Nimbus.
+</Callout>
+
+<Callout type="info">
+**Plugins in templates.** CloudNet's "global" template pattern dumped things like the bridge plugin into every service. Nimbus auto-deploys its own managed plugins at runtime and treats templates as 100% user-owned. If you see doubled-up bridge/perms plugins after starting a Nimbus service, clean them out of the template.
+</Callout>
+
+## Next steps
+
+- [Server Groups](/docs/guide/server-groups) — full `config/groups/*.toml` reference
+- [Dedicated Services](/docs/guide/dedicated-services) — fixed-name, fixed-port services
+- [Multi-Node](/docs/guide/multi-node) + [Cluster Topologies](/docs/guide/cluster-topologies) — cluster setup
+- [Permissions](/docs/guide/permissions) — perms module + LuckPerms backend

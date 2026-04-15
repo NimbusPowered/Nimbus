@@ -113,7 +113,11 @@ NimbusPerms uses a standard Bukkit `config.yml` with one key setting:
 provider: builtin
 ```
 
-The plugin is auto-deployed to backend servers by the Permissions module (installed by default). Deployment can be disabled via `[permissions].deploy_plugin = false` in `nimbus.toml`. No manual installation is needed.
+The plugin is auto-deployed to every backend service at runtime by the
+Permissions module (installed by default) via
+`ServiceFactory.resolveModulePlugins()`. Deployment can be disabled with
+`[permissions] deploy_plugin = false` in `nimbus.toml`. Templates stay
+user-owned; the JAR is never written into `templates/global/plugins/`.
 
 ## How permissions sync
 

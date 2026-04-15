@@ -5,9 +5,25 @@ description: Guide to building custom Nimbus controller modules with commands, A
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Nimbus supports a dynamic module system for extending the controller with custom functionality. Modules are standalone JAR files loaded at startup from the `modules/` directory. They can register console commands, REST API routes, access the database, and interact with core services.
+Nimbus supports a dynamic module system for extending the controller with
+custom functionality. Modules are standalone JAR files loaded at startup from
+the `modules/` directory. They can register console commands, REST API routes,
+plugin deployments, doctor checks, event formatters, and versioned database
+migrations — and interact with core services.
 
-The module API lives in `nimbus-module-api` and has no dependency on `nimbus-core`, keeping your module lightweight and decoupled.
+The module API lives in `nimbus-module-api` and has **no dependency on
+`nimbus-core`**, keeping your module lightweight and decoupled. For typed
+access to core internals (e.g. `EventBus`, `ServiceManager`), add a
+`compileOnly` dependency on `nimbus-core` and use `context.service<T>()`.
+
+<Callout type="info">
+First- and third-party modules use exactly the same API. Every shipped module
+(`nimbus-module-perms`, `nimbus-module-scaling`, `nimbus-module-players`,
+`nimbus-module-punishments`, `nimbus-module-resourcepacks`,
+`nimbus-module-backup`, `nimbus-module-display`) implements `NimbusModule`
+against the public `ModuleContext` — read their source under `modules/*` as
+reference.
+</Callout>
 
 ## Quick Start
 
@@ -151,6 +167,8 @@ The `ModuleContext` is passed to `init()` and provides access to the Nimbus runt
 | `registerCompleter(cmd, fn)` | — | Register tab completion for a command. |
 | `getService(type)` | `T?` | Retrieve a core service by class. Returns null if unavailable. |
 | `registerService(type, instance)` | — | Register a late-initialized service (used by core for ServiceManager). |
+| `registerMigrations(list)` | — | Register versioned database migrations (see below). |
+| `registerDoctorCheck(check)` | — | Register a diagnostic check for `doctor` / `GET /api/doctor`. |
 
 ### Convenience Extension
 
@@ -320,17 +338,19 @@ Example using `EventBus`:
 
 ```kotlin title="EventBus Subscription"
 import dev.nimbuspowered.nimbus.event.EventBus
-import dev.nimbuspowered.nimbus.event.Events
+import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.module.service
 
 override suspend fun init(context: ModuleContext) {
     val eventBus = context.service<EventBus>()!!
 
-    eventBus.subscribe<Events.ServiceStarted> { event ->
-        println("Service started: ${event.service.name}")
+    eventBus.on<NimbusEvent.ServiceReady> { event ->
+        println("Service ready: ${event.serviceName} (group ${event.groupName})")
     }
 }
 ```
+
+Events are nested inside the sealed `NimbusEvent` class (not a flat `Events` object). Lifecycle classes include `ServiceStarting`, `ServiceReady`, `ServiceDraining`, `ServiceStopping`, `ServiceStopped`, `ServiceCrashed`, `ServiceRecovered`. Use `event.serviceName` — there is no `event.service` object. See the full list in the [Events reference](/docs/reference/events).
 
 ## Plugin Deployments
 
@@ -374,12 +394,162 @@ override suspend fun init(context: ModuleContext) {
 From v0.9.0 on, Nimbus never writes module-registered plugins into `templates/global/plugins/` or `templates/global_proxy/plugins/`. Deployment is **runtime-only, per service prepare** — templates stay fully user-owned. If your module used to depend on the old template-install flow, remove it; the runtime path does the same job with better hygiene (no stale copies left behind when a module is uninstalled).
 </Callout>
 
+## Database Migrations
+
+Register versioned schema changes via `ModuleContext.registerMigrations(list)`
+during `init()`. Core's `MigrationManager` applies every registered migration
+in ascending `version` order after all modules finish `init()`.
+
+```kotlin title="MyV1_Baseline.kt"
+import dev.nimbuspowered.nimbus.module.Migration
+import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.Transaction
+
+object MyV1_Baseline : Migration {
+    override val version = 9000
+    override val description = "Create my_module_records baseline table"
+    override val baseline = false // true = mark as already applied on existing DBs
+
+    override fun Transaction.migrate() {
+        SchemaUtils.create(MyRecords)
+    }
+}
+```
+
+Then register:
+
+```kotlin title="init()"
+override suspend fun init(context: ModuleContext) {
+    context.registerMigrations(listOf(MyV1_Baseline, MyV2_AddIndex))
+}
+```
+
+### Migration number ranges
+
+Migrations are global — pick a range that doesn't collide with anyone else:
+
+| Range | Owner |
+|---|---|
+| `1`–`999` | `nimbus-core` |
+| `1000`–`1999` | `nimbus-module-perms` |
+| `2000`–`2999` | `nimbus-module-scaling` |
+| `3000`–`3999` | `nimbus-module-players` |
+| `4000`–`4999` | `nimbus-module-display` |
+| `5000`–`5999` | `nimbus-module-punishments` |
+| `6000`–`6999` | `nimbus-module-resourcepacks` |
+| `7000`–`7999` | `nimbus-module-backup` |
+| `8000`–`8999` | *reserved* |
+| `9000`+ | Third-party modules (pick a band unlikely to collide) |
+
+<Callout type="warn">
+Migrations are one-way: Nimbus doesn't roll back. Always ship additive
+migrations (new tables, new nullable columns, new indexes). Destructive
+operations require a follow-up migration; there's no `down()`.
+</Callout>
+
+### `baseline` flag
+
+Set `baseline = true` when you're retrofitting an existing production
+schema — the migration is marked as applied on existing databases without
+running. Fresh installs still execute it. Used by core and every shipped
+module's V1.
+
+## Doctor Checks
+
+Register a `DoctorCheck` to have your module contribute to `doctor` /
+`GET /api/doctor`. Checks must be **fast (`<1s`)** and **read-only**.
+
+```kotlin title="MyDoctorCheck.kt"
+import dev.nimbuspowered.nimbus.module.DoctorCheck
+import dev.nimbuspowered.nimbus.module.DoctorFinding
+import dev.nimbuspowered.nimbus.module.DoctorLevel
+
+class MyDoctorCheck(private val storageDir: Path) : DoctorCheck {
+    override val section = "MyModule"
+
+    override suspend fun run(): List<DoctorFinding> = buildList {
+        if (!Files.exists(storageDir)) {
+            add(DoctorFinding(
+                level = DoctorLevel.FAIL,
+                message = "Storage dir missing: $storageDir",
+                hint = "Check permissions on the Nimbus data directory."
+            ))
+        }
+    }
+}
+```
+
+Register:
+
+```kotlin title="init()"
+context.registerDoctorCheck(MyDoctorCheck(storageDir))
+```
+
+Findings are grouped by `section` and rendered in the console/API report.
+
+## Event Formatters
+
+For module-fired events (`NimbusEvent.ModuleEvent("my-module", "SOMETHING",
+data)`), register a formatter so console output looks native:
+
+```kotlin title="Event formatter"
+context.registerEventFormatter("SOMETHING_HAPPENED") { data ->
+    "${success("✓")} thing happened to ${BOLD}${data["target"]}${RESET}"
+}
+```
+
+The formatter receives the event's `data: Map<String, String>` and returns
+an ANSI-formatted string. See `dev.nimbuspowered.nimbus.console.ConsoleFormatter`
+for the standard color helpers (if you depend on `nimbus-core`).
+
+## Late-Initialized Services
+
+Some core services (notably `ServiceManager`) are created *after* modules
+`init()`. Access them lazily:
+
+```kotlin title="Late binding"
+override suspend fun init(context: ModuleContext) {
+    // Schedule a background loop that uses ServiceManager once available
+    context.scope.launch {
+        delay(10_000)
+        val sm = context.service<ServiceManager>() ?: return@launch
+        // … use sm …
+    }
+}
+```
+
+Core calls `ModuleContext.registerService(ServiceManager::class.java, ...)`
+after service-layer wiring so that subsequent `service<ServiceManager>()`
+calls resolve. Modules can use the same mechanism to expose their own
+manager classes (e.g. `PunishmentManager`, `BackupManager`, `ResourcePackManager`
+all call `registerService()` so the dashboard-side code can query cached state).
+
 ## Building and Deploying
 
 1. Build your module JAR:
    ```bash title="Terminal"
    ./gradlew jar
    ```
+
+   <Callout type="warn">
+   If you use `com.github.johnrengelman.shadow`, **exclude** core runtime
+   dependencies so your fat JAR doesn't bundle Ktor, Exposed, kotlinx, or
+   SLF4J — Nimbus core already provides them. Bundling duplicates causes
+   `LinkageError` at module load.
+   ```kotlin title="build.gradle.kts (shadowJar)"
+   tasks.shadowJar {
+       dependencies {
+           exclude(dependency("io.ktor:.*"))
+           exclude(dependency("org.jetbrains.kotlinx:.*"))
+           exclude(dependency("org.jetbrains.exposed:.*"))
+           exclude(dependency("org.slf4j:.*"))
+           exclude(dependency("ch.qos.logback:.*"))
+       }
+   }
+   ```
+   Only shadow **your own** third-party transitive dependencies
+   (domain-specific libraries Nimbus doesn't ship).
+   </Callout>
 
 2. Copy the JAR to the Nimbus `modules/` directory:
    ```bash title="Terminal"
@@ -406,7 +576,7 @@ package dev.example.uptime
 
 import dev.nimbuspowered.nimbus.database.DatabaseManager
 import dev.nimbuspowered.nimbus.event.EventBus
-import dev.nimbuspowered.nimbus.event.Events
+import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.module.*
 
 class UptimeModule : NimbusModule {
@@ -426,11 +596,11 @@ class UptimeModule : NimbusModule {
 
         // Listen for service events
         val eventBus = ctx.service<EventBus>()!!
-        eventBus.subscribe<Events.ServiceStarted> { event ->
-            UptimeStore.recordStart(ctx.database, event.service.name)
+        eventBus.on<NimbusEvent.ServiceReady> { event ->
+            UptimeStore.recordStart(ctx.database, event.serviceName)
         }
-        eventBus.subscribe<Events.ServiceStopped> { event ->
-            UptimeStore.recordStop(ctx.database, event.service.name)
+        eventBus.on<NimbusEvent.ServiceStopped> { event ->
+            UptimeStore.recordStop(ctx.database, event.serviceName)
         }
 
         // Register console command

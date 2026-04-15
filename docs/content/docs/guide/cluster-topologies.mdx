@@ -1,0 +1,290 @@
+---
+title: Cluster Topologies
+description: Advanced multi-node patterns — single-controller hubs, split game-mode clusters, geo-distributed agents, placement pinning, and state-sync trade-offs.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The [Multi-Node Guide](/docs/guide/multi-node) covers the happy path: one controller + a couple of agents, default `least-services` placement, TLS auto-bootstrapped. This page is for operators who want to push further — split a network across game-mode clusters, pin stateful services to specific hardware, or run agents in multiple regions.
+
+## Topology patterns
+
+### Single controller (default)
+
+One machine runs everything. No cluster block enabled. Best for &lt; ~200 concurrent players or development.
+
+```toml title="config/nimbus.toml"
+[cluster]
+enabled = false
+```
+
+Static services, dynamic services, proxies, load balancer — all co-located. No network hop, no TLS handshake, no state sync. Smallest ops surface.
+
+---
+
+### Hub + worker agents
+
+One controller + N agents on a flat LAN. Controller keeps ops roles (REST API, dashboard, scaling engine, state sync store) and *doesn't* run game services itself. Agents do the work.
+
+```toml title="config/nimbus.toml (controller)"
+[cluster]
+enabled = true
+bind = "0.0.0.0"
+agent_port = 8443
+placement_strategy = "least-services"
+```
+
+Pin all groups to agents via placement or `[group.placement] fallback = "fail"` if you want the controller to refuse to run game services locally:
+
+```toml title="config/groups/Lobby.toml"
+[group.placement]
+# fallback = "wait"   # default — queue until an agent slot frees up
+# fallback = "fail"   # refuse to start if no agent can host
+```
+
+<Callout type="info">
+With `fallback = "wait"` (default) the scaling engine defers the scale-up and retries on the next tick instead of forcing the service onto the wrong node. During a node outage this shows up as a `PlacementBlocked` event (see [Events reference](/docs/reference/events)) and the service simply isn't created until the node returns. Watch `list` or the dashboard's **Nodes** page during incidents.
+</Callout>
+
+---
+
+### Split game-mode clusters
+
+Large networks commonly run separate physical clusters per game mode — BedWars on one set of nodes, SkyWars on another — either for hardware isolation or because the mode has special Java/plugin requirements. Two ways to express this:
+
+**Option A — one controller, pinned placement:**
+
+```toml title="config/groups/BedWars.toml"
+[group.placement]
+node = "bw-worker-1"
+fallback = "wait"
+```
+
+Every BedWars service is pinned to `bw-worker-1`. If you need horizontal BedWars capacity, create additional pinned groups (`BedWars2` → `bw-worker-2`, etc.) or drop the pin for that group and rely on the cluster scheduler's `least-services` strategy to land services across the BedWars-dedicated nodes.
+
+All groups share one controller, dashboard, and DB. Keeps ops simple.
+
+**Option B — two controllers:**
+
+Run separate Nimbus controllers for BedWars-network and SkyWars-network. Each has its own DB, its own dashboard origin, its own token. Share only the public proxy front via DNS. Use this if teams are genuinely separate and you don't want BedWars scaling noise to touch SkyWars metrics.
+
+<Callout type="warn">
+Two controllers can't share a Velocity proxy — the proxy lists backends from its own Nimbus instance. If you want one public `play.example.com` endpoint you need option A, or a TCP layer above both proxies (e.g. HAProxy) routing by SNI/IP.
+</Callout>
+
+---
+
+### Geo-distributed agents
+
+Agents in different regions talking back to one controller. TLS is mandatory, not optional — the WebSocket crosses the open internet. Keep state sync disabled or very deliberately enabled; the cross-region delta push on stop can be slow.
+
+```toml title="config/groups/Lobby-EU.toml"
+[group.placement]
+node = "eu-west-1"
+
+[group.sync]
+enabled = false   # regional static groups usually anchor to one node
+```
+
+```toml title="config/groups/Lobby-NA.toml"
+[group.placement]
+node = "us-east-1"
+
+[group.sync]
+enabled = false
+```
+
+Route players to the right region with your proxy setup (lobby-command redirect, or a Velocity "forced host" rule per domain). Nimbus doesn't do geo-routing itself — it just runs the services where you pin them.
+
+<Callout type="warn">
+State-sync delta push runs at graceful stop. Across a 150 ms link with a 2 GB world directory, this can take minutes. For geo-split static services, prefer **pin without sync** (each region owns its own canonical), or accept the stop-latency cost.
+</Callout>
+
+---
+
+### Mixed-trust tiers
+
+Community servers sometimes rent spot capacity from untrusted hosts during peak hours. Treat these as *dynamic-only* agents:
+
+- Pin **dynamic** groups (BedWars, SkyWars) to the spot agent tier.
+- Keep **static** groups (Lobby, Hub, Survival) on your owned hardware.
+- Never enable `[group.sync]` for groups that run on untrusted agents — canonical state flows through the controller, and you don't want an attacker on a compromised agent pushing crafted deltas.
+
+The cluster TLS fingerprint pin (trust-on-first-use) is the controller authenticating *to* agents. It doesn't stop a compromised agent from lying about service state. Use placement + sync-off to constrain blast radius.
+
+## Placement pinning
+
+Every group and every dedicated service can declare a placement preference. Fields live under `[group.placement]` or `[dedicated.placement]`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `node` | string | Hard pin. Only this node may host the service. Omit for free placement (scheduler picks via `placement_strategy`). |
+| `fallback` | `wait` \| `local` \| `fail` | What to do when the pinned node is unavailable. |
+
+<Callout type="info">
+Nimbus currently supports a single pinned node plus a fallback policy — there is no ordered `prefer` list. If you want service spread across a set of nodes, leave `node` unset and rely on the cluster-wide `placement_strategy` (default: `least-services`), or create one group per node.
+</Callout>
+
+### `fallback` modes
+
+| Mode | Behaviour | When to use |
+|---|---|---|
+| `wait` *(default)* | Defer the start; scaling engine retries on the next tick. A `PlacementBlocked` event fires each time. | Most cases. Scale-ups gracefully defer instead of landing somewhere wrong. |
+| `local` | Fall through to the controller if no pinned node is available. | **Unsafe for stateful services** — controller has no canonical state for a pinned-away group. Use only for dynamic/stateless groups that *must* start. |
+| `fail` | Refuse to start, log error, emit `PlacementBlocked` event. | Hard isolation. Useful for "this service is only allowed on certified hardware." |
+
+### Recipes
+
+**Pin a dedicated Survival server to its own box:**
+
+```toml title="config/dedicated/Survival.toml"
+name = "Survival"
+port = 30100
+
+[dedicated.placement]
+node = "survival-host"
+fallback = "wait"
+
+[dedicated.sync]
+enabled = true   # keeps canonical world in controller for DR
+```
+
+**Refuse to run a compliance-sensitive group anywhere else:**
+
+```toml title="config/groups/Compliance.toml"
+[group.placement]
+node = "compliance-certified-1"
+fallback = "fail"
+```
+
+## State sync deep-dive
+
+State sync (`[group.sync] enabled = true` or `[dedicated.sync] enabled = true`) makes a static service *float* across agent nodes without losing its working directory.
+
+### How it works
+
+1. Canonical state lives on the controller under `services/state/<name>/` (groups) or `dedicated/<name>/` (dedicated).
+2. On **service start**, the hosting agent sends its local manifest (path → SHA-256 + size) to the controller. The controller compares with canonical and replies with a delta. Agent pulls missing/changed files into a staging dir, atomic-renames into the service working dir, then launches.
+3. On **graceful stop**, the reverse happens: agent computes local manifest, pushes only the delta back to controller, controller stages + atomic-renames into canonical.
+4. A per-service lock serialises concurrent operations on the same name. Fresh starts can race with in-flight stops on other nodes without corrupting canonical.
+
+Hardlink optimisation on Linux: if the canonical store and the agent's service dir live on the same filesystem, pull/push uses hardlinks for unchanged files — effectively zero IO for most of a world.
+
+### The crash-loss model
+
+<Callout type="warn">
+State sync trades *some* durability for fleet-wide mobility. Know the failure modes before enabling.
+</Callout>
+
+| Event | Data loss |
+|---|---|
+| Graceful stop (console `stop`, `migrate`, agent SIGTERM with trap) | **Zero.** Delta push completes before the process exits. |
+| Agent crash / OOM-kill | **Loss since last graceful stop.** Changes made in the current session are in agent-local working dir only — never pushed. |
+| Controller crash mid-push | Staging dir is discarded. Previous canonical intact. Next graceful stop retries the full delta. |
+| Agent host loses network but process keeps running | No loss while connection is up — the agent will push on stop. If the host is declared dead before that, running changes stay on the (now-orphaned) agent. |
+| Service migrated successfully, then rolled back | The destination's changes are pushed, then the source pulls them on next start. Expected. |
+
+### When to enable
+
+- **Enable** for any static group that might benefit from agent mobility (drain-for-maintenance, failover to a spare node). Examples: Lobby, Hub, Build, Creative.
+- **Enable** for dedicated services that you want to snapshot and be able to re-host (Survival world on a spare box if the primary dies).
+- **Skip** for groups that are intentionally pinned to a single box (geo-anchored EU Lobby) — sync just adds stop latency for no mobility gain.
+- **Skip** for dynamic groups (BedWars, SkyWars) — they're rebuilt from template every start, nothing to sync.
+
+### Ops commands
+
+```text title="Nimbus console"
+migrate Lobby-1 worker-2      # graceful stop → canonical push → start on target → canonical pull
+migrate Lobby-1 local         # move back to controller
+status                         # sync-enabled groups show a [sync] badge
+```
+
+## TLS bootstrap end-to-end
+
+Cluster TLS is on by default. The trust-on-first-use flow: controller generates a self-signed keystore on first boot, agents pin its SHA-256 fingerprint during setup. Full walkthrough:
+
+1. On the **controller**, generate bootstrap info for a new agent:
+
+   ```text title="Nimbus (controller)"
+   cluster bootstrap-url
+   ```
+
+   Output:
+
+   ```text
+   Controller REST: http://10.0.0.1:8080
+   Cluster token:   nbs_abcdef123...
+   wss target:      wss://10.0.0.1:8443/cluster
+   Fingerprint:     AA:BB:CC:DD:...:EF
+   ```
+
+2. On the **agent host**, run the agent installer and start it:
+
+   ```bash title="Terminal"
+   curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.sh | bash
+   ```
+
+3. The agent setup wizard prompts for:
+   - Controller REST URL (step 1 output)
+   - Cluster token (step 1 output)
+   - It then calls `GET /api/cluster/bootstrap` with the token — controller replies with the live fingerprint + PEM.
+   - Wizard displays the fingerprint; you confirm it matches step 1's output.
+
+4. The agent writes the pin into `agent.toml`:
+
+   ```toml title="agent.toml"
+   [agent]
+   controller = "wss://10.0.0.1:8443/cluster"
+   token = "nbs_abcdef123..."
+   trusted_fingerprint = "AA:BB:CC:DD:...:EF"
+   tls_verify = true
+   ```
+
+5. From that point, every WS connect re-checks the fingerprint. If the controller's cert changes (cert rotation, migration, MITM), the agent refuses to connect.
+
+### Customising SANs
+
+If agents connect to the controller by a name other than its primary bind (e.g. through a reverse proxy, a DNS CNAME, or a NAT hop), add the extra names to the self-signed cert's SAN list:
+
+```toml title="config/nimbus.toml"
+[cluster]
+extra_sans = ["controller.internal", "10.20.30.40"]
+public_host = "controller.internal"   # used in /api/cluster/bootstrap output
+```
+
+Then regenerate:
+
+```text title="Nimbus (controller)"
+cluster cert regenerate
+```
+
+This deletes `config/cluster.jks`; on next restart a fresh cert is generated with the extra SANs. **All agents will need to re-run `java -jar nimbus-agent.jar --setup` to re-pin the new fingerprint.**
+
+### Bringing your own CA
+
+For operators with an existing PKI, point the cluster at a keystore you produced externally:
+
+```toml title="config/nimbus.toml"
+[cluster]
+keystore_path = "/etc/nimbus/cluster.p12"
+keystore_password = "${NIMBUS_CLUSTER_KEYSTORE_PASSWORD}"
+```
+
+Agents then verify against your CA instead of the fingerprint pin — set `tls_verify = true` and `truststore_path` in `agent.toml`, skip `trusted_fingerprint`.
+
+## Failure modes & recovery
+
+| Failure | Detected by | Controller action | Operator action |
+|---|---|---|---|
+| Agent drops briefly (&lt; `node_timeout`) | Missed heartbeat | None — services keep running | None |
+| Agent drops for &gt; `2 × node_timeout` | Reconciliation window expires | Services on that node → `CRASHED`. Scaling engine reschedules dynamic ones on other nodes. | Investigate agent, `purge crashed`, or let scaling restart |
+| Controller restarts | N/A | After boot, waits `reconciliation_delay` for agents to report in-flight services; only then runs `startMinimumInstances()` | None, just verify `nodes` shows expected state |
+| Placement pinned but node offline + `fallback = wait` | Scheduler | Emits `PlacementBlocked`, service stays `PENDING` | Bring node back, or change `fallback` for that group |
+| State-sync conflict (both nodes think they're canonical) | Manifest mismatch on push | Controller rejects the later push | Manually reconcile: stop both, inspect `services/state/<name>/`, pick a winner, restart |
+
+## Next steps
+
+- [Multi-Node Guide](/docs/guide/multi-node) — getting-started flow + placement strategies
+- [Cluster TLS & Security](/docs/guide/cluster-tls) — threat model, cert rotation
+- [Backup Guide](/docs/guide/backup) — backup strategy for multi-node (PARTIAL limitation on remote services)
+- [Architecture](/docs/developer/architecture) — internals of cluster, state sync, and placement

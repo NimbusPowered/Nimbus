@@ -1,0 +1,119 @@
+---
+title: Smart Scaling
+description: Per-group time-based scaling schedules and predictive warmup for the Smart Scaling module.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Smart Scaling module layers time-based schedules and predictive warmup on top of the fill-rate auto-scaling defined in [group configs](/docs/config/groups#group-scaling). Each group that should use Smart Scaling gets its own TOML file under `config/modules/scaling/<Group>.toml`.
+
+Files are auto-generated on first start for any group that does not already have one. Reload with the `reload` console command.
+
+## Complete Example
+
+```toml title="config/modules/scaling/BedWars.toml"
+[schedule]
+enabled = true
+timezone = "Europe/Berlin"
+
+[[schedule.rules]]
+name = "weekday-evening"
+days = ["MON", "TUE", "WED", "THU", "FRI"]
+from = "17:00"
+to = "23:00"
+min_instances = 3
+max_instances = 12
+
+[[schedule.rules]]
+name = "weekend-allday"
+days = ["SAT", "SUN"]
+from = "10:00"
+to = "23:59"
+min_instances = 4
+
+[warmup]
+enabled = true
+lead_time_minutes = 10
+```
+
+---
+
+## `[schedule]`
+
+Top-level schedule controls. When `enabled = false`, the whole file is ignored and the group falls back to the baseline `min_instances` / `max_instances` from its group config.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Master switch for the schedule. Freshly generated files ship with `enabled = false` so a new group is never scheduled without opt-in. |
+| `timezone` | String | `"Europe/Berlin"` | IANA timezone ID used to evaluate `from` / `to` windows. Invalid values fall back to `Europe/Berlin`. |
+
+---
+
+## `[[schedule.rules]]`
+
+Zero or more ordered rules. Each rule raises (never lowers) the effective `min_instances` for its active window. If multiple rules overlap, the one with the highest `min_instances` wins.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | String | *required* | Human-readable rule name. Used in logs, API responses (`GET /api/scaling/schedules`), and audit entries. |
+| `days` | List\<String\> | *required* | Day codes when the rule is active. Accepts 3-letter (`MON`) or full (`MONDAY`) names. Any day that fails to parse is silently dropped; a rule with no valid days is skipped. |
+| `from` | String | *required* | Window start, `HH:MM` (24h). Parsed with `LocalTime.parse`. |
+| `to` | String | *required* | Window end, `HH:MM` (24h). |
+| `min_instances` | Int | *required* | Minimum running instances while the rule is active. Stacks with — never undercuts — the group's base `min_instances`. |
+| `max_instances` | Int | *unset* | Optional cap applied while the rule is active. Leave unset to inherit the group's `max_instances`. |
+
+<Callout type="info">
+The scheduler currently does not span midnight in a single rule. For a window like 22:00–02:00, split it into two rules (22:00–23:59 and 00:00–02:00) sharing the same `min_instances`.
+</Callout>
+
+---
+
+## `[warmup]`
+
+Predictive warmup uses historical player counts to pre-start an instance before a scheduled `min_instances` bump takes effect. This hides the template-extract + JVM-start latency from players.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable predictive warmup. When disabled, schedule bumps take effect exactly at `from` (cold start). |
+| `lead_time_minutes` | Int | `10` | Minutes before a rule's `from` time that warmup should begin pre-staging instances. Should be at least as long as your template's cold-start time. |
+
+<Callout type="info">
+Warmup draws from the same warm-pool mechanism exposed by `[group.scaling] warm_pool_size` in the group config. Instances pre-started by warmup sit in the `PREPARED` state until the rule window opens.
+</Callout>
+
+---
+
+## Day Code Reference
+
+| Input | Maps to |
+|-------|---------|
+| `MON`, `MONDAY` | Monday |
+| `TUE`, `TUESDAY` | Tuesday |
+| `WED`, `WEDNESDAY` | Wednesday |
+| `THU`, `THURSDAY` | Thursday |
+| `FRI`, `FRIDAY` | Friday |
+| `SAT`, `SATURDAY` | Saturday |
+| `SUN`, `SUNDAY` | Sunday |
+
+Codes are case-insensitive; whitespace is trimmed.
+
+---
+
+## Disabling a Group
+
+To fully opt a group out of Smart Scaling without deleting the file:
+
+```toml title="config/modules/scaling/Lobby.toml"
+[schedule]
+enabled = false
+```
+
+The group will then behave per its `[group.scaling]` block in the group config.
+
+---
+
+## Related
+
+- [Group Configuration — `[group.scaling]`](/docs/config/groups#group-scaling) — fill-rate auto-scaling and warm pool size
+- [Smart Scaling Guide](/docs/guide/scaling)
+- `GET /api/scaling/schedules`, `GET /api/scaling/predictions/{group}` — see [API Reference](/docs/reference/api)

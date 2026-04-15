@@ -13,17 +13,20 @@ The Display plugin requires **Spigot 1.13+** (signs) through the **latest Paper/
 
 ## Installation
 
-The display plugin is auto-deployed to all backend servers along with its dependency **FancyNpcs**. Both JARs are embedded in nimbus-core and deployed on startup:
+The display plugin ships inside `nimbus-module-display` and is auto-deployed
+to every backend service at runtime via `ServiceFactory.resolveModulePlugins()`
+(alongside `nimbus-sdk.jar`, which it depends on). Templates stay user-owned;
+the plugin is copied directly into each service's `plugins/` directory on
+every prepare.
 
-```text title="Output"
-templates/global/plugins/
-  nimbus-display.jar     # Auto-deployed
-  FancyNpcs.jar          # Auto-deployed (required for NPCs)
-  nimbus-sdk.jar         # Auto-deployed (required)
-```
+**FancyNpcs** is a soft dependency — it's only pulled in when you actually use
+NPC features and the display module opts to download it on demand. Plain
+server-selector sign use doesn't require FancyNpcs.
 
 <Callout type="info">
-Nimbus auto-updates `nimbus-display.jar` in templates and static services on every boot.
+Because deployment is runtime-only, deleting `plugins/nimbus-display.jar` from
+a live service's directory just triggers redeployment on the next service
+start — deletions self-heal, no template mutation required.
 </Callout>
 
 ## Commands

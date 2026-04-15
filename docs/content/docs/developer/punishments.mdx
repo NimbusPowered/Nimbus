@@ -1,0 +1,192 @@
+---
+title: Punishments Module
+description: Network-wide bans, tempbans, ipbans, mutes, kicks, and warnings — with superseding semantics, scope filtering, in-memory hot-path caching, and Bridge enforcement.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Punishments module (`nimbus-module-punishments`) owns the canonical
+punishment record store on the controller, exposes REST endpoints for
+enforcement + management, and ships two companion plugins that enforce
+decisions at the proxy and backend.
+
+## Architecture
+
+```text title="Directory Structure"
+modules/punishments/
+└── src/main/kotlin/dev/nimbuspowered/nimbus/module/punishments/
+    ├── PunishmentsModule.kt          # NimbusModule: wiring + expiry loop
+    ├── PunishmentManager.kt          # Core logic, in-memory indexes, DB writes
+    ├── PunishmentModels.kt           # DTOs: request, response, record
+    ├── PunishmentType.kt             # BAN, TEMPBAN, IPBAN, MUTE, TEMPMUTE, KICK, WARN
+    ├── PunishmentScope.kt            # NETWORK, GROUP, SERVICE
+    ├── PunishmentTables.kt           # Exposed table: punishments
+    ├── PunishmentsEvents.kt          # ModuleEvent factories
+    ├── PunishmentsMessages.kt        # TOML message templates + placeholder renderer
+    ├── DurationParser.kt             # "1d", "2h30m", ...
+    ├── MojangUuidLookup.kt           # Name → UUID for pre-bans
+    ├── commands/
+    │   └── PunishCommand.kt          # Console `punish …` subcommands
+    ├── migrations/
+    │   ├── PunishmentsV1_Baseline.kt # Range 5000
+    │   └── PunishmentsV2_Scope.kt    # Range 5001 (GROUP/SERVICE scope)
+    └── routes/
+        └── PunishmentRoutes.kt       # REST: /api/punishments/*
+```
+
+Schema-version range: **5000+**.
+
+## Punishment types
+
+Defined in `PunishmentType` with `blocksLogin()`, `blocksChat()`,
+`isRevocable()`, `isTemporary()` predicates:
+
+| Type | Blocks login | Blocks chat | Temporary | Revocable |
+|---|---|---|---|---|
+| `BAN` | yes | — | no | yes |
+| `TEMPBAN` | yes | — | yes | yes |
+| `IPBAN` | yes (by IP) | — | no | yes |
+| `MUTE` | — | yes | no | yes |
+| `TEMPMUTE` | — | yes | yes | yes |
+| `KICK` | — | — | — | no (point-in-time event) |
+| `WARN` | — | — | — | no (point-in-time event) |
+
+## Scopes
+
+`PunishmentScope` = `NETWORK` (default), `GROUP`, or `SERVICE`. Scoped
+punishments apply only when the player tries to enter a matching
+group/service; a NETWORK-scoped ban denies login outright. Revoking one
+record automatically leaves unrelated scopes intact (see superseding below).
+
+## Hot-path caching
+
+`PunishmentManager` holds three `ConcurrentHashMap` indexes that mirror
+every active record:
+
+```kotlin title="In-memory indexes"
+activeBans     : uuid → List<PunishmentRecord>        // login-blocking
+activeBansByIp : ip   → List<PunishmentRecord>        // IP bans
+activeMutes    : uuid → List<PunishmentRecord>        // chat-blocking
+```
+
+On boot, `init()` loads every row with `active = true` into the indexes.
+Writes rebuild the affected target's index slice after the DB commit.
+Revocations and expiries simply remove the record from the map.
+
+Three hot-path read methods serve the Bridge + backend plugins without DB
+hops:
+
+| Method | Purpose |
+|---|---|
+| `checkLoginCached(uuid, ip)` | NETWORK-scoped bans only — used on `LoginEvent` to deny login |
+| `checkConnectCached(uuid, ip, group, service)` | NETWORK + scoped matches — used on `ServerPreConnectEvent` |
+| `checkMuteCached(uuid, group, service)` | Chat-time check — called from backend plugin |
+
+## Superseding semantics
+
+`issue()` is idempotent: issuing a new ban against a player who already has
+an active ban of the same *class* (login-blocking vs chat-blocking) **and
+matching scope** deactivates the prior record with
+`revokeReason = "Superseded by new punishment"`. This prevents hidden
+background records from re-appearing when staff revokes what they think is
+"the" ban.
+
+## Expiry loop
+
+`PunishmentsModule.enable()` launches a long-running coroutine that calls
+`PunishmentManager.expireOverdue()` every
+`[punishments] expiry_check_interval` seconds (default **30s**, minimum
+**5s** — see `NimbusConfig.punishments.expiryCheckInterval`). Expiry
+deactivates rows whose `expires_at < now`, removes them from the in-memory
+indexes, and fires `PUNISHMENT_EXPIRED` module events.
+
+## Plugin deployments
+
+`init()` registers two `PluginDeployment`s (guarded by
+`[punishments] deploy_plugin`):
+
+| Plugin | Target | Role |
+|---|---|---|
+| `nimbus-punishments.jar` | `PluginTarget.VELOCITY` | `PreLoginEvent` / `ServerPreConnectEvent` enforcement, live-kick on issue, warn delivery |
+| `nimbus-punishments-backend.jar` | `PluginTarget.BACKEND` | Chat-mute enforcement via `AsyncChatEvent` / `AsyncPlayerChatEvent` |
+
+<Callout type="info">
+Chat-mute enforcement lives on the backend because cancelling signed chat
+on Velocity disconnects 1.19.1+ clients with "illegal protocol state".
+`AsyncPlayerChatEvent` on the backend fires before broadcast and cancels cleanly.
+</Callout>
+
+## REST API
+
+All routes under `/api/punishments` — service-level auth.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/punishments?active=&type=&limit=&offset=` | List |
+| `GET` | `/api/punishments/messages` | Active message templates |
+| `PUT` | `/api/punishments/messages` | Replace message templates (live reload) |
+| `GET` | `/api/punishments/{id}` | Single record |
+| `GET` | `/api/punishments/player/{uuid}?limit=` | History for a player |
+| `GET` | `/api/punishments/check/{uuid}?ip=&group=&service=` | Fast enforcement check — returns pre-rendered `kickMessage` |
+| `GET` | `/api/punishments/mute/{uuid}?group=&service=` | Scoped mute check |
+| `POST` | `/api/punishments` | Issue (server resolves Mojang UUID if target is a name) |
+| `DELETE` | `/api/punishments/{id}` | Revoke |
+
+`check/{uuid}` encapsulates the scope logic: with no `group`/`service` it
+returns only NETWORK matches (proxy login); with them it returns NETWORK +
+matching scoped bans (proxy pre-connect). The response includes a pre-rendered
+`kickMessage` so the plugin doesn't carry its own copy of templates.
+
+## Permission nodes
+
+Enforced by the Velocity plugin when staff run `/cloud punish …` via the
+Bridge. The module itself doesn't check these — they are configured in the
+permissions module.
+
+| Node | Purpose |
+|---|---|
+| `nimbus.punish.ban` | Issue BAN / TEMPBAN / IPBAN |
+| `nimbus.punish.mute` | Issue MUTE / TEMPMUTE |
+| `nimbus.punish.kick` | Issue KICK |
+| `nimbus.punish.warn` | Issue WARN |
+| `nimbus.punish.unban` | Revoke bans |
+| `nimbus.punish.unmute` | Revoke mutes |
+| `nimbus.punish.history` | View history |
+| `nimbus.punish.bypass` | Immune to mute enforcement (backend) |
+
+## Events
+
+Emitted as `ModuleEvent("punishments", type, data)`:
+
+| Type | Fired on |
+|---|---|
+| `PUNISHMENT_ISSUED` | Every new record (includes pre-rendered `kickMessage` for live-kick) |
+| `PUNISHMENT_REVOKED` | Manual revoke via DELETE |
+| `PUNISHMENT_EXPIRED` | Expiry loop deactivated the row |
+
+## Message templates
+
+`PunishmentsMessagesStore` loads `config/modules/punishments/messages.toml`
+on init and rewrites it atomically on PUT. Rendering uses
+`renderPunishmentMessage(template, record)` with placeholders `{target}`,
+`{issuer}`, `{reason}`, `{remaining}`, `{expires}` and `&`-style color codes.
+
+## Edge cases
+
+- **UUID resolution on issue**: POST accepts either `targetUuid` or
+  `targetName`. Named-only inputs are resolved via the Mojang profile API
+  so staff can pre-ban known cheaters who have never joined. If Mojang
+  is down / name not found, the API returns `PUNISHMENT_TARGET_INVALID`.
+- **IPBAN requires `targetIp`** — enforced in the route handler.
+- **KICK / WARN are point-in-time**: they are stored with `active = false`
+  because there is nothing to revoke.
+- **Cache consistency**: every mutation goes through `rebuildIndexForTarget`
+  (UUID) or `rebuildIpIndex` (IP) after the commit to guarantee subsequent
+  hot-path reads see the post-commit state.
+
+## Next steps
+
+- [Punishments Guide](/docs/guide/punishments) — Operator-facing workflows
+- [Custom Modules](/docs/developer/modules) — Module API reference
+- [Events Reference](/docs/reference/events) — `MODULE_EVENT` envelope
+- [API Reference](/docs/reference/api) — `/api/punishments/*`

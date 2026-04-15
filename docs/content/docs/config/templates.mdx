@@ -40,6 +40,19 @@ name = "BedWars"
 template = "BedWars"
 ```
 
+### Template stacking
+
+Groups can reference multiple templates with the `templates = [...]` list field. Each template is applied in order, so later entries override files from earlier ones. This lets you compose a group from a base template plus one or more overlays without duplicating files:
+
+```toml title="config/groups/BedWars.toml"
+[group]
+name = "BedWars"
+# First "base" is laid down, then "bedwars-overlay" overwrites any conflicts
+templates = ["base", "bedwars-overlay"]
+```
+
+If both `template` and `templates` are set, the single-value `template` field is treated as the first entry in the stack.
+
 ---
 
 ## How Templates Are Applied
@@ -260,18 +273,17 @@ Global overlays are applied **after** the group-specific template, so they overw
 templates/
   global/
     plugins/
-      NimbusSDK.jar          # SDK plugin for all backends
-      floodgate/
-        key.pem              # Shared Floodgate key (if Bedrock enabled)
-      ChatFormat.jar          # Shared chat plugin
+      ChatFormat.jar          # Your own shared plugin
     server.properties         # Common server settings
   global_proxy/
     plugins/
-      NimbusBridge.jar        # Bridge plugin for all proxies
-      Geyser-Velocity.jar     # Bedrock translation (if Bedrock enabled)
-      floodgate-velocity.jar  # Bedrock auth (if Bedrock enabled)
+      YourProxyPlugin.jar     # Your own shared proxy plugin
 ```
 
 <Callout type="info">
 The global template is optional. If the `global/` or `global_proxy/` directory doesn't exist, Nimbus simply skips the overlay step.
+</Callout>
+
+<Callout type="info">
+Nimbus's own bundled plugins (`NimbusSDK.jar`, `nimbus-bridge.jar`, NimbusPerms, punishments, resource packs, display, Geyser / Floodgate, …) are **not** written into `templates/global/` or `templates/global_proxy/`. They are streamed into each service's `plugins/` directory on every prepare (with `REPLACE_EXISTING`) so templates stay fully user-owned and deleted Nimbus plugins self-heal on the next service start.
 </Callout>

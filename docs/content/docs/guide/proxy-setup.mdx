@@ -122,23 +122,21 @@ To allow players on different Minecraft versions to connect through a single pro
 | **ViaBackwards** | Allows older clients to connect to newer servers | ViaVersion (auto-included) |
 | **ViaRewind** | Extends ViaBackwards support to very old versions (1.7-1.8) | ViaBackwards |
 
-During group creation, if you select ViaBackwards without ViaVersion, Nimbus automatically includes ViaVersion as it is a required dependency.
+Nimbus enforces the full dependency chain automatically during group creation and from the `plugins` command: selecting **ViaRewind** pulls in **ViaBackwards**, which in turn pulls in **ViaVersion**. Selecting **ViaBackwards** on its own still pulls in **ViaVersion**. You only need to tick the highest-level plugin you want — the required prerequisites are added for you.
 
 <Callout title="Important" type="info">
 Via plugins are deployed **only on backend servers**, never on the proxy itself. This is the recommended setup for Velocity-based networks -- the proxy handles connections natively, and Via plugins on backends handle protocol translation.
 </Callout>
 
-To enable Via plugins, place them in the global template directory:
+Via plugins are selected during group creation (or via the `plugins` command) and downloaded into the group's own template `plugins/` directory. You don't manage them by hand — Nimbus picks compatible versions from Hangar/Modrinth and auto-resolves dependencies.
 
 ```text title="Directory Structure"
 templates/
-  global/
+  Lobby/
     plugins/
-      ViaVersion.jar
-      ViaBackwards.jar
+      ViaVersion-<ver>.jar
+      ViaBackwards-<ver>.jar
 ```
-
-Every backend server will receive these plugins automatically.
 
 ## Velocity Auto-Patching (6-hourly updates)
 

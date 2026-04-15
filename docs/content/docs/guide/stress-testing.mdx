@@ -129,13 +129,16 @@ curl -X POST http://127.0.0.1:8080/api/stress/ramp \
 
 ## Scaling interaction
 
-The stress test is designed to exercise your scaling rules naturally:
+<Callout type="warn">
+The auto-scaling engine is **paused** for the duration of an active stress test. Simulated players do not trigger automatic scale-up or scale-down — Nimbus deliberately avoids reacting to synthetic load so your test population stays deterministic. To validate scaling rules, start instances manually beforehand, or stop the stress test and observe how the engine rebalances the (now real-vs-empty) fleet.
+</Callout>
 
-1. Simulated players fill backend services up to `max_players`
-2. The scaling engine detects rising fill rates and starts new instances (up to `max_instances`)
-3. When you stop the test or ramp down, empty instances are stopped after `idle_timeout`
+During a stress test, simulated players still:
 
-This means you can validate your entire scaling pipeline -- from scale-up thresholds to idle timeouts -- without coordinating real players.
+- Count toward each service's reported player total (visible in `status`, MOTD, tab list, proxy counts)
+- Respect each service's `max_players` cap (per-service distribution is capped, extra players overflow to the next instance)
+
+When the test stops, `StressBot-*` entries are cleared and the scaling engine resumes its normal evaluation loop on the next tick.
 
 ## Best practices
 
@@ -155,18 +158,19 @@ nimbus> stress ramp 100 --duration 30
 
 ### Testing scale-up and scale-down
 
+Because the engine is paused during a stress test, exercise scaling by varying the *real* instance count around a fixed simulated load, not the other way round:
+
 ```bash title="Terminal"
-# 1. Start with your normal config and ramp to trigger scaling
+# 1. Pre-start enough instances for your target load
+nimbus> start Lobby 4
+
+# 2. Apply load and confirm per-instance distribution + TPS
 nimbus> stress start 200 Lobby --ramp 60
+nimbus> stress status
 
-# 2. Watch new instances start
-nimbus> status
-
-# 3. Ramp down and verify cleanup
-nimbus> stress ramp 10 --duration 30
-
-# 4. Wait for idle_timeout, then check instances stopped
-nimbus> status
+# 3. Stop the test and let the engine reclaim idle instances
+nimbus> stress stop
+nimbus> status   # wait for idle_timeout, verify instances stopped
 ```
 
 ### Monitoring during tests

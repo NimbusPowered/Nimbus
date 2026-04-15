@@ -7,116 +7,83 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 This page covers Nimbus's internal architecture for developers who want to understand how the system works, contribute to the codebase, or build integrations.
 
-## Module structure
+## Gradle subprojects
 
-Nimbus is organized into thirteen modules:
+Nimbus is a multi-module Gradle build. The tree as of 0.9.x:
 
-```text title="Module Structure"
-nimbus-core (Controller)
-├── api/           → Ktor REST + WebSocket server
-├── cluster/       → NodeManager, NodeConnection, PlacementStrategy, ClusterWebSocketHandler
-├── config/        → TOML configuration loading
-├── console/       → JLine3 interactive REPL
-├── database/      → DatabaseManager, MigrationManager, Exposed ORM tables, MetricsCollector, AuditCollector
-├── event/         → Coroutine-based EventBus
-├── group/         → Server group state management
-├── loadbalancer/  → Layer-4 TCP load balancer for Velocity proxies
-├── module/        → ModuleManager, ModuleContextImpl (dynamic module loading)
-├── proxy/         → Proxy sync (tab list, MOTD, chat format, maintenance)
-├── scaling/       → Auto-scaling engine + Velocity updater
-├── service/       → Service lifecycle, process management, StateSyncManager
-├── setup/         → First-run wizard
-├── stress/        → StressTestManager (simulated player load testing)
-├── system/        → System-level utilities (memory reading, process inspection)
-├── template/      → Template copying, software download
-├── update/        → UpdateChecker (GitHub Releases auto-updater)
-└── velocity/      → Velocity config generation
+| Group | Subproject | Directory | Purpose |
+|---|---|---|---|
+| Core | `:nimbus-core` | `nimbus-core/` | Controller entry point, REST/WS API, service lifecycle, cluster |
+| Core | `:nimbus-agent` | `nimbus-agent/` | Standalone node process (runs on remote machines) |
+| Core | `:nimbus-cli` | `nimbus-cli/` | Remote JLine3 console that connects over REST + WS |
+| Core | `:nimbus-protocol` | `nimbus-protocol/` | Shared `ClusterMessage` + `StateManifest` types |
+| Module API | `:nimbus-module-api` | `modules/api/` | Interfaces third-party modules build against |
+| Controller modules | `:nimbus-module-perms` | `modules/perms/` | Permission groups, tracks, prefix/suffix |
+| | `:nimbus-module-display` | `modules/display/` | Sign + NPC configs |
+| | `:nimbus-module-scaling` | `modules/scaling/` | Time-based schedules, predictive warmup |
+| | `:nimbus-module-players` | `modules/players/` | Centralized player tracking, session history |
+| | `:nimbus-module-punishments` | `modules/punishments/` | Network-wide bans/mutes/kicks/warns |
+| | `:nimbus-module-resourcepacks` | `modules/resourcepacks/` | Pack registry + scoped assignments |
+| | `:nimbus-module-backup` | `modules/backup/` | Scheduled tar+zstd snapshots |
+| Plugins | `:nimbus-sdk` | `plugins/sdk/` | Paper/Spigot/Folia SDK deployed to backends |
+| | `:nimbus-bridge` | `plugins/bridge/` | Velocity proxy plugin |
+| | `:nimbus-perms` | `plugins/perms/` | Permission provider plugin for backends |
+| | `:nimbus-display` | `plugins/display/` | Sign + NPC renderer for backends |
+| | `:nimbus-punishments-velocity` | `plugins/punishments-velocity/` | Login/connect enforcement on proxies |
+| | `:nimbus-punishments-backend` | `plugins/punishments-backend/` | Chat-mute enforcement on backends |
+| | `:nimbus-resourcepacks` | `plugins/resourcepacks/` | Pack applier for backends |
 
-nimbus-module-api (Module API)
-├── NimbusModule          → Module interface
-├── ModuleContext          → Service access for modules
-├── ModuleCommand          → Console command interface
-└── AuthLevel              → Route auth levels
+### Controller package layout (`nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/`)
 
-nimbus-protocol (Shared Protocol)
-├── ClusterMessage        → Sealed class for all controller ↔ agent messages
-└── ServiceHandle         → Interface for local and remote service process handles
-
-nimbus-agent (Agent Node)
-├── NimbusAgent           → Entry point, connects to controller
-├── AgentConfig           → TOML config (controller host, token, resources)
-├── ControllerConnection  → WebSocket client, message dispatch
-├── LocalServiceManager   → Launches/stops JVM processes on the agent
-├── StateSyncClient       → Pull-on-start / push-on-stop delta sync with controller canonical store
-├── TemplateSync          → Downloads and caches templates from controller
-└── TlsHelper.kt          → Keystore loading, SHA-256 fingerprint verification
-
-nimbus-bridge (Velocity Plugin)
-├── CloudCommand          → /cloud subcommands (status, list, start, stop, etc.)
-├── NimbusBridgePlugin    → Plugin entry point, event listeners
-├── NimbusApiClient       → HTTP client for Nimbus API
-├── NimbusPermissionProvider → Velocity permission integration
-├── ProxySyncListener     → Tab list, MOTD, chat sync
-└── BridgeConfig          → API connection config
-
-nimbus-sdk (Paper Plugin)
-├── Nimbus                → Static facade (main entry point)
-├── NimbusClient          → HTTP client for REST API
-├── NimbusSelfService     → Self-identity from JVM properties
-├── ServiceCache          → Reactive service cache via WebSocket
-├── ServiceRouter         → Smart player routing
-├── PlayerTracker         → Real-time player count tracking
-├── NimbusEventStream     → WebSocket event subscription
-├── NimbusPermissible     → Wildcard permission injection
-├── NimbusDisplay         → Display config access
-├── NimbusChatRenderer    → Chat color rendering
-└── RoutingStrategy       → LEAST_PLAYERS, FILL_FIRST, RANDOM
-
-nimbus-perms (Paper Plugin)
-├── NimbusPermsPlugin      → Plugin entry point
-├── NimbusPermProvider     → Built-in permission provider
-├── LuckPermsProvider      → Optional LuckPerms integration
-├── ChatRenderer           → Prefix/suffix chat display
-└── NameTagHandler         → Tab list name tag formatting
-
-nimbus-display (Paper Plugin)
-├── DisplayCommand         → /ndisplay command (signs + NPCs)
-├── NpcRenderer            → FancyNpcs integration, holograms, floating items
-├── NpcManager             → NPC lifecycle + hologram updates
-├── NpcListener            → FancyNpcs NpcInteractEvent handling
-├── NpcInventory           → Server selector GUI (InventoryHolder)
-├── SignManager             → Sign lifecycle + rendering
-├── SignConfig             → YAML persistence
-└── SignListener           → Click-to-join handling
-
-nimbus-cli (Remote CLI)
-├── NimbusCli           → Entry point, arg parsing, native access relaunch
-├── CliConfig           → Connection profiles (~/.nimbus/cli.json)
-├── CliConsole          → JLine3 REPL, event display, screen sessions
-├── CompletionClient    → REST client for POST /api/console/complete
-├── StreamClient        → WebSocket client for /api/console/stream
-└── OutputRenderer      → Typed output lines → ANSI, event formatting
-
-nimbus-module-perms (Permissions Module)
-├── PermissionManager, PermissionGroup, PermissionTrack
-├── PermissionRoutes, PermsCommand
-└── PermissionTables (Exposed DB tables)
-
-nimbus-module-display (Display Module)
-├── DisplayManager, DisplayConfig
-└── DisplayRoutes
-
-nimbus-module-scaling (Smart Scaling Module)
-├── SmartScalingManager, SmartScalingConfigManager
-├── ScalingCommand, ScalingRoutes
-└── ScalingSnapshots, ScalingDecisions (Exposed DB tables)
-
-nimbus-module-players (Player Module)
-├── PlayerManager, PlayerSession, PlayerHistory
-├── PlayerRoutes, PlayerCommand
-└── PlayerTables (Exposed DB tables)
-
+```text title="Controller Packages"
+Nimbus.kt / NimbusKt.kt   → main() + bootstrap wiring
+NimbusVersion.kt          → Version read from JAR manifest / gradle.properties
+LogRotation.kt            → Rotate latest.log to dated archives
+api/                      → Ktor REST + WebSocket server (NimbusApi, auth, routes/)
+cluster/                  → NodeManager, ClusterServer (Netty TLS), ClusterWebSocketHandler,
+                            RemoteServiceHandle, RemoteFileProxy, TlsHelper, placement/
+config/                   → NimbusConfig, GroupConfig, DedicatedConfig, loaders
+console/                  → JLine3 REPL, CommandDispatcher, commands/
+database/                 → DatabaseManager, MigrationManager, Tables, MetricsCollector, AuditCollector
+doctor/                   → Core doctor checks (cluster, config, ports, etc.)
+event/                    → EventBus (SharedFlow) + sealed NimbusEvent
+group/                    → ServerGroup runtime state, GroupManager
+loadbalancer/             → TcpLoadBalancer, BackendHealthManager, strategies
+module/                   → ModuleManager (URLClassLoader + ServiceLoader), ModuleContextImpl
+proxy/                    → ProxySyncManager (tab list, MOTD, chat, maintenance)
+scaling/                  → Core ScalingEngine + reactive scaling rules
+service/                  → ServiceManager, ServiceFactory, ProcessHandle, PortAllocator,
+                            StateSyncManager, WarmPoolManager, DedicatedServiceManager
+setup/                    → First-run SetupWizard
+stress/                   → StressTestManager (simulated load)
+system/                   → OS-level helpers (memory reader, process inspector)
+template/                 → TemplateManager, ConfigPatcher, SoftwareResolver, ServiceDeployer,
+                            ModScanner
+update/                   → UpdateChecker (GitHub Releases auto-updater)
+velocity/                 → VelocityConfigGen (auto-manage proxy server list)
 ```
+
+### Module API (`modules/api/src/main/kotlin/dev/nimbuspowered/nimbus/module/`)
+
+`NimbusModule`, `ModuleContext`, `ModuleCommand`, `Migration`, `PluginDeployment`,
+`DoctorCheck`, `CommandOutput`. Everything a third-party module needs sits here
+with no dependency on `nimbus-core` — see [Custom Modules](/docs/developer/modules).
+
+### Agent package layout (`nimbus-agent/src/main/kotlin/`)
+
+`Agent.kt` (main), `AgentConfig`, `AgentRuntime` (WS loop), `AgentStateStore`
+(JSON persistence), `JavaResolver`, `LocalProcessHandle`, `LocalProcessManager`,
+`SetupWizard`, `TemplateDownloader`, plus `TlsHelper` for fingerprint verification.
+See [Agent Node](/docs/developer/agent) for details.
+
+### Shared protocol (`nimbus-protocol`)
+
+- `ClusterMessage` — sealed class with every controller ↔ agent message type
+- `StateManifest` — per-service state-sync manifest (manifest-compare delta sync)
+- `clusterJson` — preconfigured `kotlinx.serialization.json.Json`
+
+`ServiceHandle` lives in `nimbus-core/service/` (not in protocol) — it abstracts
+over local `ProcessHandle` and `RemoteServiceHandle`.
 
 ## Bootstrap flow
 
@@ -132,11 +99,22 @@ When Nimbus starts (`Nimbus.kt` → `nimbusMain()`), components are initialized 
 7. Component init         → EventBus, ServiceRegistry, PortAllocator,
                             TemplateManager, GroupManager, ProxySyncManager
 8. Group loading          → Parse group configs into GroupManager
-9. Module loading         → ModuleManager scans modules/, loads JARs via
-                            ServiceLoader, calls init() then enable().
-                            Modules register their own commands and API routes
-                            during init.
-10. ServiceManager        → Wire up all dependencies, register in ModuleContext
+9. Module loading         → ModuleManager scans modules/*.jar, creates one
+                            URLClassLoader per JAR, discovers NimbusModule via
+                            module.properties (fallback: ServiceLoader), calls
+                            init(). Modules register commands, routes, plugin
+                            deployments, event formatters, doctor checks, and
+                            migrations during init.
+10. Migrations run        → MigrationManager applies every registered migration
+                            in ascending version order (core 1–999, modules
+                            1000+). Baseline migrations are marked applied
+                            without executing.
+11. ServiceManager        → Wire up all dependencies, register in ModuleContext
+                            via registerService() so late-binding loops in modules
+                            (e.g. backup, scaling) can resolve it.
+12. Modules enable()      → Called on every loaded module after ServiceManager
+                            is registered. State-sync manager for [group.sync]
+                            groups is initialized here.
 11. ScalingEngine         → Create (but DON'T start yet — deferred until after boot)
 12. NimbusApi             → Create (but don't start) Ktor server
 13. NodeManager           → If cluster.enabled: init cluster coordination
@@ -201,25 +179,38 @@ val flow: SharedFlow<NimbusEvent> = eventBus.subscribe()
 
 ### Event types
 
-Events are modeled as a `sealed class NimbusEvent`:
+Events are modeled as `sealed class NimbusEvent` in `event/Events.kt`:
 
 | Category | Events |
 |---|---|
-| Service lifecycle | `ServiceStarting`, `ServiceReady`, `ServiceStopping`, `ServiceStopped`, `ServiceCrashed` |
-| Scaling | `ScaleUp`, `ScaleDown` |
+| Service lifecycle | `ServiceStarting`, `ServiceReady`, `ServiceDraining`, `ServiceStopping`, `ServiceStopped`, `ServiceCrashed`, `ServiceRecovered`, `ServicePrepared`, `WarmPoolReplenished`, `ServiceDeployed` |
+| Scaling | `ScaleUp`, `ScaleDown`, `PlacementBlocked` |
 | Custom state | `ServiceCustomStateChanged` |
-| Players | `PlayerConnected`, `PlayerDisconnected` |
+| State sync | `SyncCompleted`, `SyncFailed` |
+| Players | `PlayerConnected`, `PlayerDisconnected`, `PlayerServerSwitch` |
 | Groups | `GroupCreated`, `GroupUpdated`, `GroupDeleted` |
 | Messaging | `ServiceMessage` |
-| Permissions | `PermissionGroupCreated`, `PermissionGroupUpdated`, `PermissionGroupDeleted`, `PlayerPermissionsUpdated` |
-| Proxy updates | `ProxyUpdateAvailable`, `ProxyUpdateApplied` |
+| Modules (generic) | `ModuleEvent(moduleId, type, data)` — the envelope used for every module-defined event (permissions, punishments, resource packs, backups, scaling) |
+| Module lifecycle | `ModuleLoaded`, `ModuleEnabled`, `ModuleDisabled` |
+| Updates | `ProxyUpdateAvailable`, `ProxyUpdateApplied`, `NimbusUpdateAvailable`, `NimbusUpdateApplied` |
 | Proxy sync | `TabListUpdated`, `MotdUpdated`, `PlayerTabUpdated`, `ChatFormatUpdated` |
+| Maintenance | `MaintenanceEnabled`, `MaintenanceDisabled` |
+| Stress | `StressTestUpdated` |
+| Dedicated | `DedicatedCreated`, `DedicatedDeleted` |
 | Config | `ConfigReloaded` |
 | API | `ApiStarted`, `ApiStopped`, `ApiWarning`, `ApiError` |
-| Cluster | `NodeConnected`, `NodeDisconnected`, `NodeHeartbeat` |
+| Cluster | `ClusterStarted`, `NodeConnected`, `NodeDisconnected`, `NodeHeartbeat` |
 | Load balancer | `LoadBalancerStarted`, `LoadBalancerStopped`, `LoadBalancerBackendHealthChanged` |
+| CLI sessions | `CliSessionConnected`, `CliSessionDisconnected` |
 
 Events are broadcast via the REST API's WebSocket endpoint (`/api/events`) so external systems and plugins can react to them.
+
+<Callout type="info">
+Module-defined events (e.g. `PUNISHMENT_ISSUED`, `RESOURCE_PACK_CREATED`,
+`BACKUP_COMPLETED`, `SMART_SCHEDULE`) are emitted as `ModuleEvent(moduleId, type, data)`
+and serialized on the wire as `MODULE_EVENT` frames. See
+[reference/events](/docs/reference/events) for the envelope and per-module subtypes.
+</Callout>
 
 ## Process management
 
@@ -272,18 +263,36 @@ This runs automatically whenever a backend service becomes `READY` or stops.
 
 ## Plugin deployment
 
-Nimbus embeds plugin JARs as classpath resources and deploys them at boot:
+<Callout type="warn">
+Templates are **user-owned** in 0.9.x+. Nimbus never writes managed plugin JARs
+into `templates/global/plugins/` or `templates/global_proxy/plugins/`. Everything
+you drop into `templates/` stays yours.
+</Callout>
 
-| Plugin | Target | Auto-deployed |
+Every Nimbus-managed plugin (the SDK plus each module's companion plugin) is
+deployed at **runtime on every service prepare** by
+`ServiceFactory.resolveModulePlugins()`. A plugin registered by a module with
+`ModuleContext.registerPluginDeployment(PluginDeployment(...))` is copied from
+the module JAR's resource path into the service's `plugins/` directory with
+`REPLACE_EXISTING` — so deletions self-heal on next start and updates roll out
+automatically.
+
+| Plugin | Registered by | Target |
 |---|---|---|
-| `nimbus-bridge.jar` | `templates/global_proxy/plugins/` | Always |
-| `nimbus-sdk.jar` | `templates/global/plugins/` | Always |
-| `nimbus-display.jar` | `plugins/` (root) | Extracted for manual use |
-| `FancyNpcs.jar` | `templates/global/plugins/` | Always (required by nimbus-display) |
+| `nimbus-sdk.jar` | Core (always) | Backend services (Paper family, Folia) |
+| `nimbus-bridge.jar` | Core (Velocity) | Proxy services |
+| `nimbus-perms.jar` | `nimbus-module-perms` | Backend services |
+| `nimbus-display.jar` | `nimbus-module-display` | Backend services |
+| `nimbus-punishments.jar` | `nimbus-module-punishments` | Velocity (login/connect enforcement) |
+| `nimbus-punishments-backend.jar` | `nimbus-module-punishments` | Backend (chat-mute enforcement) |
+| `nimbus-resourcepacks.jar` | `nimbus-module-resourcepacks` | Backend services |
+| FancyNpcs | On-demand download | Only when the display module is used with NPCs |
 
-Plugin tracking (`.nimbus-plugins` file) ensures:
-- If a user removes a plugin JAR, Nimbus won't re-deploy it
-- If a plugin exists, Nimbus overwrites it with the latest version
+Each `PluginDeployment` can gate on `minMinecraftVersion` and declares a
+`PluginTarget` (`BACKEND` vs `VELOCITY`), so version-specific or proxy-only
+plugins are deployed only where they belong. See
+[Custom Modules](/docs/developer/modules#plugin-deployments) for the registration
+API.
 
 ## Shutdown order
 
@@ -325,9 +334,14 @@ The core design principle is **no frameworks** -- no Spring, no dependency injec
 
 ## Next steps
 
-- [Module Development](/docs/developer/modules) -- Building custom modules
+- [Custom Modules](/docs/developer/modules) -- Building third-party controller modules
 - [Smart Scaling Module](/docs/developer/scaling) -- Time-based schedules + predictive warmup
+- [Players Module](/docs/developer/players) -- Centralized tracking, session history
+- [Punishments Module](/docs/developer/punishments) -- Bans/mutes/kicks + Bridge enforcement
+- [Resource Packs Module](/docs/developer/resourcepacks) -- Registry, scoped assignments, hosting
+- [Backup Module](/docs/developer/backup) -- tar+zstd pipeline, GFS retention, MANIFEST.sha256
 - [SDK](/docs/developer/sdk) -- Backend server plugin API
 - [Bridge Plugin](/docs/developer/bridge) -- Velocity proxy plugin
-- [Display Plugin](/docs/developer/display) -- Signs + NPC management
+- [Agent Node](/docs/developer/agent) -- Remote node process
+- [Protocol](/docs/developer/protocol) -- Cluster message types
 - [WebSocket Reference](/docs/reference/websocket) -- Event stream protocol

@@ -102,7 +102,7 @@ Imported modpacks are configured as **DYNAMIC** groups by default. This means Ni
 The scaling engine monitors player counts across all instances and applies the same fill-rate rules described in the [Auto-Scaling Guide](/docs/guide/scaling). You get elastic modded infrastructure without lifting a finger.
 
 <Callout title="Memory Recommendation" type="info">
-Modded servers typically need **2-4G** per instance. Heavy modpacks (200+ mods) may need **4-6G**. Set this during import or adjust later in `groups/<name>.toml` under the `jvm_memory` key.
+Modded servers typically need **2-4G** per instance. Heavy modpacks (200+ mods) may need **4-6G**. Set this during import or adjust later in `config/groups/<name>.toml` under `[group.resources] memory`.
 </Callout>
 
 ## Automatic Proxy Forwarding

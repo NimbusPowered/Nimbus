@@ -1,0 +1,106 @@
+---
+title: Punishments Messages
+description: Templates for kick screens and chat-mute notices used by the Punishments module.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Punishments module renders player-facing messages from a single TOML file at `config/modules/punishments/messages.toml`. The file is auto-generated with defaults on first launch and can be edited either by hand (reload with `reload`) or live via the Dashboard — both paths write atomically through the same store.
+
+Runtime controls for the module (`deploy_plugin`, `check_cache_ttl`, `expiry_check_interval`) live in the `[punishments]` section of [nimbus.toml](/docs/config/nimbus-toml#punishments), not here.
+
+## Complete Example
+
+```toml title="config/modules/punishments/messages.toml"
+# Punishment messages — shown to players on kick / chat mute.
+# Use &-color codes (e.g. &c for red). Placeholders: {target} {issuer} {reason} {remaining} {expires} {type}
+
+ban = """&c&lYou are banned from the network
+&7Reason: &f{reason}
+&7Banned by: &f{issuer}
+&7Appeal at our support portal."""
+
+tempban = """&c&lYou are temporarily banned
+&7Reason: &f{reason}
+&7Banned by: &f{issuer}
+&7Expires in: &f{remaining}"""
+
+ipban = """&c&lYour IP is banned from the network
+&7Reason: &f{reason}"""
+
+mute = "&cYou are muted: &f{reason}"
+tempmute = "&cYou are muted for &f{remaining}&c: &f{reason}"
+kick = "&cKicked: &f{reason}"
+warn = """&e&l⚠ Warning &7from &f{issuer}
+&7Reason: &f{reason}"""
+
+broadcast_issued = "&c[PUNISH] &f{target} &7was &c{type} &7by &f{issuer} &7({reason})"
+broadcast_revoked = "&a[PUNISH] &f{target} &7was un-{type} by &f{issuer}"
+```
+
+---
+
+## Message Keys
+
+All values are strings. Triple-quoted (`"""..."""`) multi-line strings are supported and preferred for any template with line breaks.
+
+| Key | Shown when | Channel |
+|-----|------------|---------|
+| `ban` | Player with an active `BAN` tries to log in | Proxy kick screen |
+| `tempban` | Player with an active `TEMPBAN` tries to log in | Proxy kick screen |
+| `ipban` | IP listed in an active `IPBAN` tries to log in | Proxy kick screen |
+| `mute` | Muted player attempts to chat | Backend chat listener |
+| `tempmute` | Tempmuted player attempts to chat | Backend chat listener |
+| `kick` | Kick command applied to an online player | Proxy disconnect |
+| `warn` | Warn command applied to an online player | In-game chat notice |
+| `broadcast_issued` | Punishment issued (any type) | Staff broadcast + audit log |
+| `broadcast_revoked` | Punishment revoked (any type) | Staff broadcast + audit log |
+
+---
+
+## Placeholders
+
+Placeholders are literal strings in the template and are substituted at render time. Unknown placeholders are left as-is.
+
+| Placeholder | Value |
+|-------------|-------|
+| `{type}` | Lowercase punishment type: `ban`, `tempban`, `ipban`, `mute`, `tempmute`, `kick`, `warn` |
+| `{target}` | Punished player's name |
+| `{issuer}` | Name of the staff member or system actor that issued the punishment |
+| `{reason}` | Reason text. Falls back to `"No reason given"` if blank. |
+| `{duration}` | Same value as `{remaining}` — kept for readability in templates. |
+| `{expires}` | ISO-8601 expiry timestamp, or `"never"` for permanent punishments |
+| `{remaining}` | Human-friendly remaining duration (e.g. `3d 4h`), or `"permanent"` for permanent punishments |
+
+<Callout type="info">
+`{remaining}` updates every time the message is rendered, so two players kicked by the same tempban seconds apart will see different countdowns.
+</Callout>
+
+---
+
+## Color Codes
+
+Messages use legacy `&`-codes. They are converted to section-sign codes (`§`) at render time, so they render the same on Adventure (Paper 1.16.5+) and legacy (Spigot 1.8–1.15) servers.
+
+| Code | Color |
+|------|-------|
+| `&0`–`&9`, `&a`–`&f` | Standard chat colors |
+| `&l` | Bold |
+| `&o` | Italic |
+| `&n` | Underline |
+| `&m` | Strikethrough |
+| `&k` | Obfuscated |
+| `&r` | Reset |
+
+---
+
+## Editing via Dashboard
+
+The Dashboard punishments page exposes a live editor for every key above. Saving in the Dashboard performs the same atomic write-through as a manual file edit (temp file + `ATOMIC_MOVE`), so operators can edit either surface without losing changes.
+
+---
+
+## Related
+
+- [`[punishments]` in nimbus.toml](/docs/config/nimbus-toml#punishments) — plugin deployment, check cache TTL, expiry interval
+- [Punishments Guide](/docs/guide/punishments) — console commands, enforcement flow, permission nodes

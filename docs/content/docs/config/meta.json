@@ -9,6 +9,10 @@
     "templates",
     "---Modules---",
     "permissions",
-    "display"
+    "display",
+    "scaling",
+    "punishments",
+    "syncproxy",
+    "backup"
   ]
 }

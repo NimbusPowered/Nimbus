@@ -1,0 +1,191 @@
+---
+title: Players Module
+description: Centralized player tracking — connect/disconnect/switch events, session history, per-player playtime, and aggregate statistics.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Players module (`nimbus-module-players`) is the controller-side system of
+record for who is online across the whole network, where they currently are,
+and how much time they've logged. It subscribes to player events fired by the
+Bridge and SDK, maintains an in-memory map of online players, and persists
+session history + aggregate metadata to the database.
+
+## Architecture
+
+```text title="Directory Structure"
+modules/players/
+└── src/main/kotlin/dev/nimbuspowered/nimbus/module/players/
+    ├── PlayersModule.kt          # NimbusModule: wiring
+    ├── PlayerTracker.kt          # In-memory online map + DB writes
+    ├── PlayerTables.kt           # Exposed tables: player_sessions, player_tracking
+    ├── commands/
+    │   └── PlayersModuleCommand.kt
+    ├── migrations/
+    │   └── PlayersV1_Baseline.kt # Migration range: 3000+
+    └── routes/
+        └── PlayerRoutes.kt       # REST: /api/players/*
+```
+
+Schema-version range: **3000+** (registered via `ModuleContext.registerMigrations`).
+
+## Data flow
+
+The module does not poll; it reacts to events on the `EventBus`.
+
+```text title="Event sources → Tracker → DB"
+Bridge POST /api/proxy/events  →  ProxyEventRoutes emits on EventBus:
+                                    PlayerConnected
+                                    PlayerDisconnected
+                                    PlayerServerSwitch
+                                  │
+                                  ▼
+                        PlayerTracker.onPlayerConnect / onDisconnect / onSwitch
+                                  │
+                                  ├── update in-memory ConcurrentHashMap<uuid, TrackedPlayer>
+                                  ├── INSERT into player_sessions
+                                  ├── UPSERT player_tracking (first_seen / last_seen / total_playtime)
+                                  └── ModuleEvent("PLAYER_SESSION_START" / "PLAYER_SESSION_END")
+```
+
+The SDK on backends forwards connect/disconnect events to the controller; the
+Bridge additionally forwards proxy-level server switches. This gives the
+Tracker the only three inputs it needs.
+
+## Tables
+
+Both tables are created by `PlayersV1_Baseline`.
+
+### `player_sessions`
+
+One row per session (connect → disconnect).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT (PK) | Autoincrement |
+| `uuid` | VARCHAR(36) | Player UUID (indexed with `connected_at`) |
+| `name` | VARCHAR(16) | Name at connection time |
+| `service` | VARCHAR(128) | Service name; also indexed |
+| `group_name` | VARCHAR(128) | Group name |
+| `connected_at` | VARCHAR(30) | ISO-8601 |
+| `disconnected_at` | VARCHAR(30) | Nullable; set on disconnect |
+
+### `player_tracking`
+
+One row per unique player (UUID as PK).
+
+| Column | Type | Notes |
+|---|---|---|
+| `uuid` | VARCHAR(36) (PK) | Player UUID |
+| `name` | VARCHAR(16) | Most recently seen name |
+| `first_seen` | VARCHAR(30) | ISO-8601 |
+| `last_seen` | VARCHAR(30) | ISO-8601 |
+| `total_playtime_seconds` | LONG | Aggregate across all closed sessions |
+
+## In-memory index
+
+`PlayerTracker.onlinePlayers` is a `ConcurrentHashMap<uuid, TrackedPlayer>`
+holding the UUID, name, current service + group, connection instant, and the
+open `sessionId`. Name lookup is case-insensitive linear scan — fine at
+network scale (thousands, not millions).
+
+`TrackedPlayer` captures just enough to close the session cleanly on disconnect
+without an extra DB round-trip:
+
+```kotlin title="TrackedPlayer"
+data class TrackedPlayer(
+    val uuid: String,
+    val name: String,
+    val currentService: String,
+    val currentGroup: String,
+    val connectedAt: Instant,
+    val sessionId: Int
+)
+```
+
+## Server switches
+
+`onPlayerServerSwitch` closes the previous `player_sessions` row and opens a
+new one in a single transaction. Playtime is credited to the closed session's
+duration. This keeps the per-service analytics accurate even for players who
+bounce between games.
+
+## REST API
+
+All routes under `/api/players` — service-level auth.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/players/online` | Everyone currently online (name, uuid, service, group, connectedAt) |
+| `GET` | `/api/players/online/{uuid}` | Single online player |
+| `GET` | `/api/players/history/{uuid}?limit=20` | Recent sessions, newest first |
+| `GET` | `/api/players/info/{uuid}` | Aggregate meta + current online flag |
+| `GET` | `/api/players/all?q=&limit=50` | Search / paginate known players |
+| `GET` | `/api/players/stats` | `{ online, totalUnique, perService }` |
+
+Response shapes are defined as `@Serializable` data classes in
+`routes/PlayerRoutes.kt` (`OnlinePlayer`, `PlayerHistoryEntry`,
+`PlayerMetaResponse`, `PlayerStatsResponse`).
+
+## Console command
+
+`players` exposes a console/CLI-facing view of the tracker:
+
+```text title="Subcommands"
+players list                 # Everyone online (grouped by service)
+players info  <player>       # Aggregate meta for a player (name or uuid)
+players history <player>     # Recent sessions
+players stats                # Online count, unique players, per-service breakdown
+```
+
+Tab-completion is registered via `ModuleContext.registerCompleter("players", ...)`
+with awareness of online names and service names.
+
+## Events
+
+The module subscribes to the core lifecycle events `NimbusEvent.PlayerConnected`,
+`PlayerDisconnected`, and `PlayerServerSwitch` — those are the source of truth
+and are what the Bridge reports via `POST /api/proxy/events`.
+
+It also registers two **console formatters** for the module-event envelope:
+
+| Type | Rendered |
+|---|---|
+| `PLAYER_SESSION_START` | `+ <name> joined <service>` |
+| `PLAYER_SESSION_END`   | `- <name> left <service>` |
+
+<Callout type="info">
+The formatters are scaffolding — no code path in the module currently *emits*
+`NimbusEvent.ModuleEvent("players", "PLAYER_SESSION_START", …)`. They render
+correctly if another component (e.g. a downstream module or manual emit from
+`EventBus`) pushes them. Do not assume subscribing to these will fire on player
+movement today. Use the core lifecycle events above instead.
+</Callout>
+
+## Dashboard integration
+
+`PlayersModule.dashboardConfig` declares:
+
+- Icon: `Users`
+- API prefix: `/api/players`
+- Sections: `Online Players` (table → `/online`), `Statistics` (stats → `/stats`)
+
+The dashboard automatically renders `/modules/players` using this config.
+
+## Edge cases
+
+- **Duplicate connects** (e.g. proxy replay): the tracker overwrites the
+  in-memory entry without inserting a duplicate row; the stale `sessionId`
+  is just abandoned. A follow-up disconnect closes the most recent row.
+- **Missed disconnects**: if the controller crashes, open sessions have a
+  null `disconnected_at` forever. Downstream analytics should treat
+  sessions with a very old `connected_at` and null close as abandoned.
+- **Name changes**: `player_tracking.name` is updated on every connect, so
+  `searchPlayers(q)` finds the current name. Historical sessions keep the
+  name that was valid at the time.
+
+## Next steps
+
+- [Custom Modules](/docs/developer/modules) — Module lifecycle + ModuleContext API
+- [Events Reference](/docs/reference/events) — `MODULE_EVENT` envelope
+- [API Reference](/docs/reference/api) — Full `/api/players/*` documentation

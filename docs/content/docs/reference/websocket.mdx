@@ -1,434 +1,240 @@
 ---
 title: WebSocket API
-description: Real-time WebSocket endpoints for event streaming, per-service console access, and cluster agent communication.
+description: Live event stream, per-service console, Remote CLI multiplex, and the cluster agent channel.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Nimbus provides three WebSocket endpoints for real-time communication: a global event stream, per-service console access, and the Remote CLI console stream.
+Nimbus runs WebSocket endpoints on two different engines:
 
-## Authentication
-
-WebSocket connections support two authentication methods:
-
-**1. Authorization header (recommended):**
-```text title="Header"
-Authorization: Bearer your-secret-token
-```
-
-**2. Query parameter (legacy, for clients that cannot set headers):**
-```text title="Query Parameter"
-ws://host:port/api/events?token=your-secret-token
-ws://host:port/api/services/Lobby-1/console?token=your-secret-token
-```
-
-The `Authorization` header is preferred because query parameters may appear in server access logs and proxy logs. Both methods are accepted.
+- **Main REST API (Ktor CIO)** on `[api].port` (default `8080`) hosts `/api/events`, `/api/services/{name}/console`, and `/api/console/stream`. Auth matches the REST layer — bearer token via `Authorization` header (preferred) or `?token=` query param.
+- **Cluster server (Ktor Netty)** on `[cluster].agent_port` (default `8443`) hosts `/cluster`. This is a **separate** server process with its own TLS keystore and auth (`cluster.token` shared secret + TLS fingerprint pinning). It is not part of the REST API.
 
 <Callout type="warn">
-If authentication fails, the connection is immediately closed with code `1008` (Policy Violation).
+  The cluster WebSocket is not on the REST port. Older docs listed `ws://controller:8080/cluster` — that was always wrong. Use `wss://controller:8443/cluster` (default, TLS enabled) or `ws://controller:8443/cluster` when `[cluster] tls_enabled = false`.
 </Callout>
+
+## Connecting
+
+### Auth header (preferred)
+
+```text
+GET /api/events HTTP/1.1
+Host: controller:8080
+Connection: Upgrade
+Upgrade: websocket
+Authorization: Bearer <master-token-or-JWT>
+```
+
+### Query parameter (fallback)
+
+```text
+wss://controller:8080/api/events?token=<master-token>
+```
+
+Browser WebSocket clients can't set custom headers, so the dashboard uses the query-param form. The controller accepts both on every authenticated WS endpoint.
+
+Tokens can be:
+
+- The **master** API token (`[api].token` / `NIMBUS_API_TOKEN`).
+- The **derived service** token (HMAC-SHA256 of the master token with message `nimbus-service-token`), for `/api/events` only.
+- A **JWT** with the `admin` scope (for admin-only endpoints) or any `SERVICE_SCOPES` entry (for service-level endpoints).
+
+Unauthenticated connections are closed immediately with close code `1008 VIOLATED_POLICY` and reason `"Authentication required..."`.
 
 ---
 
-## Event Stream
+## `/api/events` — Live event stream
 
-### `ws://host:port/api/events`
+Path: `GET /api/events` (WebSocket upgrade)  
+Auth: **service** (master or derived service token)  
+Direction: **server → client** only.
 
-Subscribes to all Nimbus events in real-time. Messages are JSON-encoded `EventMessage` objects:
+The controller pushes every event emitted on the internal `EventBus` as one JSON text frame per event. Frame schema:
 
-```json title="Event Payload"
+```json
 {
   "type": "SERVICE_READY",
-  "timestamp": "2025-01-15T10:30:15.123Z",
-  "data": {
-    "service": "Lobby-1",
-    "group": "Lobby"
-  }
+  "timestamp": "2026-04-15T12:34:56.123Z",
+  "data": { "service": "Lobby-1", "group": "Lobby" }
 }
 ```
 
-The connection receives every event emitted by the system. See the [Event Reference](./events) for all event types and their payloads.
+`type` is a stable uppercase string. `data` is a flat `{ string: string }` map — numbers and booleans are stringified so consumers don't have to guess the value type per key. See [Events reference](/docs/reference/events) for every type.
 
-### Connection Example (JavaScript)
+<Callout type="info">
+  The server does not send ping frames specific to this endpoint — the Ktor WebSocket plugin auto-pings every 15 s with a 30 s timeout. Clients only need to respond to pong frames as usual.
+</Callout>
 
-```javascript title="Event Stream Client"
-const token = 'your-secret-token';
-const ws = new WebSocket(`ws://localhost:8080/api/events?token=${token}`);
+### Frame size
 
-ws.onopen = () => {
-  console.log('Connected to Nimbus event stream');
-};
-
-ws.onmessage = (event) => {
-  const msg = JSON.parse(event.data);
-  console.log(`[${msg.type}]`, msg.data);
-
-  switch (msg.type) {
-    case 'SERVICE_READY':
-      console.log(`Service ${msg.data.service} is ready`);
-      break;
-    case 'PLAYER_CONNECTED':
-      console.log(`${msg.data.player} joined ${msg.data.service}`);
-      break;
-    case 'SCALE_UP':
-      console.log(`Scaling ${msg.data.group}: ${msg.data.from} -> ${msg.data.to}`);
-      break;
-  }
-};
-
-ws.onclose = (event) => {
-  console.log(`Disconnected: ${event.code} ${event.reason}`);
-};
-```
-
-### Connection Example (Python)
-
-```python title="Event Stream Client"
-import asyncio
-import json
-import websockets
-
-async def listen():
-    uri = "ws://localhost:8080/api/events?token=your-secret-token"
-    async with websockets.connect(uri) as ws:
-        print("Connected to Nimbus event stream")
-        async for message in ws:
-            event = json.loads(message)
-            print(f"[{event['type']}] {event['data']}")
-
-            if event["type"] == "SERVICE_CRASHED":
-                print(f"ALERT: {event['data']['service']} crashed "
-                      f"(exit code {event['data']['exitCode']})")
-
-asyncio.run(listen())
-```
+`maxFrameSize` is 64 KiB on the controller. Every event payload today fits inside one frame; if a future event exceeds this, the controller would close the connection — so keep the data shape flat.
 
 ---
 
-## Console Stream
+## `/api/services/{name}/console` — Per-service console
 
-### `ws://host:port/api/services/{name}/console`
+Path: `GET /api/services/{name}/console`  
+Auth: **admin only** (master token / JWT admin). Service tokens are rejected.  
+Direction: **bidirectional**.
 
-Bidirectional WebSocket for interacting with a service's process. Receive stdout lines and send stdin commands.
+Opens a bidirectional stream for a single running service:
 
-**Receiving:** Each frame is a single line of the service's stdout output (plain text).
+- **Outbound** (server → client): every line of the service process's stdout, as plain text frames.
+- **Inbound** (client → server): each text frame is `.trim()`-ed and, if non-empty, written as a command to the process stdin.
 
-**Sending:** Each text frame you send is written to the service's stdin as a command.
+### Close codes
 
-### Connection Lifecycle
-
-1. Connect with authentication
-2. If the service doesn't exist, the connection is closed with code `1003` and message `Service '{name}' not found`
-3. If no process handle is available, closed with `1003` and `No process handle for '{name}'`
-4. On success, stdout lines begin streaming immediately
-5. Send text frames to execute commands on the service
-6. Close the connection when done
-
-### Example (JavaScript)
-
-```javascript title="Console Client"
-const token = 'your-secret-token';
-const service = 'Lobby-1';
-const ws = new WebSocket(
-  `ws://localhost:8080/api/services/${service}/console?token=${token}`
-);
-
-ws.onopen = () => {
-  console.log(`Attached to ${service} console`);
-};
-
-ws.onmessage = (event) => {
-  // Each message is a line of server output
-  console.log(event.data);
-};
-
-// Send a command to the server
-function sendCommand(command) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(command);
-  }
-}
-
-// Example: whitelist a player
-sendCommand('whitelist add Steve');
-
-// Example: broadcast a message
-sendCommand('say Server restarting in 5 minutes!');
-```
-
-### Example (Python)
-
-```python title="Console Client"
-import asyncio
-import websockets
-
-async def console_session():
-    uri = "ws://localhost:8080/api/services/Lobby-1/console?token=your-secret-token"
-    async with websockets.connect(uri) as ws:
-        # Start reading output in background
-        async def read_output():
-            async for line in ws:
-                print(f"[Lobby-1] {line}")
-
-        reader = asyncio.create_task(read_output())
-
-        # Send commands
-        await ws.send("list")
-        await asyncio.sleep(2)
-        await ws.send("say Hello from Python!")
-        await asyncio.sleep(5)
-
-        reader.cancel()
-
-asyncio.run(console_session())
-```
-
----
-
-## CLI Console Stream
-
-### `ws://host:port/api/console/stream`
-
-Multiplexed WebSocket for the [Remote CLI](/docs/guide/remote-cli). Carries command execution, tab completion, live events, and screen sessions over a single connection.
-
-**Auth:** Master API token required (via `Authorization` header or `?token=` query parameter).
-
-### Client → Server Messages
-
-```json title="Execute a command"
-{"type": "execute", "id": "1", "input": "status"}
-```
-
-```json title="Tab completion via WebSocket"
-{"type": "complete", "id": "2", "input": "start Lo"}
-```
-
-```json title="Attach to service console"
-{"type": "screen_attach", "service": "Lobby-1"}
-```
-
-```json title="Send input to attached screen"
-{"type": "screen_input", "service": "Lobby-1", "text": "say hello"}
-```
-
-```json title="Detach from screen"
-{"type": "screen_detach"}
-```
-
-```json title="Hello (sent on connect with client info)"
-{"type": "hello", "text": "{\"username\":\"jonas\",\"hostname\":\"DESKTOP-ABC\",\"os\":\"Windows 11 amd64\"}"}
-```
-
-### Server → Client Messages
-
-```json title="Command output line"
-{"type": "output", "id": "1", "line": {"type": "header", "text": "Network: MyServer"}}
-```
-
-```json title="Command finished"
-{"type": "output_end", "id": "1"}
-```
-
-```json title="Tab completion results"
-{"type": "completions", "id": "2", "candidates": ["Lobby"]}
-```
-
-```json title="Live event"
-{"type": "event", "event": {"type": "SERVICE_READY", "timestamp": "...", "data": {"service": "Lobby-1"}}}
-```
-
-```json title="Screen output line"
-{"type": "screen_line", "text": "[14:23:01 INFO]: Done (2.341s)!"}
-```
-
-```json title="Screen attached/detached"
-{"type": "screen_attached", "text": "Lobby-1"}
-{"type": "screen_detached"}
-```
-
-### Output Line Types
-
-Each command output line has a `type` field that indicates how it should be rendered:
-
-| Type | Meaning | Rendering |
-|------|---------|-----------|
-| `header` | Section title | Bold, colored header bar |
-| `info` | Neutral information | Cyan/gray |
-| `success` | Success message | Green |
-| `error` | Error message | Red |
-| `item` | List item | Indented |
-| `text` | Pre-formatted text | Pass-through (may contain ANSI) |
-
-### Session Lifecycle
-
-1. Client connects and sends a `hello` message with system username, hostname, and OS
-2. Server emits `CliSessionConnected` event (visible on local console)
-3. Client sends `execute`/`complete`/`screen_*` messages, server responds
-4. On disconnect, server emits `CliSessionDisconnected` with duration and command count
-5. Session is persisted to the `cli_sessions` database table
-
----
-
-## Cluster Stream
-
-### `ws://host:port/cluster`
-
-WebSocket endpoint for agent node connections. Used by `nimbus-agent` to communicate with the controller in cluster mode. This endpoint is only available when `cluster.enabled = true`.
-
-### Authentication
-
-The first message from the agent must be an `AUTH_REQUEST`:
-
-```json title="AUTH_REQUEST"
-{
-  "type": "AUTH_REQUEST",
-  "nodeName": "node-1",
-  "token": "my-cluster-secret",
-  "maxMemory": "8G",
-  "maxServices": 10,
-  "agentVersion": "0.1.0",
-  "os": "Linux",
-  "arch": "amd64"
-}
-```
-
-The controller responds with:
-
-```json title="AUTH_RESPONSE"
-{
-  "type": "AUTH_RESPONSE",
-  "success": true,
-  "nodeId": "node-1"
-}
-```
-
-If authentication fails, the connection is closed with code `1008` (Policy Violation).
-
-### Message Flow
-
-After authentication, the WebSocket carries bidirectional messages between controller and agent:
-
-**Controller to Agent:**
-- `HEARTBEAT_REQUEST` -- periodic health check
-- `START_SERVICE` -- start a service on the agent
-- `STOP_SERVICE` -- stop a service on the agent
-- `SEND_COMMAND` -- execute a command on a service's stdin
-
-**Agent to Controller:**
-- `HEARTBEAT_RESPONSE` -- CPU, memory, and service status
-- `SERVICE_STATE_CHANGED` -- service lifecycle updates (STARTING, READY, STOPPED, CRASHED)
-- `SERVICE_STDOUT` -- stdout lines from running services
-- `SERVICE_PLAYER_COUNT` -- player count updates
-- `COMMAND_RESULT` -- result of a sent command
-- `TEMPLATE_REQUEST` -- request to download a template
-- `LOG_MESSAGE` -- agent log messages
-
-All messages are JSON-encoded. The protocol is defined in the `nimbus-protocol` module.
+| Code | Reason |
+|------|--------|
+| `1003 CANNOT_ACCEPT` | `Service '<name>' not found` — the service isn't in the registry. |
+| `1003 CANNOT_ACCEPT` | `No process handle for '<name>'` — the service is registered but not running (STOPPED / CRASHED). |
+| `1008 VIOLATED_POLICY` | Auth failed. |
 
 <Callout type="warn">
-This endpoint is not intended for external clients. It uses a custom protocol between the controller and agent. Use the `/api/events` WebSocket for monitoring cluster state from external systems.
+  There is no command framing — every text frame becomes a stdin line. That means paste buffers can inject many commands at once. If you need command/output correlation, use `/api/console/stream` instead.
 </Callout>
 
 ---
 
-## Configuration
+## `/api/console/stream` — Remote CLI multiplex
 
-WebSocket settings are configured in Nimbus's Ktor server:
+Path: `GET /api/console/stream`  
+Auth: **admin only** (master token).  
+Direction: **bidirectional**, multiplexed JSON.
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| Ping interval | 15 seconds | Server sends ping frames to detect dead connections |
-| Timeout | 30 seconds | Connection closed if no pong received |
-| Max frame size | 64 KB | Maximum size of a single WebSocket frame |
+This is the channel used by the Remote CLI (`nimbus-cli`) and the dashboard console. Every frame is a JSON object with a `type` field.
 
----
+### Inbound message types
 
-## Reconnection
+```json
+// Hello — first message after connect, carries client info for the session tracker.
+{ "type": "hello",
+  "text": "{\"username\":\"jonas\",\"hostname\":\"laptop\",\"os\":\"Linux\"}" }
 
-Nimbus does not provide built-in reconnection. Clients should implement their own reconnection logic with exponential backoff:
+// Execute a command. id correlates output frames; echoed back in output_end.
+{ "type": "execute", "id": "cmd-7", "input": "services list" }
 
-```javascript title="Reconnection Helper"
-function connectWithRetry(url, maxRetries = 10) {
-  let retries = 0;
+// Ask for tab completions of a partial buffer.
+{ "type": "complete", "id": "c-3", "input": "ser" }
 
-  function connect() {
-    const ws = new WebSocket(url);
+// Attach to a service process's stdout screen (one active per session).
+{ "type": "screen_attach", "service": "Lobby-1" }
 
-    ws.onopen = () => {
-      console.log('Connected');
-      retries = 0; // Reset on successful connection
-    };
+// Send a single line to the attached service's stdin.
+{ "type": "screen_input", "service": "Lobby-1", "text": "say hi" }
 
-    ws.onclose = (event) => {
-      if (retries < maxRetries) {
-        const delay = Math.min(1000 * Math.pow(2, retries), 30000);
-        console.log(`Reconnecting in ${delay}ms...`);
-        retries++;
-        setTimeout(connect, delay);
-      } else {
-        console.log('Max retries reached');
-      }
-    };
+// Detach from the current screen session.
+{ "type": "screen_detach" }
+```
 
-    ws.onmessage = (event) => {
-      // Handle messages
-    };
-  }
+### Outbound message types
 
-  connect();
-}
+```json
+// Command output line tagged by kind (header, info, success, error, item, text).
+{ "type": "output", "id": "cmd-7", "kind": "success", "text": "Started Lobby-1" }
 
-connectWithRetry('ws://localhost:8080/api/events?token=your-secret');
+// Sent once after the dispatcher finishes a command — acts as a barrier for clients.
+{ "type": "output_end", "id": "cmd-7" }
+
+// Tab-completion response.
+{ "type": "completions", "id": "c-3", "candidates": ["services", "service"] }
+
+// Live event envelope — same payload as /api/events but inside this channel.
+{ "type": "event", "event": { "type": "SERVICE_READY", "data": { ... } } }
+
+// Screen lifecycle.
+{ "type": "screen_attached", "text": "Lobby-1" }
+{ "type": "screen_line", "text": "[12:34:56] Player joined" }
+{ "type": "screen_detached" }
+{ "type": "screen_error", "text": "Service 'X' not found" }
 ```
 
 <Callout type="info">
-The `/api/health` REST endpoint can be used to check if the API is available before attempting a WebSocket connection.
+  High-frequency events (`NODE_HEARTBEAT`, `STRESS_TEST_UPDATED`) are suppressed on this channel to keep the CLI readable. Subscribe to `/api/events` directly if you need them.
 </Callout>
+
+### Session tracking
+
+On the first `hello`, the controller emits `CLI_SESSION_CONNECTED` with a GeoIP-resolved `location`. On disconnect it emits `CLI_SESSION_DISCONNECTED` with `durationSeconds` and `commandCount`. Both events are visible on `/api/events` and recorded in the `cli_sessions` database table.
+
+### Command output ordering
+
+The controller launches a drain loop for each `execute` so command output can't block the Ktor I/O thread pool. Output lines are delivered in order of emission, and `output_end` always follows the last `output` frame of its command.
 
 ---
 
-## Cluster WebSocket
+## `/cluster` — Agent control channel (separate Netty server)
 
-### `ws://host:port/cluster`
+Path: `GET /cluster`  
+Host: `[cluster].agent_port` (default `8443`), **not** the REST API port  
+Auth: cluster token (`AUTH_REQUEST` message) + TLS fingerprint pinning  
+Transport: `wss://` by default (`[cluster].tls_enabled = true`), `ws://` only when TLS is explicitly disabled.
 
-Used by nimbus-agent instances to connect to the controller. This endpoint is only active when `cluster.enabled = true`.
+This endpoint lives on the `ClusterServer` Ktor Netty server, which runs with its own thread pool and its own TLS keystore (`cluster.jks` — auto-generated self-signed if none is configured). Agents connect with:
 
-<Callout type="info">
-This endpoint is for the agent-to-controller communication protocol. You do not need to use it directly -- the `nimbus-agent` JAR handles the connection automatically.
+1. **Bootstrap** — if no cert is pinned, the agent calls `GET /api/cluster/bootstrap` on the REST port first, pins the returned fingerprint, then opens the TLS WebSocket.
+2. **AUTH_REQUEST** — first message after the handshake. Presents `nodeId`, `agentVersion`, and `token` (must match `[cluster].token`).
+3. **AUTH_RESPONSE** — the controller either accepts or closes the connection.
+4. **Heartbeat loop** — agent periodically reports node stats, service states, resident memory; controller replies with commands (start/stop service, template hash, etc.).
+
+Message framing is the sealed `ClusterMessage` hierarchy in `nimbus-protocol`. The schema lives with the protocol module and evolves with the cluster wire format — read `nimbus-protocol/src/main/kotlin/` for the current types.
+
+<Callout type="warn">
+  The controller cannot reject individual messages mid-stream — a misbehaving agent is disconnected entirely. Agents are expected to reconnect with exponential backoff. The TLS certificate is pinned by SHA-256 fingerprint on first contact; changes require the agent to explicitly accept a new cert, matching the SSH-style `known_hosts` model.
 </Callout>
 
-### Protocol
+### Why a separate server?
 
-1. Agent connects and sends an `AUTH_REQUEST` message with its cluster token, node name, and resource info
-2. Controller validates the token and responds with `AUTH_RESPONSE`
-3. If accepted, the agent enters a message loop exchanging heartbeats, service state changes, and commands
-4. If the connection drops, the agent automatically attempts reconnection
+- The cluster channel needs TLS with a keystore the controller generates itself — mixing it with the public REST API (which is typically fronted by a reverse proxy) would force the operator to manage the REST certificate's SANs for agent hostnames too.
+- `agent_port` is usually firewalled to internal networks. The REST port is often exposed to the operator's office / dashboard via a different path (VPN, bastion, reverse proxy).
+- Throughput: cluster traffic (heartbeats, state sync notifications) uses Netty's connection-per-agent model efficiently without competing with REST request handling.
 
-### Message Types
+---
 
-All messages are JSON with a `type` discriminator field. Messages are defined in the `nimbus-protocol` module.
+## Keepalives, reconnect, and backpressure
 
-**Controller to Agent:**
+- All authenticated endpoints inherit Ktor's install-wide WebSocket config: `pingPeriod = 15 s`, `timeout = 30 s`, `maxFrameSize = 64 KiB`.
+- There is no server-side reconnect — clients must retry. Exponential backoff (1 s → 30 s) is recommended.
+- `/api/events` uses an unbounded internal buffer per subscriber; slow clients will accumulate memory on the server until disconnect. Prefer `output_end` barriers and explicit flow control on the client side.
+- The cluster channel uses bounded queues per agent; sustained stalls trigger a disconnect so the agent re-registers cleanly.
 
-| Type | Description |
-|------|-------------|
-| `AUTH_RESPONSE` | Accept/reject authentication |
-| `START_SERVICE` | Start a service on the agent |
-| `STOP_SERVICE` | Stop a service on the agent |
-| `SEND_COMMAND` | Send a console command to a service |
-| `HEARTBEAT_REQUEST` | Request resource usage info |
-| `TEMPLATE_INFO` | Template download info |
-| `SHUTDOWN_AGENT` | Request graceful agent shutdown |
+---
 
-**Agent to Controller:**
+## Example — live event subscriber (Node.js)
 
-| Type | Description |
-|------|-------------|
-| `AUTH_REQUEST` | Authenticate with the controller |
-| `HEARTBEAT_RESPONSE` | CPU, memory, and service status |
-| `SERVICE_STATE_CHANGED` | Service state transition |
-| `SERVICE_STDOUT` | Stdout line from a service |
-| `SERVICE_PLAYER_COUNT` | Player count update |
-| `COMMAND_RESULT` | Result of a command execution |
-| `TEMPLATE_REQUEST` | Request a template download |
-| `LOG_MESSAGE` | Agent log message |
+```js
+import WebSocket from 'ws';
+
+const ws = new WebSocket('ws://127.0.0.1:8080/api/events', {
+  headers: { Authorization: `Bearer ${process.env.NIMBUS_API_TOKEN}` }
+});
+
+ws.on('message', (buf) => {
+  const evt = JSON.parse(buf.toString());
+  console.log(evt.timestamp, evt.type, evt.data);
+});
+
+ws.on('close', (code, reason) => {
+  console.error('closed', code, reason.toString());
+  // retry with backoff...
+});
+```
+
+## Example — executing a command on the multiplex channel
+
+```js
+ws.send(JSON.stringify({ type: 'hello',
+  text: JSON.stringify({ username: 'alice', hostname: 'workstation', os: 'macOS' })
+}));
+
+ws.send(JSON.stringify({ type: 'execute', id: 'r-1', input: 'services list' }));
+
+ws.on('message', (buf) => {
+  const m = JSON.parse(buf.toString());
+  if (m.id === 'r-1' && m.type === 'output') console.log(m.kind, m.text);
+  if (m.id === 'r-1' && m.type === 'output_end') console.log('done.');
+});
+```
+
+For the event schema pushed through `/api/events` and `/api/console/stream`, see [Events reference](/docs/reference/events).

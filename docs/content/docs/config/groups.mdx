@@ -132,6 +132,32 @@ Instance lifecycle management.
 | `deploy_on_stop` | Boolean | `false` | Copy changed files back to the template directory on service stop (deploy-back). Only files that differ from the template are copied. |
 | `deploy_excludes` | `List<String>` | see below | Glob patterns to skip during deploy-back. Default: `["logs/", "crash-reports/", "cache/", "libraries/", "*.tmp"]`. |
 
+### Deploy-back example
+
+A common iteration workflow for `DYNAMIC` groups: start a service, edit its configs or plugins live in the service directory, then stop the service so the changes land back in the template for the next spawn.
+
+```toml title="config/groups/lobby.toml"
+[group.lifecycle]
+stop_on_empty = false
+restart_on_crash = true
+deploy_on_stop = true
+deploy_excludes = [
+  "logs/",
+  "crash-reports/",
+  "cache/",
+  "libraries/",
+  "*.tmp",
+  "world/playerdata/",   # don't snapshot per-player state
+  "plugins/*/data/",     # skip plugin runtime data
+]
+```
+
+On every graceful stop, Nimbus hashes each file in the service directory, compares it to the template, and copies back only the files that differ (respecting `deploy_excludes`). If the copy fails, the service is moved to `CRASHED` with a descriptive error — the template is never left in a half-written state.
+
+<Callout type="warn">
+Deploy-back is intended for iterating on configs and plugins, not for persisting world or player data. For stateful services that need their full working directory preserved across restarts, use `type = "STATIC"` or enable [`[group.sync]`](#group-sync) instead. Crash-stopped services never trigger deploy-back — only graceful stops do.
+</Callout>
+
 ---
 
 ## `[group.placement]`
@@ -494,6 +520,68 @@ max_restarts = 3
 [group.jvm]
 optimize = true
 ```
+
+---
+
+## Dedicated Services
+
+Dedicated services are single-instance, fixed-port Minecraft servers managed alongside groups. Each one lives in its own TOML file under `config/dedicated/<Name>.toml` (path configurable via `[paths] dedicated`). Unlike groups, they are never scaled — the scheduler just starts / stops / restarts one instance.
+
+### Complete Example
+
+```toml title="config/dedicated/sandbox.toml"
+[dedicated]
+name = "sandbox"
+port = 30010
+software = "PAPER"
+version = "1.21.4"
+memory = "4G"
+proxy_enabled = true
+restart_on_crash = true
+max_restarts = 5
+
+[dedicated.jvm]
+optimize = true
+
+[dedicated.placement]
+node = "worker-2"
+fallback = "wait"
+
+[dedicated.sync]
+enabled = false
+```
+
+### `[dedicated]`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | String | *required* | Service name. Used verbatim (no `-1` suffix). Must match `[A-Za-z0-9_-]+`. |
+| `port` | Int | *required* | Backend port. Must not collide with other dedicated services or the group backend port range. |
+| `software` | Enum | `"PAPER"` | Same enum as group software (`PAPER`, `PURPUR`, `FOLIA`, `FORGE`, `FABRIC`, ...). |
+| `version` | String | `"1.21.4"` | Minecraft version. Same format rules as group configs. |
+| `jar_name` | String | `""` | Custom JAR filename for `CUSTOM` software. |
+| `ready_pattern` | String | `""` | Custom stdout ready pattern for `CUSTOM` software. |
+| `java_path` | String | `""` | Override the resolved Java binary for this service. |
+| `proxy_enabled` | Boolean | `true` | Register the service with Velocity proxies. Set to `false` for services that should be reachable only via direct connect (e.g. build servers). |
+| `memory` | String | `"2G"` | JVM heap (`-Xmx`). Same format as groups. |
+| `restart_on_crash` | Boolean | `true` | Auto-restart after an unexpected process exit. |
+| `max_restarts` | Int | `5` | Crash-loop cap. |
+
+### `[dedicated.jvm]`
+
+Same fields as [`[group.jvm]`](#group-jvm): `optimize` (Boolean, default `true`), `args` (List\<String\>, default `[]`).
+
+### `[dedicated.placement]`
+
+Same fields as [`[group.placement]`](#group-placement): `node` (String, default `""`), `fallback` (String, default `"wait"`).
+
+### `[dedicated.sync]`
+
+Same fields and semantics as [`[group.sync]`](#group-sync): `enabled` (Boolean, default `false`), `excludes` (List\<String\>, default rsync-style log/cache excludes). Sync stores canonical data under `dedicated/<name>/` on the controller instead of `services/state/<name>/`.
+
+<Callout type="info">
+Server JARs are auto-downloaded on first start via the same resolver used for groups. No template is required; Nimbus creates and manages the working directory under `paths.dedicated/<name>/`.
+</Callout>
 
 ---
 

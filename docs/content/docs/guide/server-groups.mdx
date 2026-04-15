@@ -34,7 +34,7 @@ Dynamic groups create **ephemeral** services that start fresh every time.
 - Instance count is managed by the [scaling engine](/docs/guide/scaling)
 - Ideal for: minigames, game servers, event servers
 
-```toml title="config/modules/scaling/*.toml"
+```toml title="config/groups/bedwars.toml"
 [group]
 name = "BedWars"
 type = "DYNAMIC"
@@ -156,7 +156,7 @@ max_players = 50       # Server max player slots
 
 ### Scaling
 
-```toml title="config/modules/scaling/*.toml"
+```toml title="config/groups/<group>.toml"
 [group.scaling]
 min_instances = 1          # Always keep at least this many running
 max_instances = 4          # Never exceed this many instances
@@ -169,15 +169,23 @@ See [Auto-Scaling Guide](/docs/guide/scaling) for a detailed explanation.
 
 ### Lifecycle
 
-```toml title="config/modules/scaling/*.toml"
+```toml title="config/groups/<group>.toml"
 [group.lifecycle]
 stop_on_empty = false      # Stop the service when all players leave
 restart_on_crash = true    # Auto-restart if the process crashes
 max_restarts = 5           # Max consecutive restart attempts before giving up
+deploy_on_stop = false     # Copy changed files back into the template on stop
+deploy_excludes = ["logs/", "crash-reports/", "cache/", "libraries/", "*.tmp"]
 ```
 
 <Callout type="info">
 `stop_on_empty` is different from `idle_timeout`. `stop_on_empty` triggers immediately when the last player leaves. `idle_timeout` waits for the specified number of seconds after the server becomes empty.
+</Callout>
+
+<Callout title="Deploy-back workflow" type="warn">
+`deploy_on_stop = true` is designed for the "edit a running DYNAMIC service, then persist the changes into the template" pattern — useful for iterating on configs or plugins without hand-copying files. On graceful stop, Nimbus diffs the service directory against the template and copies back only files that differ (skipping anything matched by `deploy_excludes`). If the copy-back fails, the service is moved to `CRASHED` with a descriptive error instead of silently losing data.
+
+Avoid enabling this for servers that write large, rapidly-changing state (worlds, player data) — use `STATIC` services or `[group.sync]` for those instead. Deploy-back is meant for configuration drift, not world persistence.
 </Callout>
 
 ### JVM & Performance
@@ -222,12 +230,12 @@ templates/
   BedWars/         # Template for the BedWars group
     plugins/
     bukkit.yml
-  global/          # Applied to ALL backend servers
+  global/          # Applied to ALL backend servers (user-owned)
     plugins/
-      nimbus-sdk.jar    # Auto-deployed
-  global_proxy/    # Applied to ALL proxy servers
+      # your own shared plugins go here
+  global_proxy/    # Applied to ALL proxy servers (user-owned)
     plugins/
-      nimbus-bridge.jar # Auto-deployed
+      # your own shared proxy plugins go here
 ```
 
 - **Group templates** are copied to new service instances
@@ -236,7 +244,7 @@ templates/
 - For static groups, the template is only applied on first creation
 - For dynamic groups, a fresh copy is made every time
 
-The `nimbus-sdk.jar` and `nimbus-bridge.jar` plugins are automatically deployed by Nimbus -- you don't need to place them manually.
+Nimbus-managed plugins (SDK, Bridge, and module companion plugins — Perms, Display, Punishments, Resource Packs, …) are **not** stored in `templates/`. They are deployed on every service prepare with `REPLACE_EXISTING`, so deleted or modified copies self-heal on the next start. Templates stay user-owned.
 
 ## Hot-reload
 

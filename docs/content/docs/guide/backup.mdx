@@ -119,6 +119,7 @@ daily_keep = 7
 weekly_keep = 4
 monthly_keep = 3
 keep_manual = true       # backups triggered via `backup now` or API are never auto-pruned
+failed_keep_days = 7     # age in days after which FAILED rows are deleted (0 = keep forever)
 ```
 
 ### Cron syntax
@@ -188,7 +189,7 @@ On remote nodes, quiesce is skipped — those services are marked **PARTIAL** an
 
 | DB | How it's dumped |
 |---|---|
-| SQLite | `VACUUM INTO 'staging/nimbus.sqlite'` inside a transaction — atomic, no external tool |
+| SQLite | `VACUUM INTO 'staging/nimbus.sqlite'` on a raw JDBC statement (SQLite forbids `VACUUM` inside a transaction) — atomic, no external tool |
 | MySQL / MariaDB | `mysqldump --single-transaction --routines --triggers --events` — the tool must be on `PATH` |
 | PostgreSQL | `pg_dump --format=custom` — the tool must be on `PATH` |
 

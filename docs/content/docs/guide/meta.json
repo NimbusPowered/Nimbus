@@ -19,6 +19,7 @@
     "dashboard",
     "remote-cli",
     "multi-node",
+    "cluster-topologies",
     "cluster-tls",
     "bedrock",
     "permissions",
@@ -26,6 +27,9 @@
     "resourcepacks",
     "backup",
     "doctor",
-    "stress-testing"
+    "stress-testing",
+    "---Migration---",
+    "migration-cloudnet",
+    "migration-simplecloud"
   ]
 }

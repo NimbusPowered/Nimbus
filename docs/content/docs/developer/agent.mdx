@@ -19,7 +19,7 @@ The agent handles:
 ## Architecture
 
 ```text title="Directory Structure"
-nimbus-agent/src/main/kotlin/dev/nimbus/agent/
+nimbus-agent/src/main/kotlin/dev/nimbuspowered/nimbus/agent/
 ├── Agent.kt              → Entry point (main function), CLI arg parsing
 ├── AgentConfig.kt        → TOML config model + loader
 ├── AgentRuntime.kt       → WebSocket connection loop, message dispatch
@@ -28,7 +28,9 @@ nimbus-agent/src/main/kotlin/dev/nimbus/agent/
 ├── LocalProcessHandle.kt → Single JVM process wrapper (stdin/stdout/lifecycle)
 ├── LocalProcessManager.kt→ Service lifecycle, template copy, config patching
 ├── SetupWizard.kt        → First-run interactive setup
-└── TemplateDownloader.kt → HTTP template download + ZIP extraction
+├── StateSyncClient.kt    → State-sync pull/push for floating services
+├── TemplateDownloader.kt → HTTP template download + ZIP extraction
+└── TlsHelper.kt          → Fingerprint-pinning TLS trust manager
 ```
 
 ### Bootstrap and connection

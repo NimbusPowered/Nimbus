@@ -6,7 +6,7 @@ description: Manage your Nimbus cloud from the browser with the self-hosted web 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn">
-  The Web Dashboard is currently in **ALPHA**. Features may change, and bugs are expected. Report issues on [GitHub](https://github.com/NimbusPowered/Nimbus/issues).
+  The Web Dashboard is currently in **BETA**. Features may change, and bugs are expected. Report issues on [GitHub](https://github.com/NimbusPowered/Nimbus/issues).
 </Callout>
 
 The Nimbus Web Dashboard is a browser-based management UI that connects to your controller's REST API. It provides a visual interface for everything you can do from the console — service management, group configuration, plugin installation, stress testing, and more.
@@ -117,7 +117,7 @@ The dashboard at `dashboard.nimbuspowered.org` is pre-configured in the default 
 
 ```toml title="config/nimbus.toml"
 [api]
-allowed_origins = ["dashboard.nimbuspowered.org", "your-custom-domain.com"]
+allowed_origins = ["https://dashboard.nimbuspowered.org", "https://your-custom-domain.com"]
 ```
 
 ## Self-Hosting

@@ -1,1537 +1,301 @@
 ---
-title: Event Reference
-description: Complete reference for all Nimbus events emitted through the EventBus, including service, scaling, player, group, permission, proxy, maintenance, cluster, load balancer, system, stress test, dedicated service, controller update, and module events.
+title: Events
+description: Every event type emitted by the Nimbus controller, grouped by subsystem.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-All events in Nimbus are subclasses of `NimbusEvent`. Events are emitted through the `EventBus` and delivered to:
+Events are sealed subclasses of `NimbusEvent` (see `nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/event/Events.kt`). They are emitted on the internal `EventBus` and — after running through `EventRoutes.toEventMessage()` — serialised into the wire format pushed over [`/api/events`](/docs/reference/websocket#api-events---live-event-stream) and stored in the audit log.
 
-- WebSocket clients connected to `/api/events`
-- Internal subscribers (scaling engine, console logger, proxy sync)
+## Wire format
 
-Every event includes a `timestamp` field (ISO 8601 format) and an `actor` field identifying who triggered the event (`system`, `console`, `api:admin`, or `api:service`).
+Every frame over WebSocket is a single JSON object:
 
-## WebSocket Message Format
-
-Events are serialized as JSON with this structure:
-
-```json title="Event Payload"
-{
-  "type": "EVENT_TYPE",
-  "timestamp": "2025-01-15T10:30:15.123Z",
-  "data": {
-    "key": "value"
-  }
-}
-```
-
----
-
-## Service Events
-
-### SERVICE_STARTING
-
-Emitted when a service process is launched.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name (e.g., `Lobby-1`) |
-| `group` | string | Group name (e.g., `Lobby`) |
-| `port` | string | Assigned port number |
-| `nodeId` | string | Node identifier (default: `"local"` for controller) |
-
-```json title="SERVICE_STARTING"
-{
-  "type": "SERVICE_STARTING",
-  "timestamp": "2025-01-15T10:30:00.000Z",
-  "data": {
-    "service": "Lobby-1",
-    "group": "Lobby",
-    "port": "30001",
-    "nodeId": "local"
-  }
-}
-```
-
----
-
-### SERVICE_PREPARED
-
-Emitted when a warm-pool service has been staged and is sitting in the `PREPARED` state, ready to be promoted to `STARTING` on demand.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-| `group` | string | Group name |
-
-```json title="SERVICE_PREPARED"
-{
-  "type": "SERVICE_PREPARED",
-  "timestamp": "2025-01-15T10:30:05.000Z",
-  "data": {
-    "service": "Lobby-2",
-    "group": "Lobby"
-  }
-}
-```
-
----
-
-### SERVICE_READY
-
-Emitted when the service's stdout matches the ready pattern (e.g., Minecraft's `Done` message).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-| `group` | string | Group name |
-
-```json title="SERVICE_READY"
+```json
 {
   "type": "SERVICE_READY",
-  "timestamp": "2025-01-15T10:30:15.000Z",
-  "data": {
-    "service": "Lobby-1",
-    "group": "Lobby"
-  }
+  "timestamp": "2026-04-15T12:34:56.123Z",
+  "data": { "service": "Lobby-1", "group": "Lobby" }
 }
 ```
+
+- `type` is the stable uppercase type string from the table below.
+- `timestamp` is the event's `Instant` serialised as an ISO-8601 string (UTC).
+- `data` is a flat `{ string: string }` map. Numbers and booleans are stringified — consumers must parse them back.
+
+### The `actor` field
+
+Every `NimbusEvent` carries an `actor: String` field (default `"system"`, settable before emit). Common values:
+
+| Actor | Meaning |
+|-------|---------|
+| `system` | Controller-initiated (scheduler, scaler, watchdog). |
+| `console` | Local JLine console operator. |
+| `api:admin` | Admin-token API caller. |
+| `api:service` | Service-token API caller (SDK, Bridge). |
+
+`actor` is used by `AuditCollector` for the `audit_log` table. It is not currently included in the WebSocket payload — the `actor` visible in the audit log does not round-trip through `/api/events` today.
 
 ---
 
-### SERVICE_DRAINING
+## Service lifecycle
 
-Emitted when a service is marked as draining — it is no longer accepting new players but continues running until existing players leave before it shuts down.
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `service` | string | Service name |
-| `group` | string | Group name |
-
-```json title="SERVICE_DRAINING"
-{
-  "type": "SERVICE_DRAINING",
-  "timestamp": "2025-01-15T11:55:00.000Z",
-  "data": {
-    "service": "Lobby-1",
-    "group": "Lobby"
-  }
-}
-```
-
----
-
-### SERVICE_STOPPING
-
-Emitted when a graceful shutdown is initiated for a service.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-
-```json title="SERVICE_STOPPING"
-{
-  "type": "SERVICE_STOPPING",
-  "timestamp": "2025-01-15T12:00:00.000Z",
-  "data": {
-    "service": "Lobby-1"
-  }
-}
-```
-
----
-
-### SERVICE_STOPPED
-
-Emitted when a service process exits cleanly.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-
-```json title="SERVICE_STOPPED"
-{
-  "type": "SERVICE_STOPPED",
-  "timestamp": "2025-01-15T12:00:05.000Z",
-  "data": {
-    "service": "Lobby-1"
-  }
-}
-```
-
----
-
-### SERVICE_CRASHED
-
-Emitted when a service process exits unexpectedly.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-| `exitCode` | string | Process exit code |
-| `restartAttempt` | string | Current restart attempt number |
-
-```json title="SERVICE_CRASHED"
-{
-  "type": "SERVICE_CRASHED",
-  "timestamp": "2025-01-15T11:45:00.000Z",
-  "data": {
-    "service": "BedWars-2",
-    "exitCode": "1",
-    "restartAttempt": "2"
-  }
-}
-```
+| `ServiceStarting` | `SERVICE_STARTING` | `service`, `group`, `port` |
+| `ServiceReady` | `SERVICE_READY` | `service`, `group` |
+| `ServiceDraining` | `SERVICE_DRAINING` | `service`, `group` |
+| `ServiceStopping` | `SERVICE_STOPPING` | `service` |
+| `ServiceStopped` | `SERVICE_STOPPED` | `service` |
+| `ServiceCrashed` | `SERVICE_CRASHED` | `service`, `exitCode`, `restartAttempt` |
+| `ServiceRecovered` | `SERVICE_RECOVERED` | `service`, `group`, `pid`, `port` — emitted when the watchdog re-attaches to a running PID after controller restart |
+| `ServicePrepared` | `SERVICE_PREPARED` | `service`, `group` — warm-pool slot is staged and waiting |
+| `ServiceDeployed` | `SERVICE_DEPLOYED` | `service`, `group`, `filesChanged` — deploy-on-stop finished copying changes back to the template |
+| `ServiceCustomStateChanged` | `SERVICE_CUSTOM_STATE_CHANGED` | `service`, `group`, optional `oldState`, optional `newState` |
+| `WarmPoolReplenished` | `WARM_POOL_REPLENISHED` | `group`, `poolSize` |
 
 <Callout type="info">
-If `restartOnCrash` is enabled for the group and `restartAttempt` is below `maxRestarts`, Nimbus will automatically restart the service.
+  `SERVICE_READY` is the point at which `service.ready()` pattern matched in stdout (or the SDK plugin reported ready). Use it rather than `SERVICE_STARTING` for "is available to players" logic.
 </Callout>
 
 ---
 
-### SERVICE_RECOVERED
+## Scaling & placement
 
-Emitted when Nimbus recovers a running service after controller restart (process re-adoption).
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `service` | string | Service name (e.g., `Lobby-1`) |
-| `group` | string | Group name (e.g., `Lobby`) |
-| `pid` | string | OS process ID of the recovered process |
-| `port` | string | Port number the service is running on |
+| `ScaleUp` | `SCALE_UP` | `group`, `from`, `to`, `reason` |
+| `ScaleDown` | `SCALE_DOWN` | `group`, `service`, `reason` — note: single service name, no `from`/`to` |
+| `PlacementBlocked` | `PLACEMENT_BLOCKED` | `group`, `reason` — pinned node unavailable, etc. |
 
-```json title="SERVICE_RECOVERED"
-{
-  "type": "SERVICE_RECOVERED",
-  "timestamp": "2025-01-15T10:30:00.000Z",
-  "data": {
-    "service": "Lobby-1",
-    "group": "Lobby",
-    "pid": "48201",
-    "port": "30001"
-  }
-}
-```
+---
+
+## State sync
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `SyncCompleted` | `SYNC_COMPLETED` | `service`, `filesInManifest`, `filesReceived`, `bytesReceived`, `durationMs` |
+| `SyncFailed` | `SYNC_FAILED` | `service`, `reason` |
+
+---
+
+## Players
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `PlayerConnected` | `PLAYER_CONNECTED` | `player`, `uuid`, `service` |
+| `PlayerDisconnected` | `PLAYER_DISCONNECTED` | `player`, `uuid`, `service` |
+| `PlayerServerSwitch` | `PLAYER_SERVER_SWITCH` | `player`, `uuid`, `from`, `to` |
+
+These are emitted when the Bridge posts to `POST /api/proxy/events`. The Players module subscribes here to update the tracker.
+
+---
+
+## Groups
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `GroupCreated` | `GROUP_CREATED` | `group` |
+| `GroupUpdated` | `GROUP_UPDATED` | `group` |
+| `GroupDeleted` | `GROUP_DELETED` | `group` |
+
+---
+
+## Service messaging
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `ServiceMessage` | `SERVICE_MESSAGE` | `from`, `to`, `channel`, plus every entry of the user-supplied `data` map merged in at the top level |
+
+Emitted by `POST /api/services/{name}/message`. The target name `controller` is a virtual sink — the event fires without requiring a registered service.
+
+---
+
+## Proxy sync
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `TabListUpdated` | `TABLIST_UPDATED` | `header`, `footer`, `playerFormat`, `updateInterval` |
+| `MotdUpdated` | `MOTD_UPDATED` | `line1`, `line2`, `maxPlayers`, `playerCountOffset` |
+| `PlayerTabUpdated` | `PLAYER_TAB_UPDATED` | `uuid`, optional `format` (absent when cleared) |
+| `ChatFormatUpdated` | `CHAT_FORMAT_UPDATED` | `format`, `enabled` |
+
+---
+
+## Maintenance
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `MaintenanceEnabled` | `MAINTENANCE_ENABLED` | `scope` (`"global"` or group name), optional `reason` (omitted when blank) |
+| `MaintenanceDisabled` | `MAINTENANCE_DISABLED` | `scope` |
+
+---
+
+## Cluster
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `ClusterStarted` | `CLUSTER_STARTED` | `bind`, `port`, `strategy` |
+| `NodeConnected` | `NODE_CONNECTED` | `nodeId`, `host` |
+| `NodeDisconnected` | `NODE_DISCONNECTED` | `nodeId` |
+| `NodeHeartbeat` | `NODE_HEARTBEAT` | `nodeId`, `cpuUsage`, `services` |
 
 <Callout type="info">
-This event is emitted during controller startup when previously running services are re-adopted via PID. It indicates that the service was still alive when the controller restarted and has been successfully reclaimed.
+  `NODE_HEARTBEAT` is high-frequency and is suppressed on `/api/console/stream`. Subscribe to `/api/events` directly if you need it.
 </Callout>
 
 ---
 
-### SERVICE_DEPLOYED
+## Load balancer
 
-Emitted when changed files are copied back to the template after a service stops (deploy-back). Only fires when `lifecycle.deploy_on_stop = true` is set for the group.
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `service` | string | Service name |
-| `group` | string | Group name |
-| `filesChanged` | string | Number of files copied back to the template |
-
-```json title="SERVICE_DEPLOYED"
-{
-  "type": "SERVICE_DEPLOYED",
-  "timestamp": "2025-01-15T12:00:10.000Z",
-  "data": {
-    "service": "Survival-1",
-    "group": "Survival",
-    "filesChanged": "14"
-  }
-}
-```
+| `LoadBalancerStarted` | `LOAD_BALANCER_STARTED` | `bind`, `port`, `strategy` |
+| `LoadBalancerStopped` | `LOAD_BALANCER_STOPPED` | `reason` |
+| `LoadBalancerBackendHealthChanged` | `LOAD_BALANCER_BACKEND_HEALTH_CHANGED` | `host`, `port`, `oldStatus`, `newStatus` |
 
 ---
 
-### SERVICE_CUSTOM_STATE_CHANGED
+## Dedicated
 
-Emitted when a service's custom state is changed via the API (typically by game plugins).
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `service` | string | Service name |
-| `group` | string | Group name |
-| `oldState` | string? | Previous custom state (absent if null) |
-| `newState` | string? | New custom state (absent if null) |
-
-```json title="SERVICE_CUSTOM_STATE_CHANGED"
-{
-  "type": "SERVICE_CUSTOM_STATE_CHANGED",
-  "timestamp": "2025-01-15T11:00:00.000Z",
-  "data": {
-    "service": "BedWars-1",
-    "group": "BedWars",
-    "oldState": "WAITING",
-    "newState": "INGAME"
-  }
-}
-```
+| `DedicatedCreated` | `DEDICATED_CREATED` | `name` |
+| `DedicatedDeleted` | `DEDICATED_DELETED` | `name` |
 
 ---
 
-### SERVICE_MESSAGE
+## Stress test
 
-Emitted for service-to-service messaging. The `data` map includes the sender, recipient, channel, and any custom data fields.
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `from` | string | Sender service name |
-| `to` | string | Recipient service name |
-| `channel` | string | Message channel |
-| *(custom)* | string | Additional data fields from the message payload |
-
-```json title="SERVICE_MESSAGE"
-{
-  "type": "SERVICE_MESSAGE",
-  "timestamp": "2025-01-15T11:30:00.000Z",
-  "data": {
-    "from": "BedWars-1",
-    "to": "Lobby-1",
-    "channel": "game_end",
-    "winner": "Red",
-    "duration": "320"
-  }
-}
-```
-
----
-
-## Scaling Events
-
-### SCALE_UP
-
-Emitted when the scaling engine starts a new instance to handle load.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-| `from` | string | Instance count before scaling |
-| `to` | string | Target instance count |
-| `reason` | string | Human-readable scaling reason |
-
-```json title="SCALE_UP"
-{
-  "type": "SCALE_UP",
-  "timestamp": "2025-01-15T14:00:00.000Z",
-  "data": {
-    "group": "BedWars",
-    "from": "2",
-    "to": "3",
-    "reason": "Player threshold exceeded (85% of 16 per instance)"
-  }
-}
-```
-
----
-
-### SCALE_DOWN
-
-Emitted when the scaling engine stops an idle instance.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-| `service` | string | Service being stopped |
-| `reason` | string | Human-readable reason |
-
-```json title="SCALE_DOWN"
-{
-  "type": "SCALE_DOWN",
-  "timestamp": "2025-01-15T15:00:00.000Z",
-  "data": {
-    "group": "BedWars",
-    "service": "BedWars-3",
-    "reason": "Idle timeout reached (300s with 0 players)"
-  }
-}
-```
-
----
-
-### PLACEMENT_BLOCKED
-
-Emitted when a service cannot be scheduled because its placement constraints can't be satisfied — typically a `[group.placement] node = "..."` pin to a node that is currently offline, or a `[group.sync] enabled = true` service that needs an agent node but no node is available. Deduped per `(group, reason)` so scaling retry loops don't spam this event.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-| `reason` | string | Why the placement failed (e.g., `"pinned node 'worker-1' offline — waiting for node to reconnect"`) |
-
-```json title="PLACEMENT_BLOCKED"
-{
-  "type": "PLACEMENT_BLOCKED",
-  "timestamp": "2025-01-15T15:00:00.000Z",
-  "data": {
-    "group": "Lobby",
-    "reason": "sync service needs an agent node, none available"
-  }
-}
-```
-
----
-
-### WARM_POOL_REPLENISHED
-
-Emitted when the warm pool for a group is topped back up to its configured size after a prepared instance was promoted to active.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-| `poolSize` | string | Current warm pool size after replenishment |
-
-```json title="WARM_POOL_REPLENISHED"
-{
-  "type": "WARM_POOL_REPLENISHED",
-  "timestamp": "2025-01-15T15:00:05.000Z",
-  "data": {
-    "group": "Lobby",
-    "poolSize": "2"
-  }
-}
-```
-
----
-
-### SYNC_COMPLETED
-
-Emitted when a state sync push successfully commits to the controller's canonical store. Fires for both graceful-stop pushes and periodic snapshots. Pipe these to Prometheus/Grafana via the events WebSocket for sync health dashboards.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-| `filesInManifest` | string | Total files in the pushed manifest |
-| `filesReceived` | string | Files actually uploaded (the diff; lower = more cache hits) |
-| `bytesReceived` | string | Bytes actually uploaded in this sync |
-| `durationMs` | string | Wall-clock duration of the sync commit |
-
-```json title="SYNC_COMPLETED"
-{
-  "type": "SYNC_COMPLETED",
-  "timestamp": "2025-01-15T15:00:00.000Z",
-  "data": {
-    "service": "Lobby-1",
-    "filesInManifest": "122",
-    "filesReceived": "8",
-    "bytesReceived": "4521678",
-    "durationMs": "612"
-  }
-}
-```
-
----
-
-### SYNC_FAILED
-
-Emitted when a state sync push fails — either a validation error (hash mismatch), the disk quota was exceeded, or an IO error during staging. The canonical copy is rolled back to its pre-sync state on failure.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Service name |
-| `reason` | string | Failure reason (quota, hash mismatch, IO error, etc.) |
-
-```json title="SYNC_FAILED"
-{
-  "type": "SYNC_FAILED",
-  "timestamp": "2025-01-15T15:00:00.000Z",
-  "data": {
-    "service": "Survival-1",
-    "reason": "quota exceeded: projected 12884901888 bytes, limit 10737418240 bytes"
-  }
-}
-```
-
----
-
-## Player Events
-
-### PLAYER_CONNECTED
-
-Emitted when a player connects to a service.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `player` | string | Player name |
-| `uuid` | string | Player UUID |
-| `service` | string | Service name |
-
-```json title="PLAYER_CONNECTED"
-{
-  "type": "PLAYER_CONNECTED",
-  "timestamp": "2025-01-15T11:15:00.000Z",
-  "data": {
-    "player": "Steve",
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "service": "Lobby-1"
-  }
-}
-```
-
----
-
-### PLAYER_DISCONNECTED
-
-Emitted when a player disconnects from a service.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `player` | string | Player name |
-| `uuid` | string | Player UUID |
-| `service` | string | Service name |
-
-```json title="PLAYER_DISCONNECTED"
-{
-  "type": "PLAYER_DISCONNECTED",
-  "timestamp": "2025-01-15T11:45:00.000Z",
-  "data": {
-    "player": "Steve",
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "service": "Lobby-1"
-  }
-}
-```
-
----
-
-### PLAYER_SERVER_SWITCH
-
-Emitted when a player is transferred from one backend service to another (e.g., via the `/send` command or the Bridge cloud connect).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `player` | string | Player name |
-| `uuid` | string | Player UUID |
-| `from` | string | Service the player is leaving |
-| `to` | string | Service the player is joining |
-
-```json title="PLAYER_SERVER_SWITCH"
-{
-  "type": "PLAYER_SERVER_SWITCH",
-  "timestamp": "2025-01-15T11:30:00.000Z",
-  "data": {
-    "player": "Steve",
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "from": "Lobby-1",
-    "to": "BedWars-2"
-  }
-}
-```
-
----
-
-## Group Events
-
-### GROUP_CREATED
-
-Emitted when a new server group is created (via console `create` command or API).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-
-```json title="GROUP_CREATED"
-{
-  "type": "GROUP_CREATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "group": "SkyWars"
-  }
-}
-```
-
----
-
-### GROUP_UPDATED
-
-Emitted when a group's configuration is modified.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-
-```json title="GROUP_UPDATED"
-{
-  "type": "GROUP_UPDATED",
-  "timestamp": "2025-01-15T09:30:00.000Z",
-  "data": {
-    "group": "SkyWars"
-  }
-}
-```
-
----
-
-### GROUP_DELETED
-
-Emitted when a group is deleted.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Group name |
-
-```json title="GROUP_DELETED"
-{
-  "type": "GROUP_DELETED",
-  "timestamp": "2025-01-15T10:00:00.000Z",
-  "data": {
-    "group": "SkyWars"
-  }
-}
-```
-
----
-
-## Permission Events
-
-### PERMISSION_GROUP_CREATED
-
-Emitted when a new permission group is created.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Permission group name |
-
-```json title="PERMISSION_GROUP_CREATED"
-{
-  "type": "PERMISSION_GROUP_CREATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "group": "vip"
-  }
-}
-```
-
----
-
-### PERMISSION_GROUP_UPDATED
-
-Emitted when a permission group is modified (permissions added/removed, default changed, display updated, parents changed).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Permission group name |
-
-```json title="PERMISSION_GROUP_UPDATED"
-{
-  "type": "PERMISSION_GROUP_UPDATED",
-  "timestamp": "2025-01-15T09:15:00.000Z",
-  "data": {
-    "group": "vip"
-  }
-}
-```
-
----
-
-### PERMISSION_GROUP_DELETED
-
-Emitted when a permission group is deleted.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `group` | string | Permission group name |
-
-```json title="PERMISSION_GROUP_DELETED"
-{
-  "type": "PERMISSION_GROUP_DELETED",
-  "timestamp": "2025-01-15T09:30:00.000Z",
-  "data": {
-    "group": "vip"
-  }
-}
-```
-
----
-
-### PLAYER_PERMISSIONS_UPDATED
-
-Emitted when a player's group assignments change.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | string | Player UUID |
-| `player` | string | Player name |
-
-```json title="PLAYER_PERMISSIONS_UPDATED"
-{
-  "type": "PLAYER_PERMISSIONS_UPDATED",
-  "timestamp": "2025-01-15T11:00:00.000Z",
-  "data": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "player": "Steve"
-  }
-}
-```
-
----
-
-### PERMISSION_TRACK_CREATED
-
-Emitted when a new permission track is created.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `track` | string | Track name |
-| `groups` | string | Ordered list of groups in the track |
-
-```json title="PERMISSION_TRACK_CREATED"
-{
-  "type": "PERMISSION_TRACK_CREATED",
-  "timestamp": "2025-01-15T09:45:00.000Z",
-  "data": {
-    "track": "staff",
-    "groups": "helper,moderator,admin"
-  }
-}
-```
-
----
-
-### PERMISSION_TRACK_DELETED
-
-Emitted when a permission track is deleted.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `track` | string | Track name |
-
-```json title="PERMISSION_TRACK_DELETED"
-{
-  "type": "PERMISSION_TRACK_DELETED",
-  "timestamp": "2025-01-15T10:00:00.000Z",
-  "data": {
-    "track": "staff"
-  }
-}
-```
-
----
-
-### PLAYER_PROMOTED
-
-Emitted when a player is promoted along a permission track.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | string | Player UUID |
-| `player` | string | Player name |
-| `track` | string | Track name |
-| `oldGroup` | string | Previous group on the track |
-| `newGroup` | string | New group on the track |
-
-```json title="PLAYER_PROMOTED"
-{
-  "type": "PLAYER_PROMOTED",
-  "timestamp": "2025-01-15T11:30:00.000Z",
-  "data": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "player": "Steve",
-    "track": "staff",
-    "oldGroup": "helper",
-    "newGroup": "moderator"
-  }
-}
-```
-
----
-
-### PLAYER_DEMOTED
-
-Emitted when a player is demoted along a permission track.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | string | Player UUID |
-| `player` | string | Player name |
-| `track` | string | Track name |
-| `oldGroup` | string | Previous group on the track |
-| `newGroup` | string | New group on the track |
-
-```json title="PLAYER_DEMOTED"
-{
-  "type": "PLAYER_DEMOTED",
-  "timestamp": "2025-01-15T11:45:00.000Z",
-  "data": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "player": "Steve",
-    "track": "staff",
-    "oldGroup": "moderator",
-    "newGroup": "helper"
-  }
-}
-```
-
----
-
-## Proxy Events
-
-### PROXY_UPDATE_AVAILABLE
-
-Emitted when a newer version of the Velocity proxy is detected.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `currentVersion` | string | Currently installed version |
-| `newVersion` | string | Available version |
-
-```json title="PROXY_UPDATE_AVAILABLE"
-{
-  "type": "PROXY_UPDATE_AVAILABLE",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "currentVersion": "3.3.0",
-    "newVersion": "3.4.0"
-  }
-}
-```
-
----
-
-### PROXY_UPDATE_APPLIED
-
-Emitted after a proxy update has been applied.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `oldVersion` | string | Previous version |
-| `newVersion` | string | New version |
-
-```json title="PROXY_UPDATE_APPLIED"
-{
-  "type": "PROXY_UPDATE_APPLIED",
-  "timestamp": "2025-01-15T08:05:00.000Z",
-  "data": {
-    "oldVersion": "3.3.0",
-    "newVersion": "3.4.0"
-  }
-}
-```
-
----
-
-### TABLIST_UPDATED
-
-Emitted when the tab list configuration is changed.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `header` | string | Tab list header |
-| `footer` | string | Tab list footer |
-| `playerFormat` | string | Player display format |
-| `updateInterval` | string | Update interval in seconds |
-
-```json title="TABLIST_UPDATED"
-{
-  "type": "TABLIST_UPDATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "header": "&b&lMyNetwork\n&7Online: %online%",
-    "footer": "&7play.mynetwork.com",
-    "playerFormat": "%prefix%%player%%suffix%",
-    "updateInterval": "5"
-  }
-}
-```
-
----
-
-### MOTD_UPDATED
-
-Emitted when the MOTD configuration is changed.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `line1` | string | First MOTD line |
-| `line2` | string | Second MOTD line |
-| `maxPlayers` | string | Max player count shown |
-| `playerCountOffset` | string | Offset added to player count |
-
-```json title="MOTD_UPDATED"
-{
-  "type": "MOTD_UPDATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "line1": "&b&lMyNetwork",
-    "line2": "&aSeason 3 is live!",
-    "maxPlayers": "500",
-    "playerCountOffset": "10"
-  }
-}
-```
-
----
-
-### PLAYER_TAB_UPDATED
-
-Emitted when a player's individual tab list format is set or cleared.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | string | Player UUID |
-| `format` | string? | New format (absent when cleared) |
-
-```json title="PLAYER_TAB_UPDATED"
-{
-  "type": "PLAYER_TAB_UPDATED",
-  "timestamp": "2025-01-15T11:00:00.000Z",
-  "data": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "format": "&c[Owner] &f%player%"
-  }
-}
-```
-
----
-
-### CHAT_FORMAT_UPDATED
-
-Emitted when the chat format configuration is changed.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `format` | string | Chat message format |
-| `enabled` | string | Whether chat formatting is enabled (`true`/`false`) |
-
-```json title="CHAT_FORMAT_UPDATED"
-{
-  "type": "CHAT_FORMAT_UPDATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "format": "%prefix%%player%%suffix% &8>> &f%message%",
-    "enabled": "true"
-  }
-}
-```
-
----
-
-## Maintenance Events
-
-### MAINTENANCE_ENABLED
-
-Emitted when maintenance mode is enabled globally or for a specific group.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `scope` | string | `"global"` or a group name (e.g. `"BedWars"`) |
-| `reason` | string | Optional reason for enabling maintenance |
-
-```json title="MAINTENANCE_ENABLED"
-{
-  "type": "MAINTENANCE_ENABLED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "scope": "global",
-    "reason": "Server update"
-  }
-}
-```
-
----
-
-### MAINTENANCE_DISABLED
-
-Emitted when maintenance mode is disabled globally or for a specific group.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `scope` | string | `"global"` or a group name (e.g. `"BedWars"`) |
-
-```json title="MAINTENANCE_DISABLED"
-{
-  "type": "MAINTENANCE_DISABLED",
-  "timestamp": "2025-01-15T09:15:00.000Z",
-  "data": {
-    "scope": "global"
-  }
-}
-```
-
----
-
-## Cluster Events
-
-### CLUSTER_STARTED
-
-Emitted when the cluster subsystem is initialized and ready to accept agent connections.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `bind` | string | Bind address for cluster communication |
-| `port` | string | Port for cluster communication |
-| `strategy` | string | Placement strategy in use (e.g., `round-robin`, `least-load`) |
-
-```json title="CLUSTER_STARTED"
-{
-  "type": "CLUSTER_STARTED",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "bind": "0.0.0.0",
-    "port": "9090",
-    "strategy": "least-load"
-  }
-}
-```
+| `StressTestUpdated` | `STRESS_TEST_UPDATED` | `simulatedPlayers`, `targetPlayers`, optional `targetGroup`, optional `perService` (`"name=count,name=count"` when non-empty) |
 
 <Callout type="info">
-Cluster events are only emitted when cluster mode is enabled (`cluster.enabled = true`).
+  Fires every tick of a running stress test — also suppressed on `/api/console/stream`.
 </Callout>
 
 ---
 
-### NODE_CONNECTED
+## Config / API / Updates
 
-Emitted when an agent node connects to the controller.
-
-| Field | Type | Description |
+| Class | Type | `data` keys |
 |-------|------|-------------|
-| `nodeId` | string | Node identifier |
-| `host` | string | Node's remote address |
+| `ConfigReloaded` | `CONFIG_RELOADED` | `groupsLoaded` |
+| `ApiStarted` | `API_STARTED` | `bind`, `port` |
+| `ApiStopped` | `API_STOPPED` | `reason` |
+| `ApiWarning` | `API_WARNING` | `message` |
+| `ApiError` | `API_ERROR` | `error` |
+| `NimbusUpdateAvailable` | `NIMBUS_UPDATE_AVAILABLE` | `currentVersion`, `newVersion`, `updateType` (`MAJOR`/`MINOR`/`PATCH`) |
+| `NimbusUpdateApplied` | `NIMBUS_UPDATE_APPLIED` | `oldVersion`, `newVersion` |
+| `ProxyUpdateAvailable` | `PROXY_UPDATE_AVAILABLE` | `currentVersion`, `newVersion` |
+| `ProxyUpdateApplied` | `PROXY_UPDATE_APPLIED` | `oldVersion`, `newVersion` |
 
-```json title="NODE_CONNECTED"
-{
-  "type": "NODE_CONNECTED",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "nodeId": "node-1",
-    "host": "10.0.0.2"
-  }
-}
-```
+---
 
-<Callout type="info">
-Cluster events are only emitted when cluster mode is enabled (`cluster.enabled = true`).
+## Module lifecycle
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `ModuleLoaded` | `MODULE_LOADED` | `moduleId`, `moduleName`, `moduleVersion` |
+| `ModuleEnabled` | `MODULE_ENABLED` | `moduleId`, `moduleName` |
+| `ModuleDisabled` | `MODULE_DISABLED` | `moduleId`, `moduleName` |
+
+---
+
+## Remote CLI sessions
+
+| Class | Type | `data` keys |
+|-------|------|-------------|
+| `CliSessionConnected` | `CLI_SESSION_CONNECTED` | `sessionId`, `remoteIp`, `clientUsername`, `clientHostname`, `clientOs`, `location` |
+| `CliSessionDisconnected` | `CLI_SESSION_DISCONNECTED` | `sessionId`, `remoteIp`, `clientUsername`, `durationSeconds`, `commandCount` |
+
+Rows are also written to the `cli_sessions` table so the `sessions` console command can show historical connections.
+
+---
+
+## `MODULE_EVENT` envelope — module-emitted events
+
+<Callout type="warn">
+  **Important semantic.** Controller modules do **not** own top-level sealed subclasses of `NimbusEvent`. Instead they emit `NimbusEvent.ModuleEvent(moduleId, type, data)` — but the serializer unwraps this and sends the envelope's `type` directly at the top level, with `moduleId` folded into the `data` map where relevant. That's why `PERMISSION_GROUP_CREATED`, `PUNISHMENT_ISSUED`, `BACKUP_COMPLETED` etc. appear as first-class type strings on the wire, even though they are dispatched through `ModuleEvent` internally.
 </Callout>
 
----
+Module events below use the same frame format. `moduleId` is included so generic subscribers can filter by owning module without pattern-matching on the `type`.
 
-### NODE_DISCONNECTED
+### Permissions module (`moduleId = "perms"`)
 
-Emitted when an agent node disconnects from the controller.
+| Type | `data` keys |
+|------|-------------|
+| `PERMISSION_GROUP_CREATED` | `group` |
+| `PERMISSION_GROUP_UPDATED` | `group` |
+| `PERMISSION_GROUP_DELETED` | `group` |
+| `PLAYER_PERMISSIONS_UPDATED` | `uuid`, `player` |
+| `PERMISSION_TRACK_CREATED` | `track` |
+| `PERMISSION_TRACK_DELETED` | `track` |
+| `PLAYER_PROMOTED` | `uuid`, `player`, `track`, `newGroup` |
+| `PLAYER_DEMOTED` | `uuid`, `player`, `track`, `newGroup` |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `nodeId` | string | Node identifier |
+### Punishments module (`moduleId = "punishments"`)
 
-```json title="NODE_DISCONNECTED"
-{
-  "type": "NODE_DISCONNECTED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "nodeId": "node-1"
-  }
-}
-```
+| Type | `data` keys |
+|------|-------------|
+| `PUNISHMENT_ISSUED` | `id`, `type` (`BAN`/`TEMPBAN`/`IPBAN`/`MUTE`/`TEMPMUTE`/`KICK`/`WARN`), `target`, `targetUuid`, `issuer`, `reason`, `expiresAt` (empty string when permanent), `scope` (`NETWORK`/`GROUP`/`SERVICE`), optional `scopeTarget`, optional `kickMessage` (pre-rendered) |
+| `PUNISHMENT_REVOKED` | `id`, `type`, `target`, `revokedBy`, `reason` |
+| `PUNISHMENT_EXPIRED` | `id`, `type`, `target` — emitted by the 30 s expiry loop |
 
----
+### Resource packs module (`moduleId = "resourcepacks"`)
 
-### NODE_HEARTBEAT
+| Type | `data` keys |
+|------|-------------|
+| `RESOURCE_PACK_CREATED` | `id`, `name`, `source` (`URL`/`LOCAL`) |
+| `RESOURCE_PACK_DELETED` | `id`, `name` |
+| `RESOURCE_PACK_ASSIGNED` | `packId`, `scope` (`GLOBAL`/`GROUP`/`SERVICE`), `target` |
+| `RESOURCE_PACK_UNASSIGNED` | `packId`, `scope`, `target` |
+| `RESOURCE_PACK_STATUS` | `player`, `pack`, `status` — backend telemetry (`ACCEPTED`/`DECLINED`/`LOADED`/`FAILED_DOWNLOAD`, etc.) |
 
-Emitted each time a heartbeat response is received from an agent node.
+### Backup module (`moduleId = "backup"`)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `nodeId` | string | Node identifier |
-| `cpuUsage` | string | CPU usage as a decimal (e.g., `"0.32"` for 32%) |
-| `services` | string | Number of services running on the node |
-
-```json title="NODE_HEARTBEAT"
-{
-  "type": "NODE_HEARTBEAT",
-  "timestamp": "2025-01-15T08:00:05.000Z",
-  "data": {
-    "nodeId": "node-1",
-    "cpuUsage": "0.32",
-    "services": "3"
-  }
-}
-```
-
----
-
-## Load Balancer Events
-
-### LOAD_BALANCER_STARTED
-
-Emitted when the TCP load balancer starts listening.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `bind` | string | Bind address |
-| `port` | string | Listen port |
-| `strategy` | string | Backend selection strategy |
-
-```json title="LOAD_BALANCER_STARTED"
-{
-  "type": "LOAD_BALANCER_STARTED",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "bind": "0.0.0.0",
-    "port": "25565",
-    "strategy": "least-players"
-  }
-}
-```
+| Type | `data` keys |
+|------|-------------|
+| `BACKUP_STARTED` | `id`, `targetType`, `targetName`, `triggeredBy` |
+| `BACKUP_COMPLETED` | `id`, `targetName`, `sizeBytes`, `durationMs`, `status` (`SUCCESS` / `PARTIAL`) |
+| `BACKUP_FAILED` | `id`, `targetName`, `reason` |
+| `BACKUP_RESTORED` | `id`, `targetName`, `targetPath`, `triggeredBy` |
+| `BACKUP_PRUNED` | `count`, `freedBytes`, `scheduleClass` |
 
 <Callout type="info">
-Load balancer events are only emitted when the load balancer is enabled (`loadbalancer.enabled = true`).
+  `BACKUP_COMPLETED` with `status = "PARTIAL"` is emitted when some target (e.g. a remote-node service, or a missing `mysqldump` binary) was skipped with a WARN but the archive was written successfully. Treat PARTIAL as "inspect the record details" rather than "failure".
 </Callout>
 
----
+### Scaling module (`moduleId = "scaling"`)
 
-### LOAD_BALANCER_STOPPED
+| Type | `data` keys |
+|------|-------------|
+| `SMART_SCHEDULE` | `group`, `rule`, `started`, `min` — a time-based schedule rule started services |
+| `SMART_WARMUP` | `group`, `rule`, `started`, `min` — warmup from the next upcoming rule |
+| `SMART_PREDICTION` | `group`, `predicted`, `started`, `samples` — predictive warmup from player-count history |
 
-Emitted when the TCP load balancer stops.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `reason` | string | Reason for stopping |
-
-```json title="LOAD_BALANCER_STOPPED"
-{
-  "type": "LOAD_BALANCER_STOPPED",
-  "timestamp": "2025-01-15T20:00:00.000Z",
-  "data": {
-    "reason": "shutdown"
-  }
-}
-```
+Every decision is also persisted to the `scaling_decisions` table (exposed via `GET /api/scaling/decisions`).
 
 ---
 
-### LOAD_BALANCER_BACKEND_HEALTH_CHANGED
+## Event subscription
 
-Emitted when a backend proxy's health status changes (e.g., from `HEALTHY` to `UNHEALTHY` or back).
+- **WebSocket** — connect to `/api/events` with a bearer token. Every event shows up as one frame. See [WebSocket reference](/docs/reference/websocket#api-events---live-event-stream).
+- **Remote CLI / multiplex** — subscribers to `/api/console/stream` receive events inside `{ "type": "event", "event": { ... } }` envelopes. `STRESS_TEST_UPDATED` and `NODE_HEARTBEAT` are suppressed here to keep the CLI readable.
+- **Audit log** — `AuditCollector` persists a filtered subset of events (actor-attributable ones) to the `audit_log` table with the `actor` field preserved. Query with `GET /api/audit`.
+- **In-process** — modules and core subsystems subscribe via `EventBus.subscribe()` and receive the raw sealed-class instances, including the full `actor` field and strongly-typed properties.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `host` | string | Backend host address |
-| `port` | string | Backend port |
-| `oldStatus` | string | Previous health status (`HEALTHY` or `UNHEALTHY`) |
-| `newStatus` | string | New health status (`HEALTHY` or `UNHEALTHY`) |
+## Firing custom events
 
-```json title="LOAD_BALANCER_BACKEND_HEALTH_CHANGED"
-{
-  "type": "LOAD_BALANCER_BACKEND_HEALTH_CHANGED",
-  "timestamp": "2025-01-15T12:30:00.000Z",
-  "data": {
-    "host": "127.0.0.1",
-    "port": "30010",
-    "oldStatus": "HEALTHY",
-    "newStatus": "UNHEALTHY"
-  }
-}
+The `MODULE_EVENT` envelope is the sanctioned way for a 3rd-party module to push its own events without forking `Events.kt`. Use:
+
+```kotlin
+eventBus.emit(NimbusEvent.ModuleEvent(
+    moduleId = "my-module",
+    type = "MY_THING_HAPPENED",
+    data = mapOf("target" to name, "reason" to reason)
+))
 ```
 
-<Callout type="info">
-This event is useful for monitoring dashboards to track backend availability. A backend is marked `UNHEALTHY` after `unhealthy_threshold` consecutive failed health checks, and restored to `HEALTHY` after `healthy_threshold` successes.
-</Callout>
-
----
-
-## System Events
-
-### CONFIG_RELOADED
-
-Emitted when group configurations are reloaded (via console `reload` or API).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `groupsLoaded` | string | Number of group configs loaded |
-
-```json title="CONFIG_RELOADED"
-{
-  "type": "CONFIG_RELOADED",
-  "timestamp": "2025-01-15T10:00:00.000Z",
-  "data": {
-    "groupsLoaded": "3"
-  }
-}
-```
-
----
-
-### API_STARTED
-
-Emitted when the REST API server starts.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `bind` | string | Bind address |
-| `port` | string | Port number |
-
-```json title="API_STARTED"
-{
-  "type": "API_STARTED",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "bind": "0.0.0.0",
-    "port": "8080"
-  }
-}
-```
-
----
-
-### API_STOPPED
-
-Emitted when the REST API server stops.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `reason` | string | Reason for stopping |
-
-```json title="API_STOPPED"
-{
-  "type": "API_STOPPED",
-  "timestamp": "2025-01-15T20:00:00.000Z",
-  "data": {
-    "reason": "manual stop"
-  }
-}
-```
-
----
-
-### API_WARNING
-
-Emitted for API-related warnings (e.g., no auth token configured).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `message` | string | Warning message |
-
-```json title="API_WARNING"
-{
-  "type": "API_WARNING",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "message": "No auth token set — API is open! Set [api] token in config/nimbus.toml"
-  }
-}
-```
-
----
-
-### API_ERROR
-
-Emitted when the API encounters a startup or runtime error.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `error` | string | Error message |
-
-```json title="API_ERROR"
-{
-  "type": "API_ERROR",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "error": "Failed to start: Address already in use"
-  }
-}
-```
-
----
-
-## Stress Test Events
-
-### STRESS_TEST_UPDATED
-
-Emitted when a stress test starts, stops, or ramps to a new player target.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `simulatedPlayers` | string | Current number of active simulated players |
-| `targetPlayers` | string | Target number of simulated players |
-| `targetGroup` | string? | Group the test is targeting (absent for all-group tests) |
-| `perService` | string | Comma-joined map of per-service simulated player counts (e.g., `"Lobby-1=40,Lobby-2=60"`) |
-
-```json title="STRESS_TEST_UPDATED"
-{
-  "type": "STRESS_TEST_UPDATED",
-  "timestamp": "2025-01-15T14:00:00.000Z",
-  "data": {
-    "simulatedPlayers": "40",
-    "targetPlayers": "100",
-    "targetGroup": "Lobby",
-    "perService": "Lobby-1=20,Lobby-2=20"
-  }
-}
-```
-
-<Callout type="info">
-Use this event to build real-time stress test dashboards. Poll `simulatedPlayers` against `targetPlayers` to track ramp progress. `perService` gives a per-instance breakdown useful for verifying even distribution across backends.
-</Callout>
-
----
-
-## CLI Session Events
-
-Events emitted when [Remote CLI](/docs/guide/remote-cli) clients connect to or disconnect from the controller.
-
-### `CLI_SESSION_CONNECTED`
-
-A Remote CLI client has connected.
-
-```json title="Event Payload"
-{
-  "type": "CLI_SESSION_CONNECTED",
-  "timestamp": "2026-04-07T14:32:05.123Z",
-  "data": {
-    "sessionId": "3",
-    "remoteIp": "85.123.45.67",
-    "clientUsername": "jonas",
-    "clientHostname": "DESKTOP-ABC",
-    "clientOs": "Windows 11 amd64",
-    "location": "Berlin, Brandenburg, Germany"
-  }
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `sessionId` | Unique session number |
-| `remoteIp` | Client's IP address |
-| `clientUsername` | System username from the client machine |
-| `clientHostname` | Hostname of the client machine |
-| `clientOs` | Operating system and architecture |
-| `location` | GeoIP-resolved location (empty for local/private IPs) |
-
-### `CLI_SESSION_DISCONNECTED`
-
-A Remote CLI client has disconnected.
-
-```json title="Event Payload"
-{
-  "type": "CLI_SESSION_DISCONNECTED",
-  "timestamp": "2026-04-07T14:45:12.456Z",
-  "data": {
-    "sessionId": "3",
-    "remoteIp": "85.123.45.67",
-    "clientUsername": "jonas",
-    "durationSeconds": "787",
-    "commandCount": "24"
-  }
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `sessionId` | Session number (matches the connect event) |
-| `remoteIp` | Client's IP address |
-| `clientUsername` | System username |
-| `durationSeconds` | Total session duration in seconds |
-| `commandCount` | Number of commands executed during the session |
-
-<Callout type="info">
-CLI session events are also displayed as live events on the controller's local console, making it easy to see who is managing the cloud remotely.
-</Callout>
-
----
-
-## Dedicated Service Events
-
-### DEDICATED_CREATED
-
-Emitted when a new dedicated service definition is created via the console `dedicated create` command or the API.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Dedicated service name |
-
-```json title="DEDICATED_CREATED"
-{
-  "type": "DEDICATED_CREATED",
-  "timestamp": "2025-01-15T09:00:00.000Z",
-  "data": {
-    "name": "creative"
-  }
-}
-```
-
----
-
-### DEDICATED_DELETED
-
-Emitted when a dedicated service definition is deleted.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Dedicated service name |
-
-```json title="DEDICATED_DELETED"
-{
-  "type": "DEDICATED_DELETED",
-  "timestamp": "2025-01-15T10:00:00.000Z",
-  "data": {
-    "name": "creative"
-  }
-}
-```
-
----
-
-## Controller Update Events
-
-Emitted by the auto-updater when a new Nimbus controller release is detected or applied.
-
-### NIMBUS_UPDATE_AVAILABLE
-
-Emitted on startup when the update checker finds a newer release on GitHub.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `currentVersion` | string | Currently running version |
-| `newVersion` | string | Latest available version |
-| `updateType` | string | Severity of the update (`patch`, `minor`, or `major`) |
-
-```json title="NIMBUS_UPDATE_AVAILABLE"
-{
-  "type": "NIMBUS_UPDATE_AVAILABLE",
-  "timestamp": "2025-01-15T08:00:00.000Z",
-  "data": {
-    "currentVersion": "1.2.0",
-    "newVersion": "1.2.3",
-    "updateType": "patch"
-  }
-}
-```
-
-<Callout type="info">
-Patch and minor updates are applied automatically. Major updates require interactive confirmation at the controller console before downloading.
-</Callout>
-
----
-
-### NIMBUS_UPDATE_APPLIED
-
-Emitted after the new JAR has been downloaded and swapped in. The controller will restart on next launch with the new version.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `oldVersion` | string | Version that was running before the update |
-| `newVersion` | string | Version that was downloaded and applied |
-
-```json title="NIMBUS_UPDATE_APPLIED"
-{
-  "type": "NIMBUS_UPDATE_APPLIED",
-  "timestamp": "2025-01-15T08:00:30.000Z",
-  "data": {
-    "oldVersion": "1.2.0",
-    "newVersion": "1.2.3"
-  }
-}
-```
-
----
-
-## Module Events
-
-Emitted by the module system as controller modules are loaded, enabled, or disabled during startup and shutdown.
-
-### MODULE_LOADED
-
-Emitted when a module JAR is successfully loaded into the controller's module classloader.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `moduleId` | string | Module identifier (e.g., `nimbus-module-scaling`) |
-| `moduleName` | string | Human-readable module name |
-| `moduleVersion` | string | Module version string |
-
-```json title="MODULE_LOADED"
-{
-  "type": "MODULE_LOADED",
-  "timestamp": "2025-01-15T08:00:01.000Z",
-  "data": {
-    "moduleId": "nimbus-module-scaling",
-    "moduleName": "Smart Scaling",
-    "moduleVersion": "1.2.0"
-  }
-}
-```
-
----
-
-### MODULE_ENABLED
-
-Emitted when a module's `enable()` lifecycle method completes successfully.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `moduleId` | string | Module identifier |
-| `moduleName` | string | Human-readable module name |
-
-```json title="MODULE_ENABLED"
-{
-  "type": "MODULE_ENABLED",
-  "timestamp": "2025-01-15T08:00:02.000Z",
-  "data": {
-    "moduleId": "nimbus-module-scaling",
-    "moduleName": "Smart Scaling"
-  }
-}
-```
-
----
-
-### MODULE_DISABLED
-
-Emitted when a module's `disable()` lifecycle method completes (typically during shutdown).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `moduleId` | string | Module identifier |
-| `moduleName` | string | Human-readable module name |
-
-```json title="MODULE_DISABLED"
-{
-  "type": "MODULE_DISABLED",
-  "timestamp": "2025-01-15T20:00:00.000Z",
-  "data": {
-    "moduleId": "nimbus-module-scaling",
-    "moduleName": "Smart Scaling"
-  }
-}
-```
-
----
-
-### MODULE_EVENT
-
-A generic catch-all event fired by modules through `ModuleContext`. The `type` sub-field distinguishes different events from the same module, and `data` carries arbitrary key-value pairs defined by the module.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `moduleId` | string | ID of the module that fired the event |
-| `type` | string | Module-defined event type string |
-| `data` | object | Arbitrary key-value map defined by the module |
-
-```json title="MODULE_EVENT"
-{
-  "type": "MODULE_EVENT",
-  "timestamp": "2025-01-15T11:00:00.000Z",
-  "data": {
-    "moduleId": "my-custom-module",
-    "type": "LEADERBOARD_UPDATED",
-    "data": {
-      "game": "BedWars",
-      "entries": "10"
-    }
-  }
-}
-```
-
-#### Built-in module event types
-
-First-party modules shipped with Nimbus emit the following `MODULE_EVENT` sub-types:
-
-| `moduleId` | `type` | Fired when |
-|---|---|---|
-| `punishments` | `PUNISHMENT_ISSUED` | A punishment is created. `data` includes `id`, `type`, `target`, `targetUuid`, `issuer`, `reason`, `expiresAt`, `scope`, optional `scopeTarget`, and a pre-rendered `kickMessage` |
-| `punishments` | `PUNISHMENT_REVOKED` | A punishment is revoked by an admin. `data`: `id`, `type`, `target`, `revokedBy`, `reason` |
-| `punishments` | `PUNISHMENT_EXPIRED` | A TEMPBAN / TEMPMUTE auto-expires. `data`: `id`, `type`, `target` |
-| `resourcepacks` | `RESOURCE_PACK_CREATED` | A pack is registered or uploaded. `data` includes the pack id, name, and UUID |
-| `resourcepacks` | `RESOURCE_PACK_DELETED` | A pack (and its local file, if any) is deleted |
-| `resourcepacks` | `RESOURCE_PACK_ASSIGNED` | A pack is attached to a GLOBAL / GROUP / SERVICE scope |
-| `resourcepacks` | `RESOURCE_PACK_STATUS` | A player reports accept/decline/load status (backend telemetry). `data`: `playerUuid`, `packUuid`, `status` |
+The `type` string is what external subscribers see in the top-level `type` field, so pick something stable and uppercase. Include `moduleId` in the `data` too if you want receivers to filter without namespacing the type.

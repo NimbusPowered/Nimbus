@@ -1,3214 +1,714 @@
 ---
-title: REST API Reference
-description: Complete reference for the Nimbus REST API v0.2, including authentication, endpoints for services, groups, permissions, maintenance, and more.
+title: REST API
+description: Complete HTTP reference for the Nimbus controller — routes, auth levels, payloads, and error codes.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Nimbus exposes a REST API (v0.2) built on Ktor. The API is optional and can be enabled in `config/nimbus.toml` or started at runtime with the `api start` console command.
-
-## Authentication
-
-All endpoints except `/api/health` require a Bearer token:
-
-```http title="Request"
-Authorization: Bearer <your-token>
-```
-
-Configure the token in `config/nimbus.toml`:
-
-```toml title="config/nimbus.toml"
-[api]
-enabled = true
-bind = "0.0.0.0"
-port = 8080
-token = "your-secret-token"
-```
-
-<Callout title="Auto-generated token" type="info">
-If no token is configured in `nimbus.toml`, Nimbus **auto-generates** a random token on each start and logs the first 8 characters to the console. The API is never unauthenticated. Set a permanent token in the config for production use.
-</Callout>
-
-### Token Scopes
-
-Nimbus uses two token levels:
-
-| Token | Scope | Recipients |
-|---|---|---|
-| **Admin token** | Full API access (all endpoints) | Proxy/Bridge plugin, manual API calls |
-| **Service token** | Service-level endpoints only (services, permissions, groups, displays, proxy sync, maintenance, metrics, network) | Game servers (SDK, Perms plugin) |
-
-The service token is automatically derived from the admin token using HMAC-SHA256. Game servers receive the restricted service token via the `NIMBUS_API_TOKEN` environment variable, while the Velocity proxy receives the full admin token.
-
-Admin-only endpoints (require the admin token): `/api/reload`, `/api/stress/*`, `/api/files/*`, `/api/config`, `/api/loadbalancer`, `/api/nodes`, `/api/doctor`.
-
-<Callout title="Rate limiting" type="info">
-The API enforces **per-IP** rate limits: **120 requests/minute** globally and **5 requests/minute** for stress test endpoints. Exceeding the limit returns HTTP 429 (Too Many Requests).
-</Callout>
-
-### Token Management
-
-JWT-based scoped tokens are available as an opt-in feature. Enable with `jwt_enabled = true` in the `[api]` section of `nimbus.toml`. Legacy bearer tokens always work regardless of this setting.
-
-#### POST /api/tokens
-
-Generate a scoped JWT token. **Admin-only.**
-
-**Request Body:**
-
-```json title="Request"
-{
-  "subject": "my-panel",
-  "scopes": ["services:read"],
-  "expiresInSeconds": 3600
-}
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "token": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Token generated |
-| 400 | Invalid scopes or parameters |
-| 403 | JWT not enabled or not admin |
-
----
-
-#### GET /api/tokens/scopes
-
-List all available permission scopes. **Admin-only.**
-
-**Response:**
-
-```json title="Response"
-{
-  "scopes": [
-    "services:read",
-    "services:write",
-    "groups:read",
-    "groups:write",
-    "metrics:read",
-    "cluster:read",
-    "cluster:write",
-    "files:read",
-    "files:write",
-    "config:read",
-    "config:write",
-    "audit:read",
-    "admin"
-  ]
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
+The Nimbus controller exposes a single HTTP API served by Ktor (CIO engine) on the port configured in `[api]`. This reference tracks the controller shipping with `nimbusVersion` in `gradle.properties` (check the running controller at `GET /api/health` for the exact version — all examples below show the current stable version).
 
 <Callout type="info">
-The `admin` scope is a superscope that grants access to all endpoints. Other scopes follow a `resource:action` pattern. JWT tokens are validated on every request and rejected if expired or if the requested endpoint is outside the token's scopes.
+  **Base URL** — `http://{bind}:{port}` (default `http://127.0.0.1:8080`). Set `[api] bind = "0.0.0.0"` in `nimbus.toml` to accept non-localhost traffic. The dashboard needs CORS entries in `[api] allowed_origins`.
 </Callout>
 
----
+## Authentication model
 
-## Response Format
+Every route (except those tagged **Public**) requires a bearer token:
 
-All responses use JSON. Error responses follow a consistent format:
+```http
+Authorization: Bearer <token>
+```
 
-```json title="Error Response"
+Five distinct auth levels are enforced by the controller:
+
+| Level | Credential | Typical caller |
+|-------|------------|----------------|
+| **Public** | none | `/api/health`, `/api/resourcepacks/files/{uuid}.zip` |
+| **Cluster token** | `[cluster] token` (separate secret) | Agents — for bootstrap, template download, state sync |
+| **Service token** | HMAC-SHA256 derivation of the master API token | Backend SDK, Velocity Bridge |
+| **Bearer (master)** | `[api] token` literal OR JWT with the `admin` scope | Dashboard, Remote CLI, operators |
+| **Admin only** | master token / JWT `admin` only — derived service tokens are rejected | All mutating/system routes |
+
+The master token is read from `[api] token` or the `NIMBUS_API_TOKEN` environment variable (env takes precedence and never appears in `ps`). If both are blank, the controller generates a random token on startup and logs the first 8 characters.
+
+### Service token derivation
+
+Backend servers receive a token derived from the master token so they cannot call admin routes. The derivation is public knowledge, so callers that want to share tokens with low-privilege consumers can emit it:
+
+```kotlin
+// nimbus-core/src/main/kotlin/.../api/NimbusApi.kt
+HMAC-SHA256(key = masterToken, message = "nimbus-service-token")
+  .toHex()
+```
+
+### JWT tokens
+
+If `[api] jwt_enabled = true`, `POST /api/tokens` mints short-lived HS256 JWTs whose scopes gate specific route groups. The scopes recognised by the controller are defined in `ApiScope.kt`:
+
+```text
+services:read   services:write
+groups:read     groups:write
+metrics:read
+cluster:read    cluster:write
+files:read      files:write
+config:read     config:write
+audit:read
+admin
+```
+
+`admin` is a super-scope that unlocks every route. Service-level routes additionally accept any of `services:read`, `services:write`, `groups:read`, `metrics:read`.
+
+## CORS, rate limits, and error shape
+
+- **CORS** — origins in `[api] allowed_origins` are accepted for `GET/POST/PUT/DELETE/PATCH` with both `http` and `https` schemes. An empty list defaults to "any origin" (useful for dev, loud warning in logs for prod).
+- **Rate limits** — global `120 req/min` per client IP; `/api/stress/start|stop|ramp` falls under a stricter `5 req/min` bucket. The client IP comes from `X-Forwarded-For` when `[api] trust_forwarded_for = true`, otherwise the socket address.
+- **Error body** — every non-2xx response has the shape:
+
+```json
 {
   "success": false,
-  "message": "Description of what went wrong",
-  "error": "ERROR_CODE"
+  "message": "Service 'Lobby-1' not found",
+  "error": "SERVICE_NOT_FOUND"
 }
 ```
 
-The `error` field contains a machine-readable error code that clients can switch on instead of parsing messages. For successful responses, the `error` field is `null`.
-
-**Common error codes:**
-
-| Error Code | Description |
-|------------|-------------|
-| `SERVICE_NOT_FOUND` | The requested service does not exist |
-| `SERVICE_NOT_READY` | Service exists but is not in READY state |
-| `SERVICE_START_FAILED` | Failed to start service (max instances or JAR unavailable) |
-| `GROUP_NOT_FOUND` | The requested group does not exist |
-| `GROUP_ALREADY_EXISTS` | A group with that name already exists |
-| `GROUP_HAS_RUNNING_INSTANCES` | Cannot delete group with running services |
-| `VALIDATION_FAILED` | Request failed input validation |
-| `INVALID_INPUT` | Invalid parameter value |
-| `NOT_FOUND` | Generic resource not found |
-| `FORBIDDEN` | Action not allowed |
-| `READ_ONLY` | Scope is read-only |
-| `PATH_TRAVERSAL` | Path traversal attempt blocked |
-| `INTERNAL_ERROR` | Unexpected server error |
-| `STRESS_ALREADY_RUNNING` | A stress test is already active |
-| `STRESS_NOT_RUNNING` | No stress test is currently active |
-| `CLUSTER_NOT_ENABLED` | Cluster mode is not enabled |
-| `LOAD_BALANCER_NOT_ENABLED` | Load balancer is not enabled |
-| `PROXY_NOT_AVAILABLE` | No Velocity proxy available |
-| `COMMAND_NOT_FOUND` | Command does not exist |
-| `COMMAND_NOT_REMOTE` | Command does not support remote execution |
+`error` is a stable machine-readable code. See [Error codes](#error-codes) below for the full list.
 
 ---
 
-## Health
+## Core endpoints
 
-### GET /api/health
+### Health (public)
 
-Public endpoint (no authentication required). Use for monitoring and health checks.
+#### `GET /api/health`
 
-**Response:**
+Liveness probe — always public, always 200.
 
-```json title="Response"
+**Response**
+```json
 {
   "status": "ok",
-  "version": "0.2.0",
-  "uptimeSeconds": 3600,
-  "services": 5,
+  "version": "0.9.1",
+  "uptimeSeconds": 12473,
+  "services": 7,
   "apiEnabled": true
 }
 ```
 
-| Status Code | Description |
-|-------------|-------------|
-| 200 | API is healthy |
+### Controller info
+
+#### `GET /api/controller/info` — **service**
+
+Runtime stats (JVM heap, services budget), system info, and a non-blocking update check against GitHub Releases. Used by the dashboard header.
+
+#### `GET /api/controller/changelog` — **service**
+
+Parsed changelog pulled from `docs/content/docs/project/changelog.mdx` on GitHub `main` (cached for 5 minutes). Returns `{ "entries": [{ "version", "title", "body" }] }`.
+
+### Network status
+
+#### `GET /api/status` — **service**
+
+Aggregated network view: per-group instance counts, total players, version strings.
+
+```json
+{
+  "networkName": "nimbus",
+  "online": true,
+  "uptimeSeconds": 3600,
+  "uptimeHuman": "1h 0m 0s",
+  "totalServices": 4,
+  "totalPlayers": 42,
+  "groups": [
+    { "name": "Lobby", "instances": 2, "maxInstances": 5,
+      "players": 30, "maxPlayers": 100,
+      "software": "PAPER", "version": "1.21.4" }
+  ]
+}
+```
+
+#### `GET /api/players` — **service**
+
+Pings every READY backend (timeout 3 s) and aggregates online players from the sample list. This is an approximation — for authoritative tracking use the Players module's `/api/players/online` endpoint instead.
+
+#### `POST /api/players/{name}/send` — **service**
+
+Transfers a player to another backend via the Velocity `send` command. Returns 503 if no proxy is READY.
+
+**Body** — `{ "targetService": "Lobby-2" }`
+
+#### `POST /api/players/{name}/kick` — **service**
+
+Kicks a player from the network. Executed via Velocity's `velocity kick` command.
+
+**Body** — `{ "reason": "AFK" }`
+
+#### `POST /api/broadcast` — **service**
+
+Broadcasts a message to every READY service (optionally scoped to a group). Uses `velocity broadcast` on proxies, `say` on backends.
+
+**Body** — `{ "message": "Restarting in 5 min", "group": "Lobby" }`
 
 ---
 
 ## Services
 
-### GET /api/services
+All routes are **service**-level unless marked otherwise.
 
-List all services. Supports filtering by group, state, and custom state.
+### Listing
 
-**Query Parameters:**
+#### `GET /api/services?group=&state=&customState=`
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `group` | string | Filter by group name |
-| `state` | string | Filter by state: `PREPARING`, `STARTING`, `READY`, `STOPPING`, `STOPPED`, `CRASHED` |
-| `customState` | string | Filter by custom state (case-insensitive) |
+Filter by group name, `ServiceState` (PREPARING/PREPARED/STARTING/READY/DRAINING/STOPPING/STOPPED/CRASHED), or the SDK-settable `customState` string.
 
-**Example:**
+#### `GET /api/services/health`
 
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/services?group=Lobby&state=READY"
-```
+Aggregate health summary — total/ready/healthy counts, average TPS across READY, memory totals.
 
-**Response:**
+#### `GET /api/services/{name}`
 
-```json title="Response"
-{
-  "services": [
-    {
-      "name": "Lobby-1",
-      "groupName": "Lobby",
-      "port": 30001,
-      "host": "127.0.0.1",
-      "nodeId": "worker-1",
-      "state": "READY",
-      "customState": null,
-      "pid": 48201,
-      "playerCount": 12,
-      "startedAt": "2025-01-15T10:30:00Z",
-      "restartCount": 0,
-      "uptime": "2h 15m 30s",
-      "isStatic": false,
-      "bedrockPort": null,
-      "sync": {
-        "inFlight": false,
-        "lastPushAt": "2025-01-15T12:30:00Z",
-        "lastPushBytes": 67108864,
-        "lastPushFiles": 122,
-        "canonicalSizeBytes": 134217728
-      }
-    }
-  ],
-  "total": 1
-}
-```
+Full `ServiceResponse` including memory (resolved from `/proc` on Linux, `tasklist` on Windows), TPS, `sync` sub-object when state-sync is enabled.
 
-**`sync` field:** Only populated for services with `[group.sync] enabled = true` (or equivalent for dedicated). Null for non-sync services. Fields:
+#### `GET /api/services/{name}/metrics/history?minutes=60`
 
-| Field | Description |
-|-------|-------------|
-| `inFlight` | `true` while a push is currently in progress (sync lock held) |
-| `lastPushAt` | ISO-8601 timestamp of the last successful push, or `null` if never |
-| `lastPushBytes` | Sum of the last-pushed manifest's file sizes |
-| `lastPushFiles` | File count in the last-pushed manifest |
-| `canonicalSizeBytes` | Current on-disk size of the canonical copy on the controller |
+Historical memory + player samples from the `service_metric_samples` table. `minutes` is clamped to `5..1440` and up to 2000 samples are returned.
 
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 400 | Invalid state filter value |
+### Lifecycle
 
----
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/api/services/{groupName}/start` | Starts a new instance of the group (note: path uses the **group** name, not a service name). 201 on success, 409 if max instances reached. |
+| `POST` | `/api/services/{name}/stop` | Graceful stop. |
+| `POST` | `/api/services/{name}/restart` | Stop + start. |
+| `POST` | `/api/services/{name}/migrate` | Move to another node. Body `{ "target": "worker-1" }`, omit/null to let the placement strategy choose. |
+| `POST` | `/api/services/{name}/exec` | Body `{ "command": "say hi" }`. Writes to the process stdin. |
 
-### GET /api/services/health
+### SDK endpoints
 
-Aggregated health summary across all services. Useful for monitoring dashboards.
+Backends (using `:nimbus-sdk`) call these:
 
-**Response:**
-
-```json title="Response"
-{
-  "totalServices": 5,
-  "readyServices": 4,
-  "healthyServices": 4,
-  "unhealthyServices": 0,
-  "averageTps": 19.85,
-  "totalMemoryUsedMb": 2048,
-  "totalMemoryMaxMb": 4096,
-  "memoryUsagePercent": 50.0,
-  "services": [
-    {
-      "name": "Lobby-1",
-      "groupName": "Lobby",
-      "state": "READY",
-      "tps": 19.9,
-      "memoryUsedMb": 512,
-      "memoryMaxMb": 1024,
-      "healthy": true,
-      "restartCount": 0,
-      "uptimeSeconds": 7200
-    }
-  ]
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-
----
-
-### GET /api/services/{'{'}name{'}'}
-
-Get details for a specific service.
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/services/Lobby-1
-```
-
-**Response:** Same as single entry in the services list above.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Service not found |
-
----
-
-### POST /api/services/{'{'}name{'}'}/start
-
-Start a new instance of a group. The `{name}` parameter is the **group name**, not a service name.
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/services/BedWars/start
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Service 'BedWars-3' starting on port 30005"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 201 | Service starting |
-| 404 | Group not found |
-| 409 | Max instances reached or JAR unavailable |
-
----
-
-### POST /api/services/{'{'}name{'}'}/stop
-
-Gracefully stop a running service.
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/services/BedWars-3/stop
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Service 'BedWars-3' stopped"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Service stopped |
-| 404 | Service not found |
-| 500 | Failed to stop |
-
----
-
-### POST /api/services/{'{'}name{'}'}/restart
-
-Stop and restart a service. Returns a new service instance.
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/services/Lobby-1/restart
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Service restarted as 'Lobby-1' on port 30001"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Service restarted |
-| 404 | Service not found |
-| 500 | Restart failed |
-
----
-
-### POST /api/services/{'{'}name{'}'}/migrate
-
-Move a sync-enabled service to a different cluster node. Stops on the current node (which triggers a state push to the controller's canonical store), then starts on the target (which pulls the canonical back). For non-sync services, data on the source node is lost.
-
-```json title="Request"
-{
-  "target": "worker-2"
-}
-```
-
-Use `"target": "local"` or omit the target entirely to move a service back to the controller.
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Service 'Lobby-1' migrated to node 'worker-2'"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Migration complete |
-| 400 | Invalid request body |
-| 404 | Service not found |
-| 500 | Migration failed (target offline, push failed, etc.) |
-
----
-
-### POST /api/services/{'{'}name{'}'}/exec
-
-Execute a command on a service's stdin.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "command": "say Hello from the API!"
-}
-```
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"command": "say Hello!"}' \
-  http://localhost:8080/api/services/Lobby-1/exec
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "service": "Lobby-1",
-  "command": "say Hello!"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Command sent |
-| 404 | Service not found |
-
----
-
-### PUT /api/services/{'{'}name{'}'}/state
-
-Set a custom state on a service. Used by game plugins via the SDK to signal state changes (e.g., `WAITING`, `INGAME`, `ENDING`).
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "customState": "INGAME"
-}
-```
-
-Set to `null` to clear the custom state:
-
-```json title="Request Body"
-{
-  "customState": null
-}
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "service": "BedWars-1",
-  "customState": "INGAME"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | State updated |
-| 404 | Service not found |
-| 409 | Service is not in READY state |
-
----
-
-### GET /api/services/{'{'}name{'}'}/state
-
-Get the current custom state of a service.
-
-**Response:**
-
-```json title="Response"
-{
-  "service": "BedWars-1",
-  "customState": "INGAME"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Service not found |
-
----
-
-### GET /api/services/{'{'}name{'}'}/logs
-
-Get recent log lines from the service's `logs/latest.log`.
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `lines` | int | 100 | Number of lines to return (1-1000) |
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/services/Lobby-1/logs?lines=50"
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "service": "Lobby-1",
-  "lines": [
-    "[14:23:01 INFO]: Player Alex joined the game",
-    "[14:23:05 INFO]: Player Steve joined the game"
-  ],
-  "total": 2
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success (empty lines array if no log file) |
-| 404 | Service not found |
-
----
-
-### GET /api/services/{'{'}name{'}'}/metrics/history
-
-Get time-series memory and player count samples for a service. Reads from the `service_metric_samples` table written by `MetricsCollector`. Used by the dashboard to show historical charts rather than starting from a blank state when the page loads.
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Range | Description |
-|-----------|------|---------|-------|-------------|
-| `minutes` | int | `60` | 5–1440 | How far back to fetch samples |
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/services/Lobby-1/metrics/history?minutes=120"
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "service": "Lobby-1",
-  "samples": [
-    {
-      "timestamp": "2025-01-15T10:00:00Z",
-      "memoryUsedMb": 480,
-      "memoryMaxMb": 1024,
-      "playerCount": 8
-    },
-    {
-      "timestamp": "2025-01-15T10:01:00Z",
-      "memoryUsedMb": 512,
-      "memoryMaxMb": 1024,
-      "playerCount": 12
-    }
-  ]
-}
-```
-
-Returns an empty `samples` array if the database is not configured or no samples exist for the requested window.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Service not found |
-
----
-
-### POST /api/services/{'{'}name{'}'}/message
-
-Send a message to a service (service-to-service messaging via the event bus).
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "from": "BedWars-1",
-  "channel": "game_end",
-  "data": {
-    "winner": "Red",
-    "duration": "320"
-  }
-}
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Message sent to 'Lobby-1' on channel 'game_end'"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Message sent |
-| 404 | Target service not found |
-
----
-
-### PUT /api/services/{'{'}name{'}'}/players
-
-Report the current player count for a service. Used internally by the SDK on backend servers to keep the controller's player counts accurate.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "playerCount": 12
-}
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "service": "Lobby-1",
-  "playerCount": 12
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Player count updated |
-| 404 | Service not found |
+| Method | Path | Body |
+|--------|------|------|
+| `PUT` | `/api/services/{name}/state` | `{ "customState": "waiting" }` — requires service to be READY. |
+| `GET` | `/api/services/{name}/state` | Current custom state. |
+| `PUT` | `/api/services/{name}/health` | `{ "tps": 19.8 }` — memory fields in the request are accepted but ignored (the controller reads `/proc`). |
+| `PUT` | `/api/services/{name}/players` | `{ "playerCount": 17 }` |
+| `GET` | `/api/services/{name}/logs?lines=100` | Tails `logs/latest.log` (lines clamped 1..1000). |
+| `POST` | `/api/services/{name}/message` | `{ "from": "Lobby-1", "channel": "queue", "data": { ... } }`. Emits a `SERVICE_MESSAGE` event. The special target `controller` is virtual (no service lookup). |
 
 ---
 
 ## Groups
 
-### GET /api/groups
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/groups` | service | List with `activeInstances` and scanned `modIds`. |
+| `GET` | `/api/groups/{name}` | service | Single group. |
+| `POST` | `/api/groups` | service | Create. Writes `config/groups/{name}.toml` + reloads. |
+| `PUT` | `/api/groups/{name}` | service | Replace. Immutable `name`. |
+| `DELETE` | `/api/groups/{name}` | service | Deletes TOML. Rejects with 409 if any instances are running. |
 
-List all configured server groups.
+**Create/update body** (flat translation layer — the TOML on disk is nested):
 
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/groups
+```json
+{
+  "name": "Lobby", "type": "LOBBY", "template": "lobby",
+  "software": "PAPER", "version": "1.21.4",
+  "modloaderVersion": "", "jarName": "", "readyPattern": "",
+  "memory": "2G", "maxPlayers": 100,
+  "minInstances": 1, "maxInstances": 5,
+  "playersPerInstance": 50, "scaleThreshold": 0.8, "idleTimeout": 300,
+  "stopOnEmpty": true, "restartOnCrash": true, "maxRestarts": 3,
+  "jvmArgs": [], "jvmOptimize": true
+}
 ```
 
-**Response:**
+Validation rejects names outside `^[a-zA-Z0-9_-]{1,64}$`, invalid `software`/`type` enums, memory not matching `^\d+[MmGg]$`, version not matching `^\d+\.\d+(\.\d+)?(-.*)?$`, or ranges outside `minInstances <= maxInstances`, `scaleThreshold ∈ [0,1]`.
 
-```json title="Response"
+---
+
+## Dedicated services — **admin**
+
+Single-instance, fixed-port services under `paths.dedicated/<name>/`.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/dedicated` | List with runtime status. |
+| `GET` | `/api/dedicated/{name}` | Detail. |
+| `POST` | `/api/dedicated` | Create — auto-provisions the directory. |
+| `PUT` | `/api/dedicated/{name}` | Replace config (name immutable). |
+| `DELETE` | `/api/dedicated/{name}` | Delete config + TOML. |
+| `POST` | `/api/dedicated/{name}/start` | |
+| `POST` | `/api/dedicated/{name}/stop` | |
+| `POST` | `/api/dedicated/{name}/restart` | |
+| `POST` | `/api/dedicated/{name}/modpack/import` | Import a CurseForge or Modrinth modpack into the dedicated dir. |
+| `POST` | `/api/dedicated/{name}/modpack/upload` | Upload a server-pack zip. |
+
+<Callout type="warn">
+  **Port conflict** — the create endpoint refuses a port already claimed by another dedicated config with `DEDICATED_PORT_IN_USE`. Dynamic groups allocate their ports from `backend_port_start` and won't collide with dedicated ports unless the operator configures overlapping ranges.
+</Callout>
+
+---
+
+## Maintenance — **service**
+
+Global and per-group maintenance flag plus a username/UUID whitelist surfaced to Velocity for login-time enforcement.
+
+| Method | Path | Body / notes |
+|--------|------|--------------|
+| `GET` | `/api/maintenance` | Full status. |
+| `POST` | `/api/maintenance/global` | `{ "enabled": true, "reason": "patching" }` |
+| `PUT` | `/api/maintenance/global` | `{ "motdLine1", "motdLine2", "protocolText", "kickMessage" }` (all optional) |
+| `POST` | `/api/maintenance/groups/{name}` | `{ "enabled": true, "reason": "" }` |
+| `PUT` | `/api/maintenance/groups/{name}` | `{ "kickMessage": "..." }` |
+| `POST` | `/api/maintenance/whitelist` | `{ "entry": "Alice" }` — name or UUID. |
+| `DELETE` | `/api/maintenance/whitelist` | `{ "entry": "Alice" }` |
+
+---
+
+## Proxy sync — **service**
+
+Reads and writes config for the Velocity Bridge (MOTD, tablist, chat, player tab overrides).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/proxy/config` | Unified read used by the Bridge on connect. Includes maintenance snapshot. |
+| `GET` / `PUT` | `/api/proxy/tablist` | Tablist header/footer/playerFormat/updateInterval. |
+| `GET` / `PUT` | `/api/proxy/motd` | MOTD lines + maxPlayers + offset. |
+| `GET` / `PUT` | `/api/proxy/chat` | Chat format + enabled. |
+| `GET` | `/api/proxy/tablist/players` | All UUID overrides. |
+| `PUT` | `/api/proxy/tablist/players/{uuid}` | `{ "format": "&7[Afk] {name}" }` |
+| `DELETE` | `/api/proxy/tablist/players/{uuid}` | Clear override. |
+
+### `POST /api/proxy/events` — **service**
+
+Bridge reports player lifecycle events here. The controller validates the UUID format (strict parse, 400 on malformed input) and emits the matching `NimbusEvent`.
+
+**Body**
+```json
+{ "type": "PLAYER_CONNECTED", "player": "Alice",
+  "uuid": "11111111-2222-3333-4444-555555555555", "service": "Lobby-1" }
+```
+
+Accepted types: `PLAYER_CONNECTED`, `PLAYER_DISCONNECTED`, `PLAYER_SERVER_SWITCH` (adds `fromService`/`toService`).
+
+---
+
+## Commands — **service**
+
+The Velocity Bridge turns this into dynamic in-game commands.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/commands` | Every console command with a non-empty permission node (metadata + subcommands + completion hints). |
+| `POST` | `/api/commands/{name}/execute` | `{ "args": ["sub", "arg"] }` — runs the command, captures typed output lines. |
+
+Response lines are tagged `header / info / success / error / item / text` so Bridge can colour them consistently.
+
+---
+
+## Files — **admin**
+
+Scopes: `templates` (full rw), `services` (full rw), `groups` (read-only).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/files/{scope}/{path...}` | List directory or read file. |
+| `PUT` | `/api/files/{scope}/{path...}` | Overwrite file contents (JSON body). |
+| `POST` | `/api/files/{scope}/{path...}` | Create directory or upload file (multipart). Max upload 100 MB. |
+| `DELETE` | `/api/files/{scope}/{path...}` | Delete file or empty directory. |
+
+<Callout type="warn">
+  Path traversal attempts (`..`, absolute paths) are rejected with `PATH_TRAVERSAL`. The `groups` scope is read-only — use the Groups CRUD API for edits.
+</Callout>
+
+---
+
+## Config — **admin**
+
+#### `GET /api/config`
+
+Read the current `nimbus.toml` sans secrets (`hasToken: boolean` instead of the token itself).
+
+#### `PATCH /api/config`
+
+Partial update of non-critical fields — `networkName`, `consoleColored`, `consoleLogEvents`. Any other field requires a restart and direct TOML edit. The controller atomically rewrites `nimbus.toml` preserving other sections.
+
+---
+
+## System — **admin**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/api/reload` | Hot-reloads every `config/groups/*.toml`. Emits `CONFIG_RELOADED`. |
+| `POST` | `/api/shutdown` | Responds 202, then `System.exit(0)` after 250 ms so the response flushes. Essential for daemon deployments without a TTY console. |
+
+---
+
+## Doctor — **admin**
+
+#### `GET /api/doctor`
+
+Runs every registered health check (environment, database, cluster, modules' own checks). Response mirrors `DoctorReport`:
+
+```json
 {
-  "groups": [
-    {
-      "name": "Lobby",
-      "type": "DYNAMIC",
-      "software": "PAPER",
-      "version": "1.21.4",
-      "template": "lobby",
-      "resources": {
-        "memory": "1G",
-        "maxPlayers": 50
-      },
-      "scaling": {
-        "minInstances": 2,
-        "maxInstances": 4,
-        "playersPerInstance": 40,
-        "scaleThreshold": 0.8,
-        "idleTimeout": 0
-      },
-      "lifecycle": {
-        "stopOnEmpty": false,
-        "restartOnCrash": true,
-        "maxRestarts": 5
-      },
-      "jvmArgs": ["-XX:+UseG1GC"],
-      "activeInstances": 2,
-      "modIds": []
-    }
+  "sections": [
+    { "name": "Environment",
+      "findings": [{ "level": "OK", "message": "...", "hint": null }] }
   ],
-  "total": 1
+  "warnCount": 0, "failCount": 0, "status": "ok"
 }
 ```
 
----
-
-### GET /api/groups/{'{'}name{'}'}
-
-Get details for a specific group. Same response format as a single entry in the groups list.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Group not found |
+HTTP status is always 200 — switch on `status` (`ok` / `warn` / `fail`) or `failCount` yourself.
 
 ---
 
-### POST /api/groups
+## Cluster & load balancer — **admin**
 
-Create a new server group. Writes a TOML config file and reloads.
+#### `GET /api/nodes`
 
-**Request Body:**
+Every cluster node with `system` sub-object (hostname, OS/arch, CPU model/load, system memory, Java version/vendor) plus per-node service lists.
 
-```json title="Request Body"
+#### `GET /api/loadbalancer`
+
+Backend health, active connection counts, strategy, total/rejected connection counters. 404 with `LOAD_BALANCER_NOT_ENABLED` when the LB isn't configured.
+
+### Cluster bootstrap — **cluster token**
+
+#### `GET /api/cluster/bootstrap`
+
+Returns the controller's TLS certificate material so agents can pin it before the first `wss://` handshake. Gated by the cluster token (`Authorization: Bearer <clusterToken>`), **not** the REST API token.
+
+**Response**
+```json
 {
-  "name": "SkyWars",
-  "type": "DYNAMIC",
-  "template": "skywars",
-  "software": "PAPER",
-  "version": "1.21.4",
-  "memory": "2G",
-  "maxPlayers": 16,
-  "minInstances": 1,
-  "maxInstances": 8,
-  "playersPerInstance": 16,
-  "scaleThreshold": 0.8,
-  "idleTimeout": 300,
-  "stopOnEmpty": true,
-  "restartOnCrash": true,
-  "maxRestarts": 5,
-  "jvmArgs": ["-XX:+UseG1GC"]
-}
-```
-
-All fields except `name` and `template` have defaults. Optional fields:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `type` | `DYNAMIC` | `DYNAMIC` or `STATIC` |
-| `software` | `PAPER` | `PAPER`, `PURPUR`, `VELOCITY`, `FORGE`, `NEOFORGE`, `FABRIC`, `CUSTOM` |
-| `version` | `1.21.4` | Minecraft version |
-| `modloaderVersion` | `""` | Modloader version (Forge/NeoForge/Fabric) |
-| `jarName` | `""` | Custom JAR filename |
-| `readyPattern` | `""` | Custom regex for ready detection |
-| `memory` | `1G` | Memory per instance |
-| `maxPlayers` | `50` | Max players per instance |
-| `minInstances` | `1` | Minimum running instances |
-| `maxInstances` | `4` | Maximum running instances |
-| `playersPerInstance` | `40` | Players per instance (for scaling) |
-| `scaleThreshold` | `0.8` | Scale up when this % full (0.0-1.0) |
-| `idleTimeout` | `0` | Stop idle instances after this many seconds (0 = never) |
-| `stopOnEmpty` | `false` | Stop when no players |
-| `restartOnCrash` | `true` | Auto-restart on crash |
-| `maxRestarts` | `5` | Max restart attempts |
-| `jvmArgs` | `["-XX:+UseG1GC"]` | JVM arguments |
-
-**Validation Rules:**
-- Names must match `^[a-zA-Z0-9_-]{1,64}$`
-- Memory format: `512M` or `2G`
-- Version format: `1.21.4` or `1.21.4-pre1`
-- `minInstances <= maxInstances`
-- `scaleThreshold` between 0.0 and 1.0
-
-| Status Code | Description |
-|-------------|-------------|
-| 201 | Group created |
-| 400 | Validation error |
-| 409 | Group already exists |
-
----
-
-### PUT /api/groups/{'{'}name{'}'}
-
-Update a group's configuration. Same request body as POST.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group updated |
-| 400 | Validation error |
-| 404 | Group not found |
-
----
-
-### DELETE /api/groups/{'{'}name{'}'}
-
-Delete a group. Fails if the group has running instances.
-
-```bash title="Terminal"
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/groups/SkyWars
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group deleted |
-| 404 | Group not found |
-| 409 | Group has running instances |
-
----
-
-## Network
-
-### GET /api/status
-
-Full cluster overview.
-
-**Response:**
-
-```json title="Response"
-{
-  "networkName": "MyNetwork",
-  "online": true,
-  "uptimeSeconds": 7200,
-  "totalServices": 5,
-  "totalPlayers": 36,
-  "groups": [
-    {
-      "name": "Lobby",
-      "instances": 2,
-      "maxInstances": 4,
-      "players": 12,
-      "maxPlayers": 100,
-      "software": "PAPER",
-      "version": "1.21.4"
-    }
-  ]
-}
-```
-
----
-
-### GET /api/controller/info
-
-Runtime stats for the controller itself, plus an update-check result. Used by the dashboard Overview page to render the "Controller host" and "Nimbus runtime" cards.
-
-**Response:**
-
-```json title="Response"
-{
-  "version": "0.6.2",
-  "startedAt": "2026-04-10T12:00:00Z",
-  "uptimeSeconds": 3600,
-  "jvmMemoryUsedMb": 180,
-  "jvmMemoryMaxMb": 256,
-  "jvmMemoryAllocatedMb": 200,
-  "servicesMaxMemoryMb": 8192,
-  "servicesAllocatedMemoryMb": 4096,
-  "servicesUsedMemoryMb": 3840,
-  "runningServices": 5,
-  "system": {
-    "hostname": "controller.internal",
-    "osName": "Linux",
-    "osVersion": "6.6.0-1008-oem",
-    "osArch": "amd64",
-    "cpuModel": "AMD Ryzen 9 5900X 12-Core Processor",
-    "availableProcessors": 24,
-    "systemCpuLoad": 0.18,
-    "processCpuLoad": 0.04,
-    "systemMemoryUsedMb": 12288,
-    "systemMemoryTotalMb": 32768,
-    "javaVersion": "21.0.5",
-    "javaVendor": "Eclipse Adoptium"
-  },
-  "updateAvailable": false,
-  "latestVersion": null,
-  "updateType": null,
-  "releaseUrl": null
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `jvmMemoryUsedMb` / `jvmMemoryMaxMb` | Long | Controller JVM heap (informational — the `nimbus-core` process itself) |
-| `servicesMaxMemoryMb` | Long | Memory budget for all services, from `controller.max_memory` in `nimbus.toml` |
-| `servicesAllocatedMemoryMb` | Long | Sum of configured `-Xmx` for currently running services |
-| `servicesUsedMemoryMb` | Long | Sum of actual process RSS for currently running services (best effort) |
-| `system` | Object | Host specs + live CPU/memory. Added in v0.6.2. Static fields (hostname, OS, CPU model) are read once and cached; `systemCpuLoad`, `processCpuLoad` and `systemMemoryUsedMb` are resampled on every request |
-| `updateAvailable` | Boolean | `true` when `UpdateChecker` found a newer release on GitHub. Never throws — any failure in the update check is silently ignored so this endpoint can't fail because GitHub is down |
-
----
-
-### GET /api/controller/changelog
-
-Parses the docs changelog (`docs/content/docs/project/changelog.mdx` on GitHub `main`) into per-version entries. Results are cached on the controller for 5 minutes. Used by the dashboard "What's new" card.
-
-**Response:**
-
-```json title="Response"
-{
-  "entries": [
-    {
-      "version": "0.6.2",
-      "title": "v0.6.2 (April 10, 2026)",
-      "body": "### Added\n- **Controller host system stats**: ..."
-    }
-  ]
-}
-```
-
----
-
-### GET /api/players
-
-List all connected players. Pings each READY service in parallel via Server List Ping.
-
-**Response:**
-
-```json title="Response"
-{
-  "players": [
-    {
-      "name": "Steve",
-      "service": "Lobby-1"
-    },
-    {
-      "name": "Alex",
-      "service": "BedWars-1"
-    }
-  ],
-  "total": 2
-}
-```
-
----
-
-### POST /api/players/{'{'}name{'}'}/send
-
-Transfer a player to another service via the Velocity proxy.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "targetService": "Lobby-1"
-}
-```
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"targetService": "Lobby-1"}' \
-  http://localhost:8080/api/players/Steve/send
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Transfer command sent |
-| 503 | No Velocity proxy available |
-| 500 | Failed to send command |
-
----
-
-### POST /api/players/{'{'}name{'}'}/kick
-
-Kick a player from the network via the Velocity proxy.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "reason": "You have been kicked from the network."
-}
-```
-
-The `reason` field is optional and defaults to `"You have been kicked from the network."`.
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"reason": "Breaking the rules."}' \
-  http://localhost:8080/api/players/Steve/kick
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Kick command sent |
-| 503 | No Velocity proxy available |
-| 500 | Failed to execute kick command |
-
----
-
-### POST /api/broadcast
-
-Broadcast a message to all running services, or to a specific group.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "message": "Server restarting in 5 minutes!",
-  "group": "Lobby"
-}
-```
-
-The `group` field is optional. When omitted, the message is sent to all READY services.
-
-Backend servers receive the message via `/say`, proxy servers via `velocity broadcast`.
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Broadcast sent to 4/4 services in network",
-  "services": 4
-}
-```
-
-**Example:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Maintenance in 10 minutes!"}' \
-  http://localhost:8080/api/broadcast
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Broadcast sent (check `services` count in response) |
-| 404 | No ready services found in the target scope |
-
----
-
-## Audit
-
-### GET /api/audit
-
-Returns paginated audit log entries. Admin-only.
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `limit` | Int | `50` | Max entries to return (1–500) |
-| `offset` | Long | `0` | Skip first N entries (for pagination) |
-| `action` | String | — | Filter by action type (e.g. `SERVICE_STARTING`, `CONFIG_RELOADED`) |
-| `actor` | String | — | Filter by actor (e.g. `console`, `api:admin`, `system`) |
-
-**Response:**
-
-```json title="Response"
-{
-  "entries": [
-    {
-      "timestamp": "2025-01-15T10:30:15.123Z",
-      "actor": "console",
-      "action": "SERVICE_STARTING",
-      "target": "Lobby-1",
-      "details": "group=Lobby, port=30001, node=local"
-    }
-  ],
-  "limit": 50,
-  "offset": 0
-}
-```
-
----
-
-## Permissions
-
-### GET /api/permissions/groups
-
-List all permission groups.
-
-**Response:**
-
-```json title="Response"
-{
-  "groups": [
-    {
-      "name": "admin",
-      "default": false,
-      "prefix": "&c[Admin] ",
-      "suffix": "",
-      "priority": 100,
-      "permissions": ["nimbus.admin", "nimbus.command.*"],
-      "parents": ["mod"]
-    }
-  ],
-  "total": 1
-}
-```
-
----
-
-### GET /api/permissions/groups/{'{'}name{'}'}
-
-Get a specific permission group. Same format as single entry above.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Group not found |
-
----
-
-### POST /api/permissions/groups
-
-Create a new permission group.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "name": "vip",
-  "default": false
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 201 | Group created |
-| 400 | Invalid name |
-| 409 | Group already exists |
-
----
-
-### PUT /api/permissions/groups/{'{'}name{'}'}
-
-Update a permission group. All fields are optional -- only provided fields are changed.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "default": false,
-  "prefix": "&a[VIP] ",
-  "suffix": "",
-  "priority": 50,
-  "permissions": ["nimbus.join.full", "nimbus.chat.color"],
-  "parents": ["default"]
+  "fingerprint": "SHA256 AB:CD:...",
+  "certPem": "-----BEGIN CERTIFICATE-----\n...",
+  "wsUrl": "wss://controller.example.net:8443/cluster",
+  "validUntil": "2027-04-15T00:00:00Z",
+  "sans": ["controller.example.net", "10.0.0.5"]
 }
 ```
 
 <Callout type="warn">
-Setting `permissions` or `parents` **replaces** the entire list, not appends to it. Use the individual add/remove endpoints for incremental changes.
+  This endpoint is reachable over plain HTTP on the REST port on purpose — otherwise agents could not trust TLS yet. The response body is public-key material (not secret), but the cluster token gates access to prevent information disclosure.
 </Callout>
 
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group updated |
-| 404 | Group not found |
+### State sync — **cluster token**
+
+Agents pull and push the controller's canonical copy of a service's working directory. Auth via `Authorization: Bearer <clusterToken>` or the legacy `?token=<clusterToken>` query param.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/services/{name}/state/manifest` | Current `StateManifest` JSON. |
+| `GET` | `/api/services/{name}/state/file/{path...}` | Single file raw bytes. |
+| `POST` | `/api/services/{name}/state/sync` | Multipart push: `manifest` form part + one `file:<relpath>` part per upload. Returns 409 if another push is in-flight for the same service. Atomic commit on success; `StateSyncResponse` body. |
+
+### Template download — **cluster token**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/templates/{name}/download?token=&software=` | Returns a ZIP of the group template plus applicable `global*/` overlays. Auth is `?token=<clusterToken>` query param. |
+| `GET` | `/api/templates/{name}/hash?token=&software=` | SHA-256 of the same file set so agents can skip unchanged downloads. |
 
 ---
 
-### DELETE /api/permissions/groups/{'{'}name{'}'}
+## Tokens — **admin**
 
-Delete a permission group.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group deleted |
-| 404 | Group not found |
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/api/tokens` | `{ "subject": "...", "scopes": ["services:read"], "expiresInSeconds": 86400 }` — 201 with HS256 JWT. Requires `[api] jwt_enabled = true`. Rejects expiry `< 60 s` and unknown scopes. |
+| `GET` | `/api/tokens/scopes` | Sorted list of every scope the controller accepts. |
 
 ---
 
-### POST /api/permissions/groups/{'{'}name{'}'}/permissions
+## Modules — **admin**
 
-Add a single permission to a group.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "permission": "nimbus.join.full"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Permission added |
-| 404 | Group not found |
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/modules` | Every loaded module plus any `modules/*.jar` present on disk but not installed. Includes the module's dashboard manifest. |
+| `POST` | `/api/modules/install/{id}` | Extract an embedded module from the fat JAR. 201 if installed (restart required). |
+| `POST` | `/api/modules/uninstall/{id}` | Removes the JAR. Restart required to take effect. |
 
 ---
 
-### DELETE /api/permissions/groups/{'{'}name{'}'}/permissions
+## Software & plugins — **admin**
 
-Remove a single permission from a group.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "permission": "nimbus.join.full"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Permission removed |
-| 404 | Group not found |
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/software` | All `ServerSoftware` enum values with capability flags. |
+| `GET` | `/api/software/{type}/versions` | Stable + snapshot version lists per software (Paper, Velocity, Purpur, Folia, Pufferfish, Leaf, Forge, NeoForge, Fabric). |
+| `GET` | `/api/software/{type}/modloader-versions?mcVersion=` | Forge/NeoForge per-MC loader versions; Fabric loader list. |
+| `GET` | `/api/plugins/search?q=&mcVersion=&platform=` | Multi-source (Hangar + Modrinth) search — returns `source`, `name`, `author`, `slug`, `projectId`, `description`, `downloads`. |
+| `POST` | `/api/plugins/install` | `{ "source", "slug", "projectId", "group", "mcVersion", "platform" }` — downloads the plugin into the target group's template/plugins dir, resolving dependencies. |
 
 ---
 
-### GET /api/permissions/groups/{'{'}name{'}'}/meta
+## Modpacks — **admin**
 
-Get all metadata key-value pairs for a permission group.
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/api/modpacks/resolve` | Look up a pack by URL or ID. |
+| `POST` | `/api/modpacks/import` | Import by manifest (CurseForge/Modrinth). |
+| `POST` | `/api/modpacks/upload` | Single-shot upload of a server pack (raw body, `filename` query param). |
+| `POST` | `/api/modpacks/upload/init` | Start a chunked upload — returns an upload ID. |
+| `POST` | `/api/modpacks/upload/chunk` | Append a chunk. |
+| `POST` | `/api/modpacks/upload/finalize` | Commit the assembled pack. |
 
-**Response:**
-
-```json title="Response"
-{
-  "meta": {
-    "chat-color": "gold",
-    "max-homes": "5"
-  }
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | Group not found |
+<Callout type="info">
+  The chunked flow exists because browsers struggle to stream single large multipart bodies through the dashboard's auth layer. Native tools can use the single-shot `POST /api/modpacks/upload` instead.
+</Callout>
 
 ---
 
-### PUT /api/permissions/groups/{'{'}name{'}'}/meta
+## Stress tests
 
-Set a metadata key-value pair on a permission group.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "key": "chat-color",
-  "value": "gold"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Meta key set |
-| 404 | Group not found |
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/stress` | admin | Status — subject to the global 120/min limit. |
+| `POST` | `/api/stress/start` | admin | Body `{ "players": 100, "group": "Lobby", "rampSeconds": 30 }`. Rate limited 5/min. |
+| `POST` | `/api/stress/stop` | admin | 5/min. |
+| `POST` | `/api/stress/ramp` | admin | `{ "players": 200, "durationSeconds": 60 }`. 5/min. |
 
 ---
 
-### DELETE /api/permissions/groups/{'{'}name{'}'}/meta/{'{'}key{'}'}
+## Audit log — **admin**
 
-Remove a metadata key from a permission group.
+#### `GET /api/audit?limit=50&offset=0&action=&actor=`
 
-**Example:**
-
-```bash title="Terminal"
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/permissions/groups/vip/meta/chat-color
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Meta key removed |
-| 404 | Group not found |
+Paged dump of the `audit_log` table. `limit` clamped 1..500. Filters are optional exact-match strings.
 
 ---
 
-### GET /api/permissions/players/{'{'}uuid{'}'}
+## Metrics — **service**
 
-Get a player's permission data, including effective permissions resolved from all groups.
+#### `GET /api/metrics`
 
-**Response:**
-
-```json title="Response"
-{
-  "uuid": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Steve",
-  "groups": ["admin", "vip"],
-  "effectivePermissions": [
-    "minecraft.command.gamemode",
-    "nimbus.admin",
-    "nimbus.command.*",
-    "nimbus.join.full"
-  ],
-  "prefix": "&c[Admin] ",
-  "suffix": "",
-  "displayGroup": "admin"
-}
-```
+Prometheus text exposition — `nimbus_info{version}`, `nimbus_uptime_seconds`, `nimbus_services_total`, `nimbus_services_by_state{state}`, `nimbus_services_by_group{group}`, `nimbus_players_total`, plus node, load balancer, and state sync gauges. Requires a service- or master-level token. Configure your scraper with a bearer token header.
 
 ---
 
-### PUT /api/permissions/players/{'{'}uuid{'}'}
+## Remote CLI console — **admin**
 
-Register or update a player. Typically called on player join.
+The Remote CLI uses two endpoints on this block.
 
-**Request Body:**
-
-```json title="Request Body"
-{
-  "name": "Steve"
-}
-```
-
-**Response:** Same format as GET player response, with resolved permissions.
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/api/console/complete` | Tab completion — `{ "buffer": "ser", "cursor": 3 }`. Returns candidate list. |
+| `WS` | `/api/console/stream` | Multiplexed command/screen/events. See [WebSocket reference](/docs/reference/websocket). |
 
 ---
 
-### POST /api/permissions/players/{'{'}uuid{'}'}/groups
-
-Add a permission group to a player.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "group": "vip",
-  "name": "Steve"
-}
-```
-
-The `name` field is optional if the player is already registered.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group added |
-| 400 | Invalid group |
-
----
-
-### DELETE /api/permissions/players/{'{'}uuid{'}'}/groups
-
-Remove a permission group from a player.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "group": "vip"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Group removed |
-| 400 | Invalid group |
-
----
-
-### GET /api/permissions/players/{'{'}uuid{'}'}/meta
-
-Get all metadata key-value pairs for a player.
-
-**Response:**
-
-```json title="Response"
-{
-  "meta": {
-    "nickname": "Steve the Builder",
-    "home-limit": "10"
-  }
-}
-```
-
----
-
-### PUT /api/permissions/players/{'{'}uuid{'}'}/meta
-
-Set a metadata key-value pair on a player.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "key": "nickname",
-  "value": "Steve the Builder"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Meta key set |
-| 404 | Player not found |
-
----
-
-### DELETE /api/permissions/players/{'{'}uuid{'}'}/meta/{'{'}key{'}'}
-
-Remove a metadata key from a player.
-
-**Example:**
-
-```bash title="Terminal"
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/permissions/players/550e8400-e29b-41d4-a716-446655440000/meta/nickname
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Meta key removed |
-| 404 | Player not found |
-
----
-
-### GET /api/permissions/check/{'{'}uuid{'}'}/{'{'}permission{'}'}
-
-Check if a player has a specific permission.
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/permissions/check/550e8400-e29b-41d4-a716-446655440000/nimbus.admin
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "uuid": "550e8400-e29b-41d4-a716-446655440000",
-  "permission": "nimbus.admin",
-  "allowed": true
-}
-```
-
----
-
-### GET /api/permissions/audit
-
-Get the permission audit log. Records all permission changes made via the API or console.
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `limit` | int | 50 | Number of entries to return |
-| `offset` | int | 0 | Offset for pagination |
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/permissions/audit?limit=20&offset=0"
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "entries": [
-    {
-      "timestamp": "2025-01-15T14:30:00Z",
-      "actor": "api",
-      "action": "user.addgroup",
-      "target": "550e8400-e29b-41d4-a716-446655440000",
-      "details": "Added group 'vip' to 'Steve'"
-    }
-  ],
-  "total": 1
-}
-```
-
----
-
-## Displays
-
-### GET /api/displays
-
-List all display configurations (signs, NPCs).
-
-**Response:**
-
-```json title="Response"
-{
-  "displays": [
-    {
-      "name": "BedWars",
-      "sign": {
-        "line1": "&lBedWars",
-        "line2": "&7Click to play",
-        "line3": "",
-        "line4Online": "&a%players% playing",
-        "line4Offline": "&cOffline"
-      },
-      "npc": {
-        "displayName": "&eBedWars",
-        "item": "RED_BED",
-        "subtitle": "&7%players% playing",
-        "subtitleOffline": "&cOffline"
-      },
-      "states": {
-        "WAITING": "&aWaiting",
-        "INGAME": "&cIn Game",
-        "ENDING": "&6Ending"
-      }
-    }
-  ],
-  "total": 1
-}
-```
-
----
-
-### GET /api/displays/{'{'}name{'}'}
-
-Get display config for a specific group. Same format as single entry above.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Success |
-| 404 | No display config for this group |
-
----
-
-### GET /api/displays/{'{'}name{'}'}/state/{'{'}state{'}'}
-
-Resolve a raw custom state to its display label.
-
-**Example:**
-
-```bash title="Terminal"
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/displays/BedWars/state/INGAME
-```
-
-**Response:**
-
-```json title="Response"
-{
-  "raw": "INGAME",
-  "label": "&cIn Game"
-}
-```
-
----
-
-## Proxy Sync
-
-Manage tab list, MOTD, and chat formatting for Velocity proxies.
-
-### GET /api/proxy/config
-
-Get the full proxy sync configuration.
-
-**Response:**
-
-```json title="Response"
-{
-  "tablist": {
-    "header": "&b&lMyNetwork\n&7Online: %online%",
-    "footer": "&7play.mynetwork.com",
-    "playerFormat": "%prefix%%player%%suffix%",
-    "updateInterval": 5
-  },
-  "motd": {
-    "line1": "&b&lMyNetwork",
-    "line2": "&7A Minecraft Network",
-    "maxPlayers": 500,
-    "playerCountOffset": 10
-  },
-  "chat": {
-    "format": "%prefix%%player%%suffix% &7>> &f%message%",
-    "enabled": true
-  },
-  "maintenance": {
-    "globalEnabled": false,
-    "motdLine1": "  <gradient:#ff6b6b:#ee5a24><bold>MAINTENANCE</bold></gradient>",
-    "motdLine2": "  <gray>We are currently performing maintenance.</gray>",
-    "protocolText": "Maintenance",
-    "kickMessage": "<red><bold>Maintenance</bold></red>...",
-    "whitelist": [],
-    "groups": {}
-  }
-}
-```
-
----
-
-### GET /api/proxy/tablist
-
-Get tab list configuration.
-
-### PUT /api/proxy/tablist
-
-Update tab list settings. All fields are optional.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "header": "&b&lMyNetwork\n&7%online% players online",
-  "footer": "&7play.mynetwork.com",
-  "playerFormat": "%prefix%%player%%suffix%",
-  "updateInterval": 10
-}
-```
-
----
-
-### GET /api/proxy/motd
-
-Get MOTD configuration.
-
-### PUT /api/proxy/motd
-
-Update MOTD settings. All fields are optional.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "line1": "&b&lMyNetwork",
-  "line2": "&aSeason 3 is live!",
-  "maxPlayers": 1000,
-  "playerCountOffset": 0
-}
-```
-
----
-
-### GET /api/proxy/chat
-
-Get chat format configuration.
-
-### PUT /api/proxy/chat
-
-Update chat settings. All fields are optional.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "format": "%prefix%%player%%suffix% &8>> &f%message%",
-  "enabled": true
-}
-```
-
----
-
-### PUT /api/proxy/tablist/players/{'{'}uuid{'}'}
-
-Set a per-player tab list format override.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "format": "&c[Owner] &f%player%"
-}
-```
-
----
-
-### DELETE /api/proxy/tablist/players/{'{'}uuid{'}'}
-
-Clear a player's tab list format override.
-
----
-
-### GET /api/proxy/tablist/players
-
-Get all player tab list overrides.
-
-**Response:**
-
-```json title="Response"
-{
-  "overrides": {
-    "550e8400-e29b-41d4-a716-446655440000": "&c[Owner] &f%player%"
-  },
-  "total": 1
-}
-```
-
----
-
-## Maintenance
-
-Toggle maintenance mode for the entire network or individual server groups.
-
-### GET /api/maintenance
-
-Get full maintenance status (global state + all groups).
-
-**Response:**
-
-```json title="Response"
-{
-  "global": {
-    "enabled": true,
-    "motdLine1": "  <gradient:#ff6b6b:#ee5a24><bold>MAINTENANCE</bold></gradient>",
-    "motdLine2": "  <gray>We are currently performing maintenance.</gray>",
-    "protocolText": "Maintenance",
-    "kickMessage": "<red><bold>Maintenance</bold></red>\n<gray>Please try again later.</gray>",
-    "whitelist": ["jonas", "admin"]
-  },
-  "groups": {
-    "BedWars": {
-      "enabled": true,
-      "kickMessage": "<red>BedWars is under maintenance.</red>"
-    }
-  }
-}
-```
-
----
-
-### POST /api/maintenance/global
-
-Toggle global maintenance mode. When enabled, the proxy shows a maintenance MOTD, overrides the version protocol, and blocks new connections for non-whitelisted players.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "enabled": true,
-  "reason": "Server update"
-}
-```
-
----
-
-### PUT /api/maintenance/global
-
-Update global maintenance configuration (MOTD, protocol text, kick message). All fields are optional.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "motdLine1": "<red><bold>DOWN FOR MAINTENANCE</bold></red>",
-  "motdLine2": "<gray>Back soon!</gray>",
-  "protocolText": "Maintenance",
-  "kickMessage": "<red>Server is under maintenance.</red>"
-}
-```
-
----
-
-### POST /api/maintenance/groups/{'{'}name{'}'}
-
-Toggle maintenance mode for a specific server group. Players cannot join servers of groups in maintenance.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "enabled": true,
-  "reason": "Template update"
-}
-```
-
----
-
-### PUT /api/maintenance/groups/{'{'}name{'}'}
-
-Update group maintenance configuration. All fields are optional.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "kickMessage": "<red>This game mode is being updated.</red>"
-}
-```
-
----
-
-### POST /api/maintenance/whitelist
-
-Add a player to the maintenance whitelist. Whitelisted players can join during global maintenance.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "entry": "jonas"
-}
-```
-
----
-
-### DELETE /api/maintenance/whitelist
-
-Remove a player from the maintenance whitelist.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "entry": "jonas"
-}
-```
-
----
-
-## Files
-
-Manage files in template, service, and group directories.
-
-**Scopes:**
-
-| Scope | Path | Access |
-|-------|------|--------|
-| `templates` | Templates directory | Read/Write |
-| `services` | Running/static services | Read/Write |
-| `groups` | Group TOML configs | Read-only |
+## Module routes
+
+Loaded modules inject their own routes under the appropriate auth block. Every route below assumes the module's JAR is present in `modules/` or embedded.
+
+### Players module — **service**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/players/online` | Canonical online roster from the Bridge-fed tracker. |
+| `GET` | `/api/players/online/{uuid}` | Single live session. |
+| `GET` | `/api/players/history/{uuid}?limit=20` | Session history rows. |
+| `GET` | `/api/players/info/{uuid}` | Player meta + online flag + current service. |
+| `GET` | `/api/players/all?q=&limit=50` | Search or recent listing across every known player. |
+| `GET` | `/api/players/stats` | `{ "online", "totalUnique", "perService" }`. |
 
 <Callout type="warn">
-Path traversal (`..`) is blocked. All resolved paths must stay within their scope root. Max upload size: **100 MB**.
+  The core `GET /api/players` (no module) pings backends live via Server List Ping. The Players-module endpoints above are the source of truth when you care about history — the core endpoint is only a fallback when the module isn't loaded.
 </Callout>
 
-### GET /api/files/{'{'}scope{'}'}
-
-List the root directory of a scope.
-
-**Response:**
-
-```json title="Response"
-{
-  "scope": "templates",
-  "path": "/",
-  "entries": [
-    {
-      "name": "lobby",
-      "path": "lobby",
-      "isDirectory": true,
-      "size": 0,
-      "lastModified": "2025-01-15T10:00:00Z"
-    },
-    {
-      "name": "bedwars",
-      "path": "bedwars",
-      "isDirectory": true,
-      "size": 0,
-      "lastModified": "2025-01-15T09:00:00Z"
-    }
-  ],
-  "total": 2
-}
-```
-
-### GET /api/files/{'{'}scope{'}'}/{'{'}path...{'}'}
-
-List a directory or read a file. Directories return a file listing. Text files return content as JSON. Binary files (`.jar`, `.zip`, `.png`, etc.) are served as downloads.
-
-**Text file response:**
-
-```json title="Response"
-{
-  "scope": "templates",
-  "path": "lobby/server.properties",
-  "content": "server-port=25565\nmax-players=50\n...",
-  "size": 1234
-}
-```
-
-### PUT /api/files/{'{'}scope{'}'}/{'{'}path...{'}'}
-
-Write text content to a file. Creates parent directories if needed.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "content": "server-port=25565\nmax-players=50"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | File written |
-| 403 | Scope is read-only or path traversal |
-
-### POST /api/files/{'{'}scope{'}'}/{'{'}path...{'}'}
-
-Create a directory (with `?mkdir` query parameter) or upload a file via multipart form data.
-
-**Create directory:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/files/templates/skywars/plugins?mkdir"
-```
-
-**Upload file:**
-
-```bash title="Terminal"
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -F "file=@my-plugin.jar" \
-  http://localhost:8080/api/files/templates/lobby/plugins/my-plugin.jar
-```
-
-**Upload response:**
-
-```json title="Response"
-{
-  "success": true,
-  "path": "lobby/plugins/my-plugin.jar",
-  "size": 1048576
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 201 | Created |
-| 403 | Read-only scope |
-| 413 | File exceeds 100 MB limit |
-
-### DELETE /api/files/{'{'}scope{'}'}/{'{'}path...{'}'}
-
-Delete a file or directory (recursive for directories).
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Deleted |
-| 403 | Read-only scope or trying to delete scope root |
-| 404 | Path not found |
-
----
-
-## Config
-
-### GET /api/config
-
-Read the current Nimbus configuration. The API token is never exposed.
-
-**Response:**
-
-```json title="Response"
-{
-  "network": {
-    "name": "MyNetwork",
-    "bind": "0.0.0.0"
-  },
-  "controller": {
-    "maxMemory": "8G",
-    "maxServices": 20,
-    "heartbeatInterval": 5
-  },
-  "console": {
-    "colored": true,
-    "logEvents": true
-  },
-  "paths": {
-    "templates": "templates",
-    "services": "services",
-    "logs": "logs"
-  },
-  "api": {
-    "enabled": true,
-    "bind": "0.0.0.0",
-    "port": 8080,
-    "hasToken": true,
-    "allowedOrigins": ["*"]
-  }
-}
-```
-
----
-
-### PATCH /api/config
-
-Update non-critical configuration fields. Only `networkName`, `consoleColored`, and `consoleLogEvents` are editable. Changes are written to `config/nimbus.toml`.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "networkName": "MyNewNetwork",
-  "consoleColored": true,
-  "consoleLogEvents": false
-}
-```
-
-All fields are optional. At least one must be provided.
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Config updated: network.name = 'MyNewNetwork', console.log_events = false. Restart Nimbus for full effect."
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Config updated |
-| 400 | No fields provided or invalid value |
-
----
-
-## System
-
-### POST /api/reload
-
-Hot-reload all group configuration files.
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "groupsLoaded": 3,
-  "message": "Reloaded 3 group config(s)"
-}
-```
-
----
-
-### POST /api/shutdown
-
-Initiate a graceful controller shutdown. Responds immediately, then exits after a 250 ms delay so the response can be flushed. The JVM shutdown hook runs the normal graceful cleanup path (game servers → lobbies → proxies). **Admin-only.**
-
-This endpoint is essential when the controller runs in daemon mode (no TTY, no console REPL), where the only alternative would be `SIGKILL`, which orphans backend processes.
-
-**Response:**
-
-```json title="Response"
-{
-  "success": true,
-  "message": "Shutdown initiated"
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Shutdown initiated |
-
----
-
-### GET /api/metrics
-
-Requires authentication (service token or admin token). Exports metrics in Prometheus text exposition format for scraping.
-
-<Callout type="info">
-Only `/api/health` is a truly public endpoint. `/api/metrics` is mounted inside the authenticated route block and requires a valid Bearer token (service token or admin token).
-</Callout>
-
-Includes: service counts, player counts (total, by group, by service), group scaling config, cluster node stats, load balancer counters, and maintenance status.
-
-**Example:**
-
-```bash title="Terminal"
-curl http://localhost:8080/api/metrics
-```
-
-**Response:** `text/plain; version=0.0.4`
-
-```text title="Prometheus Metrics"
-# HELP nimbus_info Nimbus instance information
-# TYPE nimbus_info gauge
-nimbus_info{version="0.2.0"} 1
-# HELP nimbus_uptime_seconds Seconds since Nimbus started
-# TYPE nimbus_uptime_seconds gauge
-nimbus_uptime_seconds 7200
-# HELP nimbus_services_total Total number of services
-# TYPE nimbus_services_total gauge
-nimbus_services_total 5
-# HELP nimbus_players_total Total players across all services
-# TYPE nimbus_players_total gauge
-nimbus_players_total 36
-# HELP nimbus_sync_canonical_size_bytes Canonical state size on disk per sync-enabled service
-# TYPE nimbus_sync_canonical_size_bytes gauge
-nimbus_sync_canonical_size_bytes{service="BedWars-1"} 104857600
-# HELP nimbus_sync_last_push_bytes Bytes received in the most recent push (delta size)
-# TYPE nimbus_sync_last_push_bytes gauge
-nimbus_sync_last_push_bytes{service="BedWars-1"} 2097152
-# HELP nimbus_sync_last_push_files Files received in the most recent push
-# TYPE nimbus_sync_last_push_files gauge
-nimbus_sync_last_push_files{service="BedWars-1"} 14
-# HELP nimbus_sync_last_push_timestamp Unix timestamp of the most recent successful push
-# TYPE nimbus_sync_last_push_timestamp gauge
-nimbus_sync_last_push_timestamp{service="BedWars-1"} 1744387200
-# HELP nimbus_sync_in_flight 1 if a sync push is currently in progress, 0 otherwise
-# TYPE nimbus_sync_in_flight gauge
-nimbus_sync_in_flight{service="BedWars-1"} 0
-```
-
-Sync metrics are only exported for services with `[group.sync]` (or `[dedicated.sync]`) enabled, after at least one push has landed.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Metrics returned |
-
----
-
-## Stress Testing
-
-Simulates player load across backend servers without real Minecraft clients. Only backend groups receive simulated players (proxy groups are excluded). Each service is capped at its `max_players` config value.
-
-### GET /api/stress
-
-Get the current stress test status.
-
-**Response (inactive):**
-
-```json title="Response (inactive)"
-{
-  "active": false
-}
-```
-
-**Response (active):**
-
-```json title="Response (active)"
-{
-  "active": true,
-  "group": "Lobby",
-  "currentPlayers": 80,
-  "targetPlayers": 100,
-  "totalCapacity": 200,
-  "overflow": 0,
-  "elapsedSeconds": 45,
-  "services": {
-    "Lobby-1": 40,
-    "Lobby-2": 40
-  },
-  "proxyServices": {
-    "Proxy-1": 80
-  }
-}
-```
-
----
-
-### POST /api/stress/start
-
-Start a new stress test. Fails if a test is already running or the target group is a proxy.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "players": 100,
-  "group": "Lobby",
-  "rampSeconds": 30
-}
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `players` | Yes | | Number of simulated players (must be > 0) |
-| `group` | No | all backend groups | Target group name |
-| `rampSeconds` | No | `0` | Ramp-up duration in seconds |
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Stress test started |
-| 400 | Invalid player count |
-
----
-
-### POST /api/stress/stop
-
-Stop the currently running stress test and clean up simulated players.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Stress test stopped |
-| 400 | No stress test is running |
-
----
-
-### POST /api/stress/ramp
-
-Adjust the target player count of a running stress test.
-
-**Request Body:**
-
-```json title="Request Body"
-{
-  "players": 200,
-  "durationSeconds": 60
-}
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `players` | Yes | | New target player count (≥ 0) |
-| `durationSeconds` | No | `30` | Duration to ramp over |
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Ramp adjustment started |
-| 400 | Invalid player count or no test running |
-
----
-
-## Cluster & Load Balancer
-
-These endpoints are only available when their respective features are enabled in `nimbus.toml`.
-
-### GET /api/nodes
-
-List all connected cluster nodes. Returns `404` if cluster mode is not enabled.
-
-**Response:**
-
-```json title="Response"
-{
-  "nodes": [
-    {
-      "nodeId": "worker-1",
-      "host": "10.0.1.10",
-      "maxMemory": "8G",
-      "maxServices": 10,
-      "currentServices": 3,
-      "cpuUsage": 0.42,
-      "memoryUsedMb": 3200,
-      "memoryTotalMb": 8192,
-      "isConnected": true,
-      "agentVersion": "0.6.2",
-      "os": "Linux",
-      "arch": "amd64",
-      "services": ["Lobby-2", "BedWars-1", "BedWars-2"],
-      "system": {
-        "hostname": "worker-1.internal",
-        "osName": "Linux",
-        "osVersion": "6.6.0-1008-oem",
-        "osArch": "amd64",
-        "cpuModel": "AMD Ryzen 9 5900X 12-Core Processor",
-        "availableProcessors": 24,
-        "systemCpuLoad": 0.42,
-        "processCpuLoad": 0.08,
-        "systemMemoryUsedMb": 3200,
-        "systemMemoryTotalMb": 8192,
-        "javaVersion": "21.0.5",
-        "javaVendor": "Eclipse Adoptium"
-      }
-    }
-  ],
-  "total": 1
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `cpuUsage` | Double | System-wide CPU load (0.0 – 1.0), pushed in the agent heartbeat. `-1` if unavailable |
-| `memoryUsedMb` / `memoryTotalMb` | Long | Host system memory (not agent JVM heap) |
-| `system` | Object | Static host specs reported at auth time plus live CPU/memory snapshot from the latest heartbeat. Available since v0.6.2 — null for older agents |
-| `system.systemCpuLoad` | Double | System-wide CPU load (0.0 – 1.0), `-1` if unavailable |
-| `system.processCpuLoad` | Double | Agent JVM's own CPU load (0.0 – 1.0), `-1` if unavailable |
-| `system.availableProcessors` | Int | Logical core count (`Runtime.availableProcessors()`) |
-| `system.cpuModel` | String | CPU model string read from `/proc/cpuinfo` on Linux, `PROCESSOR_IDENTIFIER` env on Windows |
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Node list returned |
-| 404 | Cluster mode not enabled |
-
----
-
-### GET /api/loadbalancer
-
-Get load balancer status including backend proxy list with health information. Returns `404` if the load balancer is not enabled.
-
-**Response:**
-
-```json title="Response"
-{
-  "enabled": true,
-  "bind": "0.0.0.0",
-  "port": 25565,
-  "strategy": "least-players",
-  "proxyProtocol": true,
-  "totalConnections": 1247,
-  "activeConnections": 36,
-  "rejectedConnections": 3,
-  "backends": [
-    {
-      "name": "Proxy-1",
-      "host": "127.0.0.1",
-      "port": 30010,
-      "playerCount": 18,
-      "health": "HEALTHY",
-      "connectionCount": 12
-    },
-    {
-      "name": "Proxy-2",
-      "host": "127.0.0.1",
-      "port": 30011,
-      "playerCount": 14,
-      "health": "UNHEALTHY",
-      "connectionCount": 0
-    }
-  ]
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rejectedConnections` | Long | Total connections rejected because `max_connections` limit was reached |
-| `backends[].health` | String | Health status: `HEALTHY`, `UNHEALTHY`, or `UNKNOWN` |
-| `backends[].connectionCount` | Int | Number of active connections currently routed to this backend |
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Load balancer status returned |
-| 404 | Load balancer not enabled |
-
----
-
-### GET /api/templates/{'{'}name{'}'}/download
-
-Download a template as a ZIP archive. Used internally by agent nodes for template distribution. Authenticated via a `token` query parameter matching the cluster token.
-
-**Query Parameters:**
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `token` | Yes | Cluster authentication token |
-
-**Example:**
-
-```bash title="Terminal"
-curl -o template.zip \
-  "http://controller:8080/api/templates/lobby/download?token=my-cluster-secret"
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Template archive returned (`application/zip`) |
-| 401 | Invalid token |
-| 404 | Template not found |
-
----
-
-### GET /api/templates/{'{'}name{'}'}/hash
-
-Get the SHA-256 hash of a template's contents. Used by agents to check if their local template copy is up to date before downloading. Authenticated via a `token` query parameter.
-
-**Query Parameters:**
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `token` | Yes | Cluster authentication token |
-
-**Example:**
-
-```bash title="Terminal"
-curl "http://controller:8080/api/templates/lobby/hash?token=my-cluster-secret"
-```
-
-**Response:** Plain text SHA-256 hash string.
-
-```text title="Response"
-a1b2c3d4e5f6...
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Hash returned (plain text) |
-| 401 | Invalid token |
-| 404 | Template not found |
-
----
-
-## Cluster Bootstrap
-
-Returns the controller's TLS certificate material so an agent can pin it SSH-style before its first `wss://` connection. Served on **plaintext HTTP** on the REST API port (default 8080) — without this the agent would need to trust the controller cert before it can fetch it, creating a chicken-and-egg problem. Gated by the **cluster token** (not the REST API token) because this is the same secret used to authenticate agents. Cert material is public-key, not secret.
-
-### GET /api/cluster/bootstrap
-
-**Auth:** `Authorization: Bearer <cluster-token>`
-
-```json title="200 Response"
-{
-  "fingerprint": "AA:BB:CC:DD:...",
-  "certPem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n",
-  "wsUrl": "wss://controller.example:8443/cluster",
-  "validUntil": "2036-04-08T10:00:33Z",
-  "sans": ["DNS:localhost", "DNS:controller.example", "IP:127.0.0.1"]
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Cert material returned |
-| 401 | Missing or invalid cluster token |
-| 503 | Cluster mode not enabled, or cluster server not running |
-
----
-
-## Service State Sync
-
-Endpoints used by the agent to pull canonical service state from the controller on start and push it back on graceful stop (the `[group.sync]` / `[dedicated.sync]` feature). All three are served on the **REST API port** (default 8080) and gated by the **cluster token** as a query parameter, matching the template download pattern.
-
-<Callout type="info">
-These endpoints are mounted on the same port as the REST API (default 8080), not on the TLS cluster port. Authentication uses the cluster token (passed as a `?token=` query parameter), not the REST API bearer token.
-</Callout>
-
-### GET /api/services/{'{'}name{'}'}/state/manifest
-
-Returns a manifest of the controller's canonical copy for [name]. The agent uses this to compute which files to pull or push.
-
-**Query params:** `?token=<cluster-token>`
-
-```json title="200 Response"
-{
-  "files": {
-    "eula.txt": { "sha256": "ee27072e...", "size": 10 },
-    "plugins/nimbus-sdk.jar": { "sha256": "87280580...", "size": 73275 },
-    "libraries/com/mojang/logging/1.6.11/logging-1.6.11.jar": { "sha256": "5d803eb7...", "size": 20706 }
-  }
-}
-```
-
-Returns an **empty manifest** (not 404) if no canonical state exists yet — the agent treats this as "first start, fall back to template".
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Manifest returned (possibly empty) |
-| 401 | Invalid cluster token |
-
----
-
-### GET /api/services/{'{'}name{'}'}/state/file/{'{'}path...{'}'}
-
-Streams the raw bytes of a single file in the canonical copy. Used by the agent's pull path for each file that differs from its local cache.
-
-**Query params:** `?token=<cluster-token>`
-
-**Response:** `application/octet-stream` — raw file bytes.
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | File streamed |
-| 400 | Path contains `..` or is invalid |
-| 401 | Invalid cluster token |
-| 404 | File not found in canonical |
-
----
-
-### POST /api/services/{'{'}name{'}'}/state/sync
-
-Atomic upload of the service's current state. The agent sends a JSON manifest of its target state plus binary parts for every file that differs from the controller's current manifest. The controller stages the upload, validates hashes, and atomically renames staging → canonical on success.
-
-**Query params:** `?token=<cluster-token>`
-
-**Request body:** `multipart/form-data`
-- `manifest` (JSON) — the full [StateManifest] describing what the canonical should look like after sync.
-- `file:<relpath>` (binary, one per file to upload) — bytes of each changed file. The relative path is encoded in the part name.
-
-Max body size: 10 GB. Only one sync may be in progress per service at a time — concurrent pushes are rejected with 409.
-
-```json title="200 Response"
-{
-  "success": true,
-  "filesReceived": 12,
-  "bytesReceived": 4521678,
-  "filesInManifest": 122
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Sync committed |
-| 401 | Invalid cluster token |
-| 409 | Another sync for this service is already in progress |
-| 500 | Sync failed (hash mismatch, IO error, etc.) — staging rolled back |
-
----
-
-## Remote CLI
-
-Endpoints used by the [Remote CLI](/docs/guide/remote-cli) (`nimbus-cli`) for tab completion. Command execution and streaming happen over the [WebSocket console stream](./websocket#cli-console-stream).
-
-### POST /api/console/complete
-
-Server-side tab completion. Returns candidates for the given input buffer.
-
-**Auth:** Admin token required.
-
-**Request:**
-
-```json title="Request"
-{
-  "buffer": "start Lo",
-  "cursor": 8
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `buffer` | string | Current input buffer text |
-| `cursor` | integer | Cursor position (-1 for end of buffer) |
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "candidates": ["Lobby"]
-}
-```
-
-| Status Code | Description |
-|-------------|-------------|
-| 200 | Completion candidates returned |
-| 401 | Authentication failed |
-
----
-
-## Plugins
-
-Endpoints for searching and installing plugins from Hangar and Modrinth. Used by both the console `plugins` command and the [Web Dashboard](/docs/guide/dashboard).
-
-### GET /api/plugins/search
-
-Search for plugins on Hangar and Modrinth.
-
-**Auth:** Admin token required.
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `query` | string | Search query |
-| `platform` | string | Target platform (`PAPER`, `VELOCITY`, etc.) |
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "results": [
-    {
-      "name": "ViaVersion",
-      "slug": "viaversion",
-      "source": "hangar",
-      "description": "Allow newer clients to join older server versions.",
-      "downloads": 1500000
-    }
-  ]
-}
-```
-
-### POST /api/plugins/install
-
-Install a plugin to a group's template.
-
-**Auth:** Admin token required.
-
-**Request:**
-
-```json title="Request"
-{
-  "slug": "viaversion",
-  "source": "hangar",
-  "group": "Lobby",
-  "version": "latest"
-}
-```
-
-### GET /api/plugins/installed/{'{'}group{'}'}
-
-List installed plugins for a group template.
-
-**Auth:** Admin token required.
-
----
-
-## Modpacks
-
-Endpoints for importing modpacks from Modrinth, CurseForge, or uploading server pack ZIPs. Used by both the console `import` command and the [Web Dashboard](/docs/guide/dashboard).
-
-### POST /api/modpacks/resolve
-
-Inspect a modpack without importing. Returns metadata (name, version, modloader, MC version, mod count).
-
-**Auth:** Admin token required.
-
-**Request:**
-
-```json title="Request"
-{
-  "source": "adrenaserver"
-}
-```
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "name": "Adrenaserver",
-  "version": "1.5.2",
-  "mcVersion": "1.21.4",
-  "modloader": "FABRIC",
-  "modloaderVersion": "0.16.9",
-  "totalFiles": 59,
-  "serverFiles": 47,
-  "source": "MODRINTH"
-}
-```
-
-The `source` field indicates the modpack type: `MODRINTH`, `CURSEFORGE_API`, or `SERVER_PACK`.
-
-### POST /api/modpacks/import
-
-Import a modpack as a new server group. Accepts Modrinth slugs/URLs, CurseForge slugs/URLs (`curseforge:slug`), or local file paths.
-
-**Auth:** Admin token required.
-
-**Request:**
-
-```json title="Request"
-{
-  "source": "adrenaserver",
-  "groupName": "Modded",
-  "type": "DYNAMIC",
-  "memory": "2G",
-  "minInstances": 1,
-  "maxInstances": 2
-}
-```
-
-**Response:**
-
-```json title="Response (201 Created)"
-{
-  "success": true,
-  "message": "Modpack 'Adrenaserver' imported as group 'Modded'",
-  "groupName": "Modded",
-  "filesDownloaded": 47,
-  "filesFailed": 0
-}
-```
-
-### POST /api/modpacks/upload
-
-Upload a server pack ZIP or `.mrpack` file and import it as a new group. The file is streamed directly to disk — no memory buffering.
-
-**Auth:** Admin token required.
-
-**Content-Type:** `application/octet-stream` (raw file body, not multipart).
-
-**Query Parameters:**
-
-| Parameter | Required | Default | Description |
-|-----------|----------|---------|-------------|
-| `groupName` | Yes | — | Name for the new group |
-| `type` | No | `DYNAMIC` | `STATIC` or `DYNAMIC` |
-| `memory` | No | `2G` | Memory per instance |
-| `minInstances` | No | `1` | Minimum instance count |
-| `maxInstances` | No | `2` | Maximum instance count |
-| `fileName` | No | `upload.zip` | Original filename (for detection) |
-
-**Response:**
-
-```json title="Response (201 Created)"
-{
-  "success": true,
-  "message": "Server pack imported as group 'ATM10' (NEOFORGE 21.1.224, MC 1.21.1, 449 mods)",
-  "groupName": "ATM10",
-  "filesDownloaded": 449,
-  "filesFailed": 0
-}
-```
-
----
-
-## Software
-
-Endpoints for querying available server software types and versions. Used by the [Web Dashboard](/docs/guide/dashboard) for group creation.
-
-### GET /api/software
-
-List all supported server software types.
-
-**Auth:** Admin token required.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "software": ["PAPER", "PURPUR", "PUFFERFISH", "LEAF", "FOLIA", "VELOCITY", "FORGE", "NEOFORGE", "FABRIC", "CUSTOM"]
-}
-```
-
-### GET /api/software/{'{'}type{'}'}/versions
-
-List available versions for a specific server software.
-
-**Auth:** Admin token required.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "versions": ["1.21.4", "1.21.3", "1.21.1", "1.20.6", "1.20.4"]
-}
-```
-
----
-
-## Punishments
-
-Provided by the **Punishments** module (migration range 5000+). Network-wide bans, tempbans, IP bans, mutes, tempmutes, kicks, and warnings, plus a live kick/mute endpoint that the Velocity + backend plugins use for enforcement.
-
-<Callout type="info">
-The Velocity plugin (`plugins/punishments-velocity`) calls `/api/punishments/check/{'{'}uuid{'}'}` on `LoginEvent` (NETWORK-scoped) and `ServerPreConnectEvent` (NETWORK + scoped). The backend plugin (`plugins/punishments-backend`) calls `/api/punishments/mute/{'{'}uuid{'}'}` on `AsyncPlayerChatEvent`. Both cache responses for a few seconds to handle bursts; scoped queries pass `group=` and `service=` query params.
-</Callout>
-
-### GET /api/punishments
-
-List punishments. Defaults to active only.
-
-**Query Parameters:**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `active` | `true` | `true` for only active entries, `false` for everything |
-| `type` | — | Filter by type: `BAN`, `TEMPBAN`, `IPBAN`, `MUTE`, `TEMPMUTE`, `KICK`, `WARN` |
-| `limit` | `50` | Page size (max 500) |
-| `offset` | `0` | Offset for pagination |
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "records": [
-    {
-      "id": 42,
-      "type": "TEMPBAN",
-      "targetUuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
-      "targetName": "Notch",
-      "targetIp": null,
-      "reason": "hacking",
-      "issuer": "console",
-      "issuerName": "Console",
-      "issuedAt": "2026-04-14T12:34:56Z",
-      "expiresAt": "2026-04-21T12:34:56Z",
-      "active": true,
-      "revokedAt": null,
-      "revokedBy": null,
-      "revokedReason": null,
-      "scope": "GROUP",
-      "scopeTarget": "BedWars"
-    }
-  ],
-  "total": 1
-}
-```
-
-### GET /api/punishments/{'{'}id{'}'}
-
-Fetch a single punishment by ID.
-
-### GET /api/punishments/player/{'{'}uuid{'}'}
-
-Return a player's punishment history (active + revoked + expired), newest first. `limit` query param caps at 500, default 100.
-
-### GET /api/punishments/check/{'{'}uuid{'}'}
-
-Fast proxy-login check. Results are cached in-memory on the controller.
-
-**Query Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `ip` | Player IP — required for IPBAN matching |
-| `group` | If set, also returns GROUP-scoped bans matching this group |
-| `service` | If set, also returns SERVICE-scoped bans matching this service name |
-
-Without `group` or `service`, only NETWORK-scoped active bans are considered (what the Velocity `LoginListener` uses). With either, NETWORK + matching scoped bans are considered (what the `ConnectListener` uses on `ServerPreConnectEvent`).
-
-**Response:**
-
-```json title="Response (200 OK — not punished)"
-{ "punished": false }
-```
-
-```json title="Response (200 OK — punished)"
-{
-  "punished": true,
-  "type": "TEMPBAN",
-  "reason": "hacking",
-  "issuerName": "Console",
-  "issuedAt": "2026-04-14T12:34:56Z",
-  "expiresAt": "2026-04-21T12:34:56Z",
-  "remainingSeconds": 604800,
-  "scope": "GROUP",
-  "scopeTarget": "BedWars",
-  "kickMessage": "&c&lYou are banned!\n&7Reason: &fhacking\n&7Expires: &f6d 23h"
-}
-```
-
-`kickMessage` is pre-rendered using the current message templates so the proxy plugin can disconnect without maintaining its own copy.
-
-### GET /api/punishments/mute/{'{'}uuid{'}'}
-
-Backend-plugin-facing mute check (scoped). Same query params as above; returns the same response shape as `/check`.
-
-### POST /api/punishments
-
-Issue a new punishment. Accepts either a username or a UUID for the target — unknown usernames are resolved via the Mojang profile API, so staff can pre-ban players who have never joined the network.
-
-**Request:**
-
-```json title="Request"
+### Permissions module — **service**
+
+Route block `/api/permissions/*`. Summary table:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET / POST` | `/groups` | List / create |
+| `GET / PUT / DELETE` | `/groups/{name}` | Read / update / delete |
+| `POST / DELETE` | `/groups/{name}/permissions` | Add / remove perms (context `server`, `world`, `expiresAt`) |
+| `GET / PUT` | `/groups/{name}/meta` | Group meta (read list, set key) |
+| `DELETE` | `/groups/{name}/meta/{key}` | Remove a meta key |
+| `GET` | `/players?q=&limit=50` | Search known players |
+| `GET` | `/players/{uuid}?server=&world=` | Player perms + effective permissions + display |
+| `PUT` | `/players/{uuid}?server=&world=` | Register / update (called on proxy join) |
+| `POST / DELETE` | `/players/{uuid}/groups` | Add / remove a group (context in body) |
+| `GET / PUT` | `/players/{uuid}/meta` | Player meta |
+| `DELETE` | `/players/{uuid}/meta/{key}` | Remove meta key |
+| `GET` | `/check/{uuid}/{permission...}?server=&world=` | Plain check → `{ allowed }`. |
+| `GET` | `/debug/{uuid}/{permission...}?server=&world=` | Check with full inheritance chain + explanation. |
+| `GET` | `/tracks` | List tracks. |
+| `GET / DELETE` | `/tracks/{name}` | Read / delete a track. |
+| `POST` | `/tracks` | Create track `{ "name", "groups": ["rookie","mod","admin"] }`. |
+| `POST` | `/tracks/{name}/promote/{uuid}` | Move player one step up. |
+| `POST` | `/tracks/{name}/demote/{uuid}` | Move player one step down. |
+| `POST` | `/bulk/permissions` | Add one permission to many groups. |
+| `POST` | `/bulk/groups` | Assign one group to many players. |
+| `GET` | `/audit?limit=50&offset=0` | Perms-specific audit log. |
+
+### Display module — **service**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/displays` | All display configs. |
+| `GET` | `/api/displays/{name}` | Config for a group. |
+| `PUT` | `/api/displays/{name}` | Partial update (sign lines, NPC subtitle/items/inventory, state labels). |
+| `POST` | `/api/displays/{name}/reset` | Reset to defaults for the group. |
+| `GET` | `/api/displays/{name}/state/{state}` | Resolve a state label (for sign rendering). |
+
+### Scaling module — **service**
+
+All under `/api/scaling/*`:
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/status` | Groups with active schedule rule + 10 most recent decisions. |
+| `GET` | `/schedules` | Every group's schedule config (rules, warmup). |
+| `GET` | `/schedules/{group}` | Per-group schedule. |
+| `GET` | `/history/{group}?hours=24` | Player count snapshots. |
+| `GET` | `/predictions/{group}` | Next 6 hours, predicted players + sample count. |
+| `GET` | `/decisions?limit=50` | Recent `ScalingDecisions` rows. |
+
+### Punishments module — **service**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/punishments?active=true&type=&limit=&offset=` | List. |
+| `POST` | `/api/punishments` | Issue — resolves UUID via explicit/Mojang API. See below. |
+| `GET` | `/api/punishments/{id}` | Single record. |
+| `DELETE` | `/api/punishments/{id}` | Revoke — body `{ "revokedBy", "reason" }`. |
+| `GET` | `/api/punishments/player/{uuid}?limit=100` | Full history. |
+| `GET` | `/api/punishments/check/{uuid}?ip=&group=&service=` | Fast proxy login check — returns a pre-rendered `kickMessage`. |
+| `GET` | `/api/punishments/mute/{uuid}?group=&service=` | Scoped mute check. |
+| `GET / PUT` | `/api/punishments/messages` | Read / replace `messages.toml` templates. |
+
+**Issue body**
+```json
 {
   "type": "TEMPBAN",
-  "targetName": "Griefer",
+  "targetName": "Alice",
   "targetUuid": null,
   "targetIp": null,
   "duration": "7d",
-  "reason": "hacking",
-  "issuer": "api:admin",
-  "issuerName": "Admin",
-  "scope": "GROUP",
-  "scopeTarget": "BedWars"
+  "reason": "griefing",
+  "issuer": "console",
+  "issuerName": "Moderator",
+  "scope": "NETWORK",
+  "scopeTarget": null
 }
 ```
 
-- `targetName` is required. If `targetUuid` is blank and `targetName` is not UUID-shaped, it is resolved via Mojang.
-- `duration` is required for `TEMPBAN` / `TEMPMUTE`, ignored for others. Uses the `30s`, `15m`, `2h`, `7d`, `30d` format.
-- `scope` defaults to `NETWORK`. `GROUP` / `SERVICE` require a non-empty `scopeTarget`.
-- `targetIp` is required for `IPBAN`.
+<Callout type="warn">
+  Types `TEMPBAN` / `TEMPMUTE` require `duration` (parsed by `DurationParser`, permanent values rejected). `IPBAN` requires `targetIp`. Non-NETWORK scopes require `scopeTarget`. If `targetUuid` is blank and `targetName` is not UUID-shaped, the controller calls Mojang's name → UUID API — expect a 404 on unknown names.
+</Callout>
 
-| Status | Description |
-|---|---|
-| 201 | Punishment issued |
-| 400 | Validation failed (missing fields, bad duration, missing scopeTarget) |
-| 404 | Username could not be resolved via Mojang |
+### Resource packs module
 
-### DELETE /api/punishments/{'{'}id{'}'}
+Split across service-authed and public:
 
-Revoke an active punishment. Accepts an optional JSON body:
+**Service-authed — `/api/resourcepacks/*`**
 
-```json title="Request"
-{
-  "revokedBy": "Admin",
-  "reason": "appealed"
-}
-```
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/` | List registered packs. |
+| `GET` | `/{id}` | Single pack. |
+| `POST` | `/` | Register a URL pack — body `{ "name", "url", "sha1Hash" (40 hex chars, required), "promptMessage", "force" }`. |
+| `POST` | `/upload?name=&force=&prompt=` | Raw-body upload (octet-stream). SHA-1 computed while streaming. |
+| `DELETE` | `/{id}` | Delete pack + local file if present. |
+| `GET` | `/assignments?packId=` | All assignments (or filtered by pack). |
+| `POST` | `/{id}/assignments` | Body `{ "scope": "<GLOBAL\|GROUP\|SERVICE>", "target": "Lobby", "priority": 10 }`. |
+| `DELETE` | `/assignments/{id}` | Remove a single assignment. |
+| `GET` | `/for-group/{group}?service=` | Plugin-facing resolved stack in apply order. |
+| `POST` | `/status` | Backend telemetry — `{ "playerUuid", "packUuid", "status" }`. |
 
-Returns `409` if the punishment is already revoked or expired.
+**Public — `GET /api/resourcepacks/files/{uuid}.zip`**
 
-### GET /api/punishments/messages
+<Callout type="warn">
+  This is the only authenticated-by-hash endpoint. Minecraft clients cannot send bearer tokens, so tamper resistance comes from the SHA-1 hash negotiated during `setResourcePack()`. Treat the URL itself as non-secret — anyone who knows the UUID can download, but cannot substitute a different file without breaking the hash check.
+</Callout>
 
-Return the active kick/mute/warn templates.
+### Backup module — **admin**
 
-### PUT /api/punishments/messages
+Backup archives can contain world data, secrets, and DB dumps. Every route is admin-only.
 
-Update the templates. Persists atomically to `config/modules/punishments/messages.toml` and becomes authoritative immediately — no restart. Placeholders: `{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`. `&` colour codes are supported.
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET / PUT` | `/api/backups/config` | Live read / rewrite of `config/modules/backup/backup.toml`. PUT validates + hot-reloads the scheduler. |
+| `GET` | `/api/backups?target=&status=&limit=&offset=` | List (limit clamped 1..1000). |
+| `GET` | `/api/backups/schedules` | Scheduler view of cron entries. |
+| `GET` | `/api/backups/status` | `{ "activeJobs", "localDestination", "schedules" }`. |
+| `GET` | `/api/backups/{id}` | Record. |
+| `GET` | `/api/backups/{id}/manifest` | Streams the trailing `MANIFEST.sha256` entry. |
+| `GET` | `/api/backups/{id}/download` | Raw tar+zstd archive (`application/zstd`). |
+| `POST` | `/api/backups/trigger` | Body `{ "targets": ["services","config"], "scheduleClass": "manual", "target": "Lobby" }`. 201 with the records created. |
+| `POST` | `/api/backups/{id}/restore` | `{ "targetPath": "/path", "dryRun": false, "force": false }`. Returns `filesExtracted`. |
+| `POST` | `/api/backups/{id}/verify` | Re-hashes the archive, compares against `MANIFEST.sha256`. |
+| `DELETE` | `/api/backups/{id}` | Remove record + archive. |
+| `POST` | `/api/backups/prune` | `{ "dryRun": false, "retentionClass": "DAILY" }` — GFS prune. |
+
+Valid target strings: `services`, `dedicated`, `templates`, `config`, `state_sync`, `database`. Retention classes: `HOURLY`, `DAILY`, `WEEKLY`, `MONTHLY`, `MANUAL`.
 
 ---
 
-## Resource Packs
+## Error codes
 
-Provided by the **Resource Packs** module (migration range 6000+). URL-referenced and locally-hosted packs with GLOBAL / GROUP / SERVICE assignments.
+Every non-2xx body carries an `error` field. The canonical set lives in `api/ApiErrors.kt`.
 
-### GET /api/resourcepacks
+**Auth** — `AUTH_FAILED`, `UNAUTHORIZED`, `INSUFFICIENT_SCOPE`
 
-List all registered packs.
+**Generic** — `NOT_FOUND`, `INVALID_INPUT`, `VALIDATION_FAILED`, `INTERNAL_ERROR`, `FORBIDDEN`, `READ_ONLY`, `PAYLOAD_TOO_LARGE`
 
-**Response:**
+**Service** — `SERVICE_NOT_FOUND`, `SERVICE_NOT_READY`, `SERVICE_START_FAILED`, `SERVICE_STOP_FAILED`, `SERVICE_RESTART_FAILED`
 
-```json title="Response (200 OK)"
-{
-  "packs": [
-    {
-      "id": 1,
-      "uuid": "b1e4…",
-      "name": "MainPack",
-      "url": "https://cdn.example.com/main.zip",
-      "sha1Hash": "abc123…",
-      "promptMessage": "",
-      "force": true,
-      "source": "URL",
-      "fileSize": 0,
-      "createdAt": "2026-04-14T12:00:00Z"
-    }
-  ],
-  "total": 1
-}
-```
+**Group** — `GROUP_NOT_FOUND`, `GROUP_ALREADY_EXISTS`, `GROUP_HAS_RUNNING_INSTANCES`
 
-`source` is `URL` or `LOCAL`. For `LOCAL` packs, `url` points at the Nimbus-hosted download (`/api/resourcepacks/files/{'{'}uuid{'}'}.zip`).
+**Dedicated** — `DEDICATED_NOT_FOUND`, `DEDICATED_ALREADY_EXISTS`, `DEDICATED_ALREADY_RUNNING`, `DEDICATED_DIRECTORY_NOT_FOUND`, `DEDICATED_PORT_IN_USE`
 
-### GET /api/resourcepacks/{'{'}id{'}'}
+**Command** — `COMMAND_NOT_FOUND`, `COMMAND_NOT_REMOTE`, `COMMAND_EXECUTION_FAILED`
 
-Fetch a single pack.
+**Stress** — `STRESS_ALREADY_RUNNING`, `STRESS_NOT_RUNNING`
 
-### POST /api/resourcepacks
+**Cluster / LB** — `SERVICE_UNAVAILABLE`, `CLUSTER_NOT_ENABLED`, `LOAD_BALANCER_NOT_ENABLED`, `NODE_NOT_FOUND`
 
-Register a new URL-referenced pack.
+**Files** — `INVALID_SCOPE`, `PATH_NOT_FOUND`, `PATH_TRAVERSAL`
 
-**Request:**
+**Config** — `NO_FIELDS_TO_UPDATE`
 
-```json title="Request"
-{
-  "name": "MainPack",
-  "url": "https://cdn.example.com/main.zip",
-  "sha1Hash": "b2c3d4e5f6…",
-  "promptMessage": "Please accept the server pack",
-  "force": true
-}
-```
+**Proxy** — `PROXY_NOT_AVAILABLE`
 
-- `url` must be `http://` or `https://`.
-- `sha1Hash` is required and must be 40 hex characters.
+**Modpack** — `MODPACK_NOT_FOUND`, `MODPACK_INVALID`, `MODPACK_UPLOAD_FAILED`, `CHUNKED_UPLOAD_NOT_FOUND`, `CHUNKED_UPLOAD_INVALID`, `CURSEFORGE_API_KEY_MISSING`
 
-### POST /api/resourcepacks/upload
+**Punishments** — `PUNISHMENT_NOT_FOUND`, `PUNISHMENT_ALREADY_REVOKED`, `PUNISHMENT_TARGET_INVALID`, `PUNISHMENT_DURATION_INVALID`
 
-Upload a local pack `.zip`. Raw-body streaming upload — matches the `ModpackRoutes` pattern: no multipart parsing, no in-memory buffering. The file streams through a 64 KiB transfer buffer with SHA-1 computed during write, and is atomically moved into `data/resourcepacks/<uuid>.zip` with `fd.sync()`.
+**Resource packs** — `RESOURCE_PACK_NOT_FOUND`, `RESOURCE_PACK_ALREADY_EXISTS`, `RESOURCE_PACK_INVALID_URL`, `RESOURCE_PACK_UPLOAD_FAILED`, `RESOURCE_PACK_ASSIGNMENT_NOT_FOUND`
 
-**Content-Type:** `application/octet-stream`.
+---
 
-**Query Parameters:**
+## Quick reference — auth matrix
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `name` | Yes | Display name for the pack |
-| `force` | No | `true` to force players to accept |
-| `prompt` | No | Optional prompt message |
+| Route prefix | Auth |
+|--------------|------|
+| `/api/health` | **public** |
+| `/api/metrics` | **service** |
+| `/api/resourcepacks/files/{uuid}.zip` | **public (hash-signed)** |
+| `/api/cluster/bootstrap` | **cluster token** |
+| `/api/templates/{name}/download`, `/hash` | **cluster token (query)** |
+| `/api/services/{name}/state/{manifest,file,sync}` | **cluster token** |
+| `/api/services/*` (CRUD + SDK) | **service** |
+| `/api/services/{name}/console` (WS) | **admin** |
+| `/api/groups/*` | **service** |
+| `/api/status`, `/api/players`, `/api/broadcast`, `/api/maintenance/*`, `/api/proxy/*` | **service** |
+| `/api/controller/*`, `/api/commands/*` | **service** |
+| `/api/players/*` (Players module) | **service** |
+| `/api/permissions/*`, `/api/displays/*`, `/api/scaling/*`, `/api/punishments/*` | **service** |
+| `/api/resourcepacks/*` (not `/files`) | **service** |
+| `/api/reload`, `/api/shutdown`, `/api/config`, `/api/files/*`, `/api/doctor` | **admin** |
+| `/api/nodes`, `/api/loadbalancer`, `/api/modules/*`, `/api/audit` | **admin** |
+| `/api/dedicated/*`, `/api/modpacks/*`, `/api/plugins/*`, `/api/software/*` | **admin** |
+| `/api/stress/*` | **admin** (rate-limited) |
+| `/api/tokens`, `/api/tokens/scopes` | **admin** |
+| `/api/backups/*` | **admin** |
 
-| Status | Description |
-|---|---|
-| 201 | Upload accepted, pack registered |
-| 400 | Missing `name` query param |
-| 413 | Pack exceeds configured max upload size |
-
-### DELETE /api/resourcepacks/{'{'}id{'}'}
-
-Delete a pack and, for `LOCAL` packs, the underlying file.
-
-### GET /api/resourcepacks/assignments
-
-List all assignments. Optional `packId` query param filters to one pack.
-
-### POST /api/resourcepacks/{'{'}id{'}'}/assignments
-
-Attach a pack to a scope.
-
-**Request:**
-
-```json title="Request"
-{
-  "scope": "GROUP",
-  "target": "BedWars",
-  "priority": 10
-}
-```
-
-- `scope` — `GLOBAL`, `GROUP`, or `SERVICE`. `GLOBAL` ignores `target`; the others require it.
-- `priority` — higher numbers layer *on top* within the same scope. Resolution order is `GLOBAL < GROUP < SERVICE`, so a service-scoped pack always overrides a group-scoped pack regardless of priorities.
-
-### DELETE /api/resourcepacks/assignments/{'{'}id{'}'}
-
-Remove a specific assignment.
-
-### GET /api/resourcepacks/for-group/{'{'}group{'}'}
-
-Backend-plugin-facing endpoint. Returns the ordered stack of packs a backend should apply. Pass `service=<name>` to include SERVICE-scoped assignments too.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "packs": [
-    {
-      "uuid": "b1e4…",
-      "url": "https://controller.example.com/api/resourcepacks/files/b1e4….zip",
-      "sha1Hash": "abc123…",
-      "force": true,
-      "promptMessage": ""
-    }
-  ]
-}
-```
-
-For `LOCAL` packs, `url` is the public download endpoint; for `URL` packs, the original URL is returned.
-
-### POST /api/resourcepacks/status
-
-Telemetry endpoint the backend plugin calls from `PlayerResourcePackStatusEvent`. Emits `RESOURCE_PACK_STATUS` on the event stream.
-
-**Request:**
-
-```json title="Request"
-{
-  "playerUuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
-  "packUuid": "b1e4…",
-  "status": "SUCCESSFULLY_LOADED"
-}
-```
-
-### GET /api/resourcepacks/files/{'{'}uuid{'}'}.zip
-
-**Public endpoint — no authentication required.** Minecraft clients don't send bearer tokens; the SHA-1 hash negotiated during `setResourcePack()` is what protects against tampering. Response streams through Ktor's `respondOutputStream` with a 64 KiB transfer buffer so large packs don't spike server RAM. Cached for 1 hour (`Cache-Control: public, max-age=3600`).
-
-## Backups
-
-Provided by the **Backup** module (migration range 7000+). All endpoints require **ADMIN** auth — archives may contain world data, plugin configs, and database dumps.
-
-### GET /api/backups
-
-List backup records.
-
-**Query parameters:**
-
-| Parameter | Description |
-|---|---|
-| `target` | Filter by exact target name (service / group / `all` for aggregate scopes) |
-| `status` | `RUNNING` / `SUCCESS` / `FAILED` / `PARTIAL` |
-| `limit` | Max rows, 1..1000 (default 100) |
-| `offset` | Pagination offset (default 0) |
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "backups": [
-    {
-      "id": 42,
-      "targetType": "SERVICE",
-      "targetName": "Lobby-1",
-      "scheduleClass": "hourly",
-      "scheduleName": "hourly",
-      "startedAt": "2026-04-15T08:30:00Z",
-      "completedAt": "2026-04-15T08:30:12Z",
-      "status": "SUCCESS",
-      "sizeBytes": 58720256,
-      "archivePath": "service-Lobby-1-hourly-20260415-083000.tar.zst",
-      "checksum": "a1b2c3…",
-      "errorMessage": null,
-      "nodeId": "local",
-      "triggeredBy": "scheduler"
-    }
-  ],
-  "total": 128
-}
-```
-
-### GET /api/backups/{'{'}id{'}'}
-
-Single backup record.
-
-### POST /api/backups/trigger
-
-Run a backup now. Body is optional — with an empty `targets` list, all scopes enabled in config are backed up.
-
-**Request:**
-
-```json title="Request"
-{
-  "targets": ["services", "database"],
-  "scheduleClass": "manual",
-  "target": "Lobby-1"
-}
-```
-
-`targets` accepts `services`, `dedicated`, `templates`, `config`, `database`, `state_sync`, or omit entirely.
-`scheduleClass` defaults to `manual` — manual backups are immune to automatic retention pruning when `retention.keep_manual = true`.
-`target` (optional) narrows SERVICE/DEDICATED backups to one specific name.
-
-Response is the same `BackupListResponse` shape as `GET /api/backups`, containing the rows that were just produced (one row per archive).
-
-### DELETE /api/backups/{'{'}id{'}'}
-
-Delete the backup record and its archive file from disk.
-
-### POST /api/backups/{'{'}id{'}'}/restore
-
-Restore a backup.
-
-**Request:**
-
-```json title="Request"
-{
-  "targetPath": null,
-  "dryRun": false,
-  "force": false
-}
-```
-
-`targetPath` (optional): override the destination directory. Defaults to the original location (`registry.get(name).workingDirectory` for services, etc.).
-`dryRun`: list files that would be extracted without writing.
-`force`: overwrite even when the target service is `READY` / `STARTING` / `DRAINING`. Without `force`, restore refuses on a running service.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "id": 42,
-  "dryRun": false,
-  "filesExtracted": 1234,
-  "files": ["world/region/r.0.0.mca", "..."]
-}
-```
-
-### POST /api/backups/{'{'}id{'}'}/verify
-
-Re-read the archive and recompute SHA-256 for every entry against the trailing `MANIFEST.sha256`.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "valid": true,
-  "errors": []
-}
-```
-
-### GET /api/backups/{'{'}id{'}'}/download
-
-Stream the raw `.tar.zst` archive. `Content-Disposition: attachment` set. Bearer auth required — a plain `<a download>` won't work; fetch + blob download on the client side.
-
-### GET /api/backups/{'{'}id{'}'}/manifest
-
-Stream the `MANIFEST.sha256` entry from inside the archive as `text/plain` — one `<hex-sha256>  <relative/path>` line per file. Useful for ad-hoc integrity checks.
-
-### GET /api/backups/schedules
-
-List configured schedules with computed next-fire times and last-run status.
-
-**Response:**
-
-```json title="Response (200 OK)"
-[
-  {
-    "name": "hourly",
-    "cron": "0 * * * *",
-    "retentionClass": "hourly",
-    "targets": ["services", "dedicated", "database"],
-    "lastRunAt": "2026-04-15T08:00:00Z",
-    "nextRunAt": "2026-04-15T09:00:00Z",
-    "lastStatus": "SUCCESS"
-  }
-]
-```
-
-### GET /api/backups/status
-
-Scheduler summary for the Overview tab — active-jobs count, local destination, schedules.
-
-### POST /api/backups/prune
-
-Apply retention rules now.
-
-**Request:**
-
-```json title="Request"
-{
-  "dryRun": true,
-  "retentionClass": "hourly"
-}
-```
-
-Both fields optional. `retentionClass` narrows the prune pass to one class; omit to prune all classes.
-
-**Response:**
-
-```json title="Response (200 OK)"
-{
-  "deleted": 5,
-  "freedBytes": 294912000,
-  "errors": []
-}
-```
-
-### GET /api/backups/config
-
-Full serialized module config — `BackupModuleConfig` shape:
-
-```json title="Response (200 OK)"
-{
-  "enabled": true,
-  "localDestination": "data/backups",
-  "maxConcurrent": 2,
-  "compressionLevel": 3,
-  "compressionWorkers": 0,
-  "quiesceServices": true,
-  "quiesceWaitSeconds": 2,
-  "scope": {
-    "services": true,
-    "dedicated": true,
-    "templates": true,
-    "controllerConfig": true,
-    "stateSync": true,
-    "database": true
-  },
-  "excludes": ["logs/**", "*.log", "cache/**", "*.lock"],
-  "schedules": [
-    { "name": "hourly", "cron": "0 * * * *", "retentionClass": "hourly", "targets": ["services", "dedicated", "database"] }
-  ],
-  "retention": {
-    "hourlyKeep": 24,
-    "dailyKeep": 7,
-    "weeklyKeep": 4,
-    "monthlyKeep": 3,
-    "keepManual": true
-  }
-}
-```
-
-### PUT /api/backups/config
-
-Replace the module config. Body is the same shape as the `GET` response. Validates server-side (cron syntax, compression level 1..22, unique schedule names matching `[A-Za-z0-9_-]+`, allowed target keys, known retention classes) and atomically rewrites `config/modules/backup/backup.toml` on success. The scheduler is hot-reloaded. Returns the persisted config.
-
-`400 VALIDATION_FAILED` on any schema error — the in-memory config is not touched.
+For the streaming counterparts (live events, service consoles, Remote CLI multiplex), see [WebSocket reference](/docs/reference/websocket). For the event schema emitted over `/api/events`, see [Events reference](/docs/reference/events).

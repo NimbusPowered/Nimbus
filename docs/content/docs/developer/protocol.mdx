@@ -9,10 +9,11 @@ The `nimbus-protocol` module defines the shared message types exchanged between 
 
 ## Overview
 
-All cluster communication uses JSON-serialized messages with a `type` discriminator field. The protocol is defined in a single file:
+All cluster communication uses JSON-serialized messages with a `type` discriminator field. The protocol is defined in two files:
 
 - `dev.nimbuspowered.nimbus.protocol.ClusterMessage` -- Sealed class containing all message types
-- `dev.nimbuspowered.nimbus.protocol.ServiceHeartbeat` -- Data class for per-service status in heartbeats
+- `dev.nimbuspowered.nimbus.protocol.ServiceHeartbeat` / `RemoteFileEntry` -- Data classes used inside messages
+- `dev.nimbuspowered.nimbus.protocol.StateManifest` / `StateFileEntry` -- State-sync manifest types used by the controller's state-sync REST API (not part of the WebSocket protocol; served over the TLS cluster port)
 - `dev.nimbuspowered.nimbus.protocol.clusterJson` -- Pre-configured `kotlinx.serialization.json.Json` instance
 
 ```kotlin title="Kotlin"

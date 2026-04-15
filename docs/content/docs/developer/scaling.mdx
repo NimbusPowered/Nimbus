@@ -62,7 +62,7 @@ Both tables are auto-pruned after 90 days.
 
 Each group gets a TOML file at `config/modules/scaling/<GroupName>.toml`:
 
-```toml title="config/groups/*.toml"
+```toml title="config/modules/scaling/Lobby.toml"
 [schedule]
 enabled = true
 timezone = "Europe/Berlin"
@@ -149,11 +149,12 @@ All endpoints require service-level authentication (default).
 
 ```text title="Output"
 scaling status                    # Active schedules + recent decisions
-scaling schedule list             # All rules
-scaling schedule info <group>     # Rules for a group
+scaling schedule list             # All rules across all groups
 scaling history <group> [hours]   # Player history (default 24h)
 scaling predict <group>           # Predictions next 6h
 scaling reload                    # Reload configs from disk
 ```
+
+Per-group rules are exposed via the REST API (`GET /api/scaling/schedules/{group}`); the console's `schedule list` already prints every group's rules grouped by group name.
 
 All commands are also available via the Bridge plugin (`/cloud scaling ...`).

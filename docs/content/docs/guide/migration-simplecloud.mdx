@@ -1,0 +1,251 @@
+---
+title: Migrating from SimpleCloud
+description: Concept map, config translation table, and step-by-step recipe for migrating a SimpleCloud v2 network to Nimbus.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This guide covers moving a SimpleCloud v2 install to Nimbus. SimpleCloud and Nimbus have a lot of common DNA — both are console-first, both handle Velocity/proxy + backends, both scale dynamic groups by player count. Most config translates mechanically.
+
+<Callout type="info">
+SimpleCloud v3 (the Kotlin rewrite) has a different module layout than v2. This guide targets v2. v3 concepts still translate, but field names differ.
+</Callout>
+
+## Concept map
+
+| SimpleCloud | Nimbus | Notes |
+|---|---|---|
+| **Cloud group** (e.g. `Lobby`, `BedWars`) | **Group** (`config/groups/<Name>.toml`) | 1:1 mapping. |
+| **Process** (a running service) | **Service** (`<Group>-<N>`) | Same concept. |
+| **Static group** (`static = true`) | `[group.sync] enabled = true` **or** `config/dedicated/<Name>.toml` | Two Nimbus primitives cover SimpleCloud's one — see the breakdown below. |
+| **Wrapper** (worker node) | **Agent node** (`nimbus-agent`) | Nimbus adds TLS + fingerprint pinning by default. |
+| **Master** | **Controller** (`nimbus-core`) | Exactly one. |
+| **Template** (`storage/templates/`) | **Template** (`templates/<Name>/`) | Direct copy. Stacking supported. |
+| **Server/proxy software versions** (set in process config) | `[group] software` + `mc_version` | Nimbus auto-downloads the JAR via `SoftwareResolver`. |
+| **SimpleCloud signs plugin** | **Display module** | Signs + (Paper 1.20+) NPCs. |
+| **SimpleCloud permission module** | **Perms module** | Optional LuckPerms backend. |
+| **CloudBridge (Velocity plugin)** | **nimbus-bridge** (auto-deployed) | Handles proxy-side hub command, server sync, punishments. |
+| **SimpleCloud REST module (community)** | **Built-in REST API + WebSocket** | First-party, Bearer token. |
+| **SimpleCloud UI / web panel** | **Dashboard** (BETA) | Hosted at `dashboard.nimbuspowered.org`. |
+| **SimpleCloud-Notify / chat modules** | **Proxy sync** (built-in MOTD, tab, chat) | `config/modules/syncproxy/`. |
+| Auto-download of server software | **Built-in** (`SoftwareResolver`: Paper/Purpur/Pufferfish/Leaf/Folia/Velocity/Forge/NeoForge/Fabric) | No manual JAR management. |
+
+### Things SimpleCloud has that Nimbus doesn't
+
+- **Multi-master HA.** Nimbus has exactly one controller.
+- **Per-process dynamic memory** (on top of template). Nimbus sets memory per-group, not per-instance.
+- **Community plugin ecosystem** (notify, chat modules, etc.). Nimbus ships a fixed module set. For bespoke features write a Nimbus module (see [Developer: Modules](/docs/developer/modules)) or an SDK plugin.
+- **Lobby-plugin fine-grained hub commands.** Nimbus's bridge provides `/hub` + server selector. More elaborate lobby UX is a user-side plugin problem.
+
+## Config translation
+
+### Cloud group → Group
+
+SimpleCloud group config (`storage/groups/Lobby.json`, simplified):
+
+```json
+{
+  "name": "Lobby",
+  "templateName": "Lobby",
+  "minimumOnlineServiceCount": 2,
+  "maximumOnlineServiceCount": 4,
+  "maxMemory": 1024,
+  "maxPlayers": 50,
+  "startPort": 30000,
+  "serverVersionName": "PAPER_1_20_4",
+  "static": false,
+  "maintenance": false
+}
+```
+
+Equivalent Nimbus group (`config/groups/Lobby.toml`):
+
+```toml title="config/groups/Lobby.toml"
+[group]
+name = "Lobby"
+software = "paper"
+mc_version = "1.20.4"
+templates = ["Lobby"]
+
+[group.resources]
+memory = "1G"
+max_players = 50
+
+[group.scaling]
+min_instances = 2
+max_instances = 4
+```
+
+Start ports are controller-global in Nimbus (backends: 30000+, proxies: 25565+) — you don't set them per-group.
+
+### Proxy group
+
+SimpleCloud treats proxy groups as a separate JSON schema. In Nimbus it's the same schema — only `software = "velocity"` changes:
+
+```toml title="config/groups/Proxy.toml"
+[group]
+name = "Proxy"
+software = "velocity"
+templates = ["Proxy"]
+
+[group.resources]
+memory = "512M"
+max_players = 500
+
+[group.scaling]
+min_instances = 1
+max_instances = 2
+```
+
+Nimbus generates `velocity.toml` and the `servers {}` list automatically. Don't hand-maintain it.
+
+### Static group → dedicated service OR sync group
+
+SimpleCloud's `"static": true` combines two Nimbus concepts. Pick based on intent:
+
+**You want a single, named server that never moves (e.g. the Survival world):**
+
+```toml title="config/dedicated/Survival.toml"
+name = "Survival"
+software = "paper"
+mc_version = "1.20.4"
+port = 30100
+proxy_enabled = true
+
+[dedicated.resources]
+memory = "4G"
+```
+
+**You want a small pool of persistent services (e.g. Hub-1, Hub-2) whose worlds survive restarts but can fail over across agents:**
+
+```toml title="config/groups/Hub.toml"
+[group]
+name = "Hub"
+software = "paper"
+
+[group.sync]
+enabled = true
+
+[group.scaling]
+min_instances = 2
+max_instances = 2
+```
+
+<Callout type="info">
+SimpleCloud-static services that used a shared working directory (all instances writing into `storage/static/<Name>/`) don't have a direct Nimbus equivalent. Each Nimbus service has its own working dir. Split the shared state into the template (read-only init) + per-instance mutations, or refactor to a dedicated service.
+</Callout>
+
+### Wrapper → agent
+
+Each SimpleCloud wrapper becomes a Nimbus agent. Install:
+
+```bash title="Agent host"
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install-agent.sh | bash
+```
+
+The setup wizard handles the cluster token + TLS fingerprint pin (no manual `wrapper.toml` tokens). See [Multi-Node Guide](/docs/guide/multi-node).
+
+### Permissions
+
+SimpleCloud's permission module exports to flat JSON. The Nimbus Perms module stores in the controller DB and has a simple console interface:
+
+```text title="Nimbus console"
+perms group create admin
+perms group permission add admin nimbus.admin
+perms user group add <uuid> admin
+```
+
+If you're on LuckPerms with SimpleCloud, configure the Perms module to use LuckPerms as its backend — zero migration.
+
+### Signs / NPCs
+
+SimpleCloud-signs data doesn't migrate automatically. Install the **display** module, configure `config/modules/display/<Group>.toml`, and re-place signs in-game. NPCs (Paper 1.20+) are new to most SimpleCloud setups.
+
+## Migration recipe
+
+<Callout type="warn">
+Stop SimpleCloud before starting Nimbus against the same Velocity config. Both will rewrite the proxy's server list.
+</Callout>
+
+### 1. Inventory
+
+List every:
+- Cloud group (name, template, min/max, memory, MC version).
+- Static group + its working directory location.
+- Wrapper + which groups run on it.
+- Permission groups (if using SimpleCloud-permissions).
+- External integrations hitting the SimpleCloud REST module.
+
+### 2. Install Nimbus
+
+```bash title="Terminal"
+curl -fsSL https://raw.githubusercontent.com/NimbusPowered/Nimbus/main/install.sh | bash
+```
+
+First-run SetupWizard picks modules. Select **perms**, **display**, **scaling** to match a typical SimpleCloud feature set. Consider **punishments**, **resourcepacks**, **backup** — these are Nimbus additions without SimpleCloud equivalents.
+
+### 3. Templates
+
+Copy `storage/templates/<Name>/` → `templates/<Name>/`. Delete SimpleCloud's own agent/wrapper plugins from the copied templates (`simplecloud-*.jar`, `CloudAPI-*.jar`) — Nimbus auto-deploys its SDK, bridge, perms, display, punishments, and resourcepacks plugins at runtime, so templates must remain clean of cloud plugins.
+
+### 4. Author `config/groups/*.toml`
+
+Translate each group JSON into TOML using the table above. Keep names identical so players don't notice.
+
+### 5. Static groups → dedicated services or sync groups
+
+Decide per-group which primitive fits (see [concept map](#config-translation)). Copy working directories:
+
+- Dedicated: `storage/static/<Name>/` → `<paths.dedicated>/<Name>/`
+- Sync group (single instance): seed `services/state/<Name>/` with the SimpleCloud working dir before first start.
+
+### 6. Cluster
+
+For each SimpleCloud wrapper, install `nimbus-agent` on the same host. Use `cluster bootstrap-url` on the controller, paste into each agent's setup wizard. Pin pre-existing wrapper affinities via `[group.placement] node = "<agent>"`.
+
+### 7. Permissions
+
+- LuckPerms users: just configure the Perms module's LuckPerms backend — done.
+- SimpleCloud-permissions users: export to JSON, reimport via `perms` console commands or scripting against the [Permissions API](/docs/reference/api#permissions).
+
+### 8. Proxy + bridge
+
+Delete SimpleCloud's `CloudBridge-*.jar` from the Velocity template. Nimbus auto-deploys `nimbus-bridge.jar` at every proxy start. It handles:
+
+- Server list sync (no more manual `servers {}` maintenance)
+- `/hub` command + forced-host rules
+- Chat, tab, MOTD sync
+- Punishment enforcement on `PreLoginEvent` (if you enabled the punishments module)
+- Modded client routing (Forge/NeoForge detection + group filtering)
+
+### 9. Smoke test
+
+- `start Proxy`, `start Lobby` — verify processes, ports, and that the proxy registers backends.
+- Join the network, check the lobby signs repaint (after re-placing), check permissions.
+- Trigger scaling: `stress start 100 Lobby --ramp 30`.
+- Hit `GET /api/status` with your API token; verify the dashboard can connect.
+
+### 10. Cut over + grace period
+
+Point your public DNS at the Nimbus proxy. Keep SimpleCloud's installed-but-stopped for a week as rollback safety. Revoke SimpleCloud REST tokens once you're confident.
+
+## Common pitfalls
+
+<Callout type="warn">
+**Velocity forwarding-secret mismatch.** Nimbus generates and injects its own forwarding secret on both sides. Don't copy SimpleCloud's `velocity.toml` or Paper's `paper-global.yml` forwarding block — let Nimbus manage both ends.
+</Callout>
+
+<Callout type="warn">
+**Static services with shared working dirs.** Some SimpleCloud-static groups run multiple processes against the same filesystem location. Nimbus gives each service its own dir. If your setup relied on shared mutable state, refactor *before* migrating — either put the state in a database, or consolidate to a single dedicated service.
+</Callout>
+
+<Callout type="info">
+**Plugins in templates.** If SimpleCloud's `storage/templates/every/plugins/` contained cloud-side plugins (bridge, perms, signs), remove them. Nimbus deploys those itself at runtime.
+</Callout>
+
+## Next steps
+
+- [Server Groups](/docs/guide/server-groups)
+- [Dedicated Services](/docs/guide/dedicated-services)
+- [Multi-Node](/docs/guide/multi-node) + [Cluster Topologies](/docs/guide/cluster-topologies)
+- [Scaling](/docs/guide/scaling) — Smart Scaling (time-based + predictive warmup)

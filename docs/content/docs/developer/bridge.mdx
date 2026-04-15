@@ -7,9 +7,15 @@ The Nimbus Bridge is a Velocity proxy plugin that connects the proxy to the Nimb
 
 ## Installation
 
-The bridge is **automatically deployed** to all proxy instances. Nimbus extracts `nimbus-bridge.jar` into `templates/global_proxy/plugins/` on every boot. You never need to install it manually.
+The bridge is **automatically deployed** to every proxy service at runtime.
+On each service prepare, `ServiceFactory.resolveModulePlugins()` copies
+`nimbus-bridge.jar` into the proxy's `plugins/` directory with
+`REPLACE_EXISTING` — so deletions self-heal on next start and updates roll
+out automatically. Templates are **user-owned**; the bridge JAR is never
+written into `templates/global_proxy/plugins/`.
 
-If you remove the JAR, Nimbus tracks this and won't re-deploy it.
+If a proxy service's `plugins/nimbus-bridge.jar` is missing, it's redeployed
+on the next service start.
 
 ## Configuration
 
