@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import { serviceStateColors } from "@/lib/status";
 import { toast } from "sonner";
@@ -47,10 +46,12 @@ import {
   RotateCw,
   Plus,
   Server,
+  TerminalIcon,
 } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
 import { MemoryBar } from "@/components/memory-bar";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
+import { ServiceConsoleSheet } from "@/components/service-console-sheet";
 
 interface SyncHealth {
   lastPushAt: string | null;
@@ -81,29 +82,25 @@ interface ServiceListResponse {
 }
 
 export default function ServicesPage() {
-  const [services, setServices] = useState<Service[]>([]);
-  const [groups, setGroups] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: svcResp,
+    loading,
+    error,
+    refetch: load,
+  } = useApiResource<ServiceListResponse>("/api/services", {
+    poll: POLL.normal,
+  });
+  const services = svcResp?.services ?? [];
+  const { data: grpResp } = useApiResource<{ groups: { name: string }[] }>(
+    "/api/groups",
+    { silent: true }
+  );
+  const groups = (grpResp?.groups ?? []).map((g) => g.name);
+
   const [startOpen, setStartOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState("");
   const [starting, setStarting] = useState(false);
-
-  async function load() {
-    try {
-      const [svc, grp] = await Promise.all([
-        apiFetch<ServiceListResponse>("/api/services"),
-        apiFetch<{ groups: { name: string }[] }>("/api/groups").catch(() => ({
-          groups: [],
-        })),
-      ]);
-      setServices(svc.services);
-      setGroups(grp.groups.map((g) => g.name));
-    } catch {
-      // handled by apiFetch
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [consoleService, setConsoleService] = useState<string | null>(null);
 
   async function startService() {
     if (!selectedGroup) return;
@@ -120,12 +117,6 @@ export default function ServicesPage() {
       setStarting(false);
     }
   }
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   async function serviceAction(
     name: string,
@@ -191,25 +182,32 @@ export default function ServicesPage() {
   );
 
   return (
-    <>
-      <PageHeader
-        title="Services"
-        description={`${services.length} running service${
-          services.length === 1 ? "" : "s"
-        } across the cluster.`}
-        actions={startDialog}
-      />
-
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : services.length === 0 ? (
-        <EmptyState
-          icon={Server}
-          title="No services running"
-          description="Start a service from one of your groups to see it here."
-        />
-      ) : (
-        <Card>
+    <PageShell
+      title="Services"
+      description={`${services.length} running service${
+        services.length === 1 ? "" : "s"
+      } across the cluster.`}
+      actions={startDialog}
+      status={
+        loading
+          ? "loading"
+          : error
+          ? "error"
+          : services.length === 0
+          ? "empty"
+          : "ready"
+      }
+      error={error}
+      onRetry={load}
+      skeleton="table"
+      emptyState={{
+        icon: Server,
+        title: "No services running",
+        description:
+          "Start a service from one of your groups to see it here.",
+      }}
+    >
+      <Card>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -292,6 +290,12 @@ export default function ServicesPage() {
                         />
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
+                            onClick={() => setConsoleService(s.name)}
+                          >
+                            <TerminalIcon className="mr-2 size-4" />
+                            Open Console
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => serviceAction(s.name, "start")}
                           >
                             <Play className="mr-2 size-4" />
@@ -316,9 +320,15 @@ export default function ServicesPage() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
-    </>
+        </CardContent>
+      </Card>
+      <ServiceConsoleSheet
+        serviceName={consoleService}
+        open={consoleService !== null}
+        onOpenChange={(o) => {
+          if (!o) setConsoleService(null);
+        }}
+      />
+    </PageShell>
   );
 }

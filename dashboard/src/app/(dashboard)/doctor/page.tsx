@@ -1,20 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api";
 import {
   CircleAlert,
   CircleCheck,
   CircleX,
   RefreshCw,
-  Stethoscope,
 } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
+import { useApiResource } from "@/hooks/use-api-resource";
 import { cn } from "@/lib/utils";
 
 type Level = "OK" | "WARN" | "FAIL";
@@ -46,23 +43,23 @@ function levelMeta(level: Level) {
     case "OK":
       return {
         Icon: CircleCheck,
-        color: "text-emerald-500",
+        color: "text-severity-ok",
         badgeClass:
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+          "border-severity-ok/30 bg-severity-ok/10 text-severity-ok",
       };
     case "WARN":
       return {
         Icon: CircleAlert,
-        color: "text-amber-500",
+        color: "text-severity-warn",
         badgeClass:
-          "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+          "border-severity-warn/30 bg-severity-warn/10 text-severity-warn",
       };
     case "FAIL":
       return {
         Icon: CircleX,
-        color: "text-destructive",
+        color: "text-severity-err",
         badgeClass:
-          "border-destructive/30 bg-destructive/10 text-destructive",
+          "border-severity-err/30 bg-severity-err/10 text-severity-err",
       };
   }
 }
@@ -92,36 +89,16 @@ function statusSummary(report: DoctorReport) {
 }
 
 export default function DoctorPage() {
-  const [report, setReport] = useState<DoctorReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setRefreshing(true);
-    try {
-      const data = await apiFetch<DoctorReport>("/api/doctor");
-      setReport(data);
-      setError(null);
-      setLastRun(new Date());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Auto-refresh every 60s — cheap, controller-side is in-memory.
-  useEffect(() => {
-    const id = setInterval(() => load(true), 60_000);
-    return () => clearInterval(id);
-  }, [load]);
+  const { data: report, loading, error, refetch } = useApiResource<DoctorReport>(
+    "/api/doctor",
+    {
+      poll: 60_000,
+      silent: true,
+      onSuccess: () => setLastRun(new Date()),
+    },
+  );
 
   const summary = report ? statusSummary(report) : null;
 
@@ -135,45 +112,40 @@ export default function DoctorPage() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => load()}
-        disabled={refreshing}
+        onClick={() => void refetch()}
+        disabled={loading}
       >
-        <RefreshCw
-          className={cn("size-4", refreshing && "animate-spin")}
-        />
+        <RefreshCw className={cn("size-4", loading && "animate-spin")} />
         Run again
       </Button>
     </>
   );
 
-  return (
-    <>
-      <PageHeader
-        title="Doctor"
-        description="Environment, configuration and runtime checks for this Nimbus deployment."
-        actions={actions}
-      />
+  const status = loading && !report
+    ? "loading"
+    : error && !report
+      ? "error"
+      : "ready";
 
-      {loading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
-      ) : error ? (
-        <EmptyState
-          icon={Stethoscope}
-          title="Could not run doctor"
-          description={error}
-        />
-      ) : report && summary ? (
+  return (
+    <PageShell
+      title="Doctor"
+      description="Environment, configuration and runtime checks for this Nimbus deployment."
+      actions={actions}
+      status={status}
+      skeleton="single"
+      error={error}
+      onRetry={refetch}
+    >
+      {report && summary && (
         <div className="space-y-4">
           <SummaryCard summary={summary} report={report} />
           {report.sections.map((section) => (
             <SectionCard key={section.name} section={section} />
           ))}
         </div>
-      ) : null}
-    </>
+      )}
+    </PageShell>
   );
 }
 
@@ -191,9 +163,9 @@ function SummaryCard({
   const okCount = totalFindings - report.warnCount - report.failCount;
 
   const toneClasses: Record<typeof summary.tone, string> = {
-    ok: "border-emerald-500/30 bg-emerald-500/5",
-    warn: "border-amber-500/30 bg-amber-500/5",
-    fail: "border-destructive/40 bg-destructive/5",
+    ok: "border-severity-ok/30 bg-severity-ok/5",
+    warn: "border-severity-warn/30 bg-severity-warn/5",
+    fail: "border-severity-err/40 bg-severity-err/5",
   };
 
   const ToneIcon =
@@ -205,10 +177,10 @@ function SummaryCard({
 
   const iconColor =
     summary.tone === "ok"
-      ? "text-emerald-500"
+      ? "text-severity-ok"
       : summary.tone === "warn"
-        ? "text-amber-500"
-        : "text-destructive";
+        ? "text-severity-warn"
+        : "text-severity-err";
 
   return (
     <Card className={cn("border", toneClasses[summary.tone])}>
@@ -224,19 +196,17 @@ function SummaryCard({
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="tabular-nums">
-            <span className="font-medium text-emerald-600 dark:text-emerald-400">
-              {okCount}
-            </span>{" "}
+            <span className="font-medium text-severity-ok">{okCount}</span>{" "}
             ok
           </span>
           <span className="tabular-nums">
-            <span className="font-medium text-amber-600 dark:text-amber-400">
+            <span className="font-medium text-severity-warn">
               {report.warnCount}
             </span>{" "}
             warn
           </span>
           <span className="tabular-nums">
-            <span className="font-medium text-destructive">
+            <span className="font-medium text-severity-err">
               {report.failCount}
             </span>{" "}
             fail

@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api";
 import { statusColors } from "@/lib/status";
-import { toast } from "sonner";
 import { Network } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 import {
   SystemStatsCard,
   type SystemInfo,
 } from "@/components/system-stats-card";
 import { ClusterTopology } from "@/components/cluster-topology";
+import { ClusterBootstrapCard } from "@/components/cluster-bootstrap-card";
+import { LoadBalancerCard } from "@/components/loadbalancer-card";
 
 interface Node {
   nodeId: string;
@@ -50,61 +47,55 @@ interface ServiceListResponse {
 }
 
 export default function NodesPage() {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [services, setServices] = useState<TopologyService[]>([]);
-  const [loading, setLoading] = useState(true);
+  const nodesRes = useApiResource<NodeListResponse>("/api/nodes", {
+    poll: POLL.normal,
+    silent: true,
+  });
+  const servicesRes = useApiResource<ServiceListResponse>("/api/services", {
+    poll: POLL.normal,
+    silent: true,
+  });
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [nodeData, svcData] = await Promise.all([
-          apiFetch<NodeListResponse>("/api/nodes"),
-          apiFetch<ServiceListResponse>("/api/services"),
-        ]);
-        setNodes(nodeData.nodes);
-        setServices(svcData.services);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to load nodes");
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const nodes = nodesRes.data?.nodes ?? [];
+  const services = servicesRes.data?.services ?? [];
+
+  const loading = nodesRes.loading || servicesRes.loading;
+  const error = nodesRes.error ?? servicesRes.error;
+  const isEmpty = !loading && !error && nodes.length === 0;
+
+  const status = loading
+    ? "loading"
+    : error
+      ? "error"
+      : isEmpty
+        ? "empty"
+        : "ready";
 
   return (
     <>
-      <PageHeader
+      <PageShell
         title="Nodes"
         description={`${nodes.length} node${
           nodes.length === 1 ? "" : "s"
         } · remote agents that run services on this controller's behalf.`}
-      />
-
-      {!loading && (
-        <ClusterTopology nodes={nodes} services={services} />
-      )}
-
-      {loading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-80 rounded-xl" />
-          <Skeleton className="h-80 rounded-xl" />
-        </div>
-      ) : nodes.length === 0 ? (
-        <Card>
-          <CardContent className="p-6">
-            <EmptyState
-              icon={Network}
-              title="No cluster nodes"
-              description="This controller is running in single-node mode. Install an agent on another host to scale out."
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {nodes.map((node) => (
+        status={status}
+        skeleton="grid"
+        error={error}
+        onRetry={() => {
+          void nodesRes.refetch();
+          void servicesRes.refetch();
+        }}
+        emptyState={{
+          icon: Network,
+          title: "No cluster nodes",
+          description:
+            "This controller is running in single-node mode. Install an agent on another host to scale out.",
+        }}
+      >
+        <div className="space-y-4">
+          <ClusterTopology nodes={nodes} services={services} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            {nodes.map((node) => (
             <SystemStatsCard
               key={node.nodeId}
               title={node.nodeId}
@@ -142,10 +133,18 @@ export default function NodesPage() {
                   </span>
                 </div>
               }
-            />
-          ))}
+              />
+            ))}
+          </div>
         </div>
-      )}
+      </PageShell>
+
+      {/* Render outside PageShell so these are visible on the empty state too —
+          the bootstrap helper is most useful when there are zero agents yet. */}
+      <div className="mt-4 space-y-4">
+        <LoadBalancerCard />
+        <ClusterBootstrapCard />
+      </div>
     </>
   );
 }

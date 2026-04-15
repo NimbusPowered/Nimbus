@@ -24,7 +24,15 @@ import {
 import { apiFetch } from "@/lib/api";
 import { statusColors } from "@/lib/status";
 import { toast } from "sonner";
-import { Plus, X, ChevronDown } from "@/lib/icons";
+import { Plus, X, ChevronDown, Send, Gavel } from "@/lib/icons";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SectionLabel } from "@/components/section-label";
 import {
   Collapsible,
@@ -134,6 +142,69 @@ export function PlayerSheet({
   const [punishments, setPunishments] = useState<PunishmentSummary[]>([]);
   const [punishmentsOpen, setPunishmentsOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  // Player-actions state (kick / transfer). Network broadcast lives in
+  // <BroadcastDialog /> in the site header — it isn't player-scoped.
+  const [kickOpen, setKickOpen] = useState(false);
+  const [kickReason, setKickReason] = useState("");
+  const [kickBusy, setKickBusy] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendTarget, setSendTarget] = useState("");
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendOptions, setSendOptions] = useState<string[]>([]);
+
+  async function loadSendTargets() {
+    try {
+      // Service list — Velocity's /send accepts either a service name or a group name.
+      const resp = await apiFetch<{ services: { name: string; state: string }[] }>(
+        "/api/services",
+        { silent: true }
+      );
+      const ready = resp.services
+        .filter((s) => s.state === "READY")
+        .map((s) => s.name);
+      setSendOptions(ready);
+    } catch {
+      setSendOptions([]);
+    }
+  }
+
+  async function doKick() {
+    if (!meta?.name) return;
+    setKickBusy(true);
+    try {
+      await apiFetch(`/api/players/${encodeURIComponent(meta.name)}/kick`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: kickReason.trim() || "You have been kicked from the network.",
+        }),
+      });
+      toast.success(`Kicked ${meta.name}`);
+      setKickOpen(false);
+      setKickReason("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Kick failed");
+    } finally {
+      setKickBusy(false);
+    }
+  }
+
+  async function doSend() {
+    if (!meta?.name || !sendTarget.trim()) return;
+    setSendBusy(true);
+    try {
+      await apiFetch(`/api/players/${encodeURIComponent(meta.name)}/send`, {
+        method: "POST",
+        body: JSON.stringify({ targetService: sendTarget.trim() }),
+      });
+      toast.success(`Sent ${meta.name} to ${sendTarget}`);
+      setSendOpen(false);
+      setSendTarget("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setSendBusy(false);
+    }
+  }
 
   function reloadPerms() {
     if (!uuid) return;
@@ -246,6 +317,29 @@ export function PlayerSheet({
           </SheetBody>
         ) : (
           <SheetBody>
+            {meta?.online && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    loadSendTargets();
+                    setSendOpen(true);
+                  }}
+                >
+                  <Send className="mr-1 size-4" /> Transfer
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setKickOpen(true)}
+                  className="border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                >
+                  <Gavel className="mr-1 size-4" /> Kick
+                </Button>
+              </div>
+            )}
+
             {meta && (
               <section className="space-y-2">
                 <SectionLabel>Status</SectionLabel>
@@ -477,6 +571,86 @@ export function PlayerSheet({
           </SheetBody>
         )}
       </SheetContent>
+
+      <Dialog open={kickOpen} onOpenChange={setKickOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Kick {meta?.name}</DialogTitle>
+            <DialogDescription>
+              Disconnect this player from the network. They can rejoin immediately
+              unless you also issue a ban.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              value={kickReason}
+              onChange={(e) => setKickReason(e.target.value)}
+              placeholder="Reason (shown to the player)"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setKickOpen(false)}
+              disabled={kickBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doKick} disabled={kickBusy} className="bg-red-600 hover:bg-red-700">
+              Kick
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transfer {meta?.name}</DialogTitle>
+            <DialogDescription>
+              Send the player to another service. Velocity&apos;s <code>/send</code>
+              also accepts a group name (it picks the lightest backend).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {sendOptions.length > 0 && (
+              <Select value={sendTarget} onValueChange={(v) => v && setSendTarget(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select ready service…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {sendOptions.map((opt) => (
+                      <SelectItem key={opt} value={opt}>
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+            <Input
+              value={sendTarget}
+              onChange={(e) => setSendTarget(e.target.value)}
+              placeholder="…or type a service / group name"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSendOpen(false)}
+              disabled={sendBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doSend} disabled={sendBusy || !sendTarget.trim()}>
+              Transfer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

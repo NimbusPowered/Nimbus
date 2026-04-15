@@ -1,0 +1,69 @@
+---
+title: Dashboard Changelog
+description: Release history for the Nimbus Web Dashboard — versioned independently of the controller.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Nimbus Web Dashboard is versioned independently of the controller, so its UI-only releases (polish, new screens, UX fixes) don't need to wait for a full controller release. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+<Callout type="info">
+  Dashboard versions use the pattern `<controller-major>.<controller-minor>.<controller-patch>-<channel>.<n>` (e.g. `0.9.1-beta.1`). The leading `0.9.1` tracks which controller release the dashboard was validated against; `-beta.1` is the dashboard's own iteration counter on that base.
+</Callout>
+
+---
+
+## [0.9.1-beta.1] — 2026-04-15
+
+**Controller compatibility:** `0.9.1`
+
+The dashboard moves from alpha to beta. It is now suitable for day-to-day operation of a single-server or small-cluster Nimbus deployment — most workflows that previously required the console are available in the browser.
+
+### Highlights
+
+- Full group management (create, edit, delete) with typed-name delete confirmation.
+- Per-service console sheet with live log stream and command execution over WebSocket.
+- File and template browser at `/files` — breadcrumb navigation, upload with progress, mkdir, rename, delete, inline text editor for config-shaped files.
+- Global broadcast dialog in the header (network or per-group).
+- Player row actions: kick and transfer.
+- Maintenance whitelist card on Settings.
+- Cluster bootstrap card on Nodes (fingerprint, WebSocket URL, collapsible PEM reveal).
+- Load balancer card on Nodes (backend health, active connections).
+- Modpack import dialog now shows real upload progress.
+
+### Added
+
+- **Beta channel.** Dashboard now ships its own version (`0.9.1-beta.1`), independent of controller patch cadence. A Beta/Alpha badge in the sidebar reflects the channel.
+- **Shared UX primitives.** New `PageShell` component, `useApiResource` hook, and semantic severity color tokens (`--severity-ok`, `--severity-warn`, `--severity-err`, `--severity-info`).
+- **Group CRUD UI** with form validation that mirrors the controller's DTO (name regex, memory bounds, scaling ranges, JVM args).
+- **Service Console Sheet** — opens from the row action on both dynamic services and dedicated services. Raw WebSocket frames, 1000-line ring buffer, ANSI rendering, reconnect-aware.
+- **File / Template Browser.** Scopes: templates (rw), services (rw), groups (read-only). Multipart upload with XHR progress, mkdir, binary download path.
+- **File editor** with line numbers, tab-handling (tab inserts two spaces, shift-tab dedents), Ctrl/Cmd+S to save, Ctrl/Cmd+/ to toggle the language-appropriate line comment, dirty indicator, and unsaved-changes guard on page unload.
+- **Image preview lightbox.** Known image extensions (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, `ico`, `avif`) open in a Dialog with a blob-loaded preview instead of the text editor. Per-row "Preview" action.
+- **Broadcast dialog** in the site header. Target: network or a specific group.
+- **Player row actions** — kick (with reason) and transfer (with service/group target).
+- **Maintenance whitelist card** on the Settings page (toggle + add/remove).
+- **Cluster bootstrap card** and **load balancer card** on the Nodes page.
+- **Modpack upload progress.** Groups import dialog now shows a real percentage bar plus an indeterminate phase while the server resolves the pack.
+
+### Changed
+
+- Every page migrated to `PageShell` + `useApiResource`. Loading skeletons, empty states, and error banners are now consistent across the UI.
+- `apiFetch` auto-surfaces 4xx/5xx errors as toasts. Callers opt out with `{ silent: true }` when rendering their own error UI.
+- Doctor page status colors extracted to semantic tokens. No more hardcoded `emerald-*` / `amber-*` / `destructive` classes in status UI.
+- Polling intervals standardized: `POLL.fast` (3s), `POLL.normal` (5s), `POLL.slow` (30s). Polling pauses while the tab is hidden.
+
+### Known backend gaps
+
+These UIs were intentionally not shipped in beta because the controller endpoints aren't there yet:
+
+- **Token management UI** — the controller currently only exposes `POST /api/tokens` (generate) and `GET /api/tokens/scopes`. List and revoke are missing, so there's nothing sensible to render.
+- **Scaling rule editor** — `/api/scaling/schedules` is read-only. Create, edit, and delete require new controller routes first.
+
+Both are tracked as controller-side follow-ups; the dashboard will pick them up automatically once the endpoints exist.
+
+### Beta quality notes
+
+- Safe for day-to-day operation of a single-server or small-cluster deployment.
+- Long-running cluster operations (cross-node migration, state-sync troubleshooting) still benefit from the console.
+- Live-testing against a running controller is recommended before relying on the browser UI for critical operations.

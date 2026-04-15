@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api";
 import {
   Activity,
   Server,
@@ -23,9 +20,10 @@ import {
   FolderTree,
   ExternalLinkIcon,
 } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
+import { PageShell } from "@/components/page-shell";
 import { StatCard } from "@/components/stat-card";
 import { EmptyState } from "@/components/empty-state";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 import {
   SystemStatsCard,
   type SystemInfo,
@@ -86,29 +84,19 @@ function formatMb(mb: number): string {
 }
 
 export default function OverviewPage() {
-  const [status, setStatus] = useState<StatusData | null>(null);
-  const [info, setInfo] = useState<ControllerInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const [s, i] = await Promise.all([
-          apiFetch<StatusData>("/api/status"),
-          apiFetch<ControllerInfo>("/api/controller/info"),
-        ]);
-        setStatus(s);
-        setInfo(i);
-      } catch {
-        // handled by apiFetch redirect
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const {
+    data: status,
+    loading: statusLoading,
+    error: statusError,
+    refetch: refetchStatus,
+  } = useApiResource<StatusData>("/api/status", { poll: POLL.normal });
+  const {
+    data: info,
+    loading: infoLoading,
+  } = useApiResource<ControllerInfo>("/api/controller/info", {
+    poll: POLL.normal,
+  });
+  const loading = statusLoading || infoLoading;
 
   const servicesPct =
     info && info.servicesMaxMemoryMb > 0
@@ -120,27 +108,21 @@ export default function OverviewPage() {
       : 0;
 
   return (
-    <>
-      <PageHeader
-        title="Dashboard"
-        description={
-          status
-            ? `${status.networkName} · live status of the whole cluster`
-            : "Live status of the whole cluster"
-        }
-      />
-
-      {loading ? (
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-4">
-            {[...Array(4)].map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-xl" />
-            ))}
-          </div>
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
-      ) : (
-        <div className="space-y-6">
+    <PageShell
+      title="Dashboard"
+      description={
+        status
+          ? `${status.networkName} · live status of the whole cluster`
+          : "Live status of the whole cluster"
+      }
+      status={
+        loading && !status ? "loading" : statusError && !status ? "error" : "ready"
+      }
+      error={statusError}
+      onRetry={refetchStatus}
+      skeleton="grid"
+    >
+      <div className="space-y-6">
           {/* Top-level KPI row */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard
@@ -347,10 +329,9 @@ export default function OverviewPage() {
             </CardContent>
           </Card>
 
-          {/* Changelog — at the bottom, collapsible per version */}
-          <ChangelogCard />
-        </div>
-      )}
-    </>
+        {/* Changelog — at the bottom, collapsible per version */}
+        <ChangelogCard />
+      </div>
+    </PageShell>
   );
 }

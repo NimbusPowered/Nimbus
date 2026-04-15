@@ -9,7 +9,7 @@ import { apiWebSocketReconnect } from "@/lib/api";
 import { statusColors } from "@/lib/status";
 import { AnsiLine } from "@/components/ansi-line";
 import { Send } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
+import { PageShell } from "@/components/page-shell";
 
 let messageId = 0;
 
@@ -87,20 +87,18 @@ export default function ConsolePage() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="Console"
-        description="Live controller console — same REPL you'd use over SSH."
-        actions={
-          <Badge
-            variant="outline"
-            className={connected ? statusColors.online : statusColors.inactive}
-          >
-            {connected ? "Connected" : "Disconnected"}
-          </Badge>
-        }
-      />
-
+    <PageShell
+      title="Console"
+      description="Live controller console — same REPL you'd use over SSH."
+      actions={
+        <Badge
+          variant="outline"
+          className={connected ? statusColors.online : statusColors.inactive}
+        >
+          {connected ? "Connected" : "Disconnected"}
+        </Badge>
+      }
+    >
       <Card className="flex flex-col h-[calc(100vh-14rem)]">
         <CardContent className="flex flex-1 flex-col min-h-0 p-4">
           <div className="flex-1 overflow-y-auto rounded-md bg-black p-3 font-mono text-xs text-gray-300 scrollbar-thin">
@@ -126,6 +124,6 @@ export default function ConsolePage() {
           </form>
         </CardContent>
       </Card>
-    </>
+    </PageShell>
   );
 }

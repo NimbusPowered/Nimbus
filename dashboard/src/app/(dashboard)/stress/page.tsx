@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -19,8 +18,9 @@ import { statusColors } from "@/lib/status";
 import { toast } from "sonner";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { Play, Square, Activity, Users, Gauge, Clock } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
+import { PageShell } from "@/components/page-shell";
 import { StatCard } from "@/components/stat-card";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 
 interface StressStatus {
   active: boolean;
@@ -45,9 +45,17 @@ function formatDuration(seconds: number): string {
 }
 
 export default function StressPage() {
-  const [status, setStatus] = useState<StressStatus | null>(null);
-  const [groups, setGroups] = useState<GroupInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: status,
+    loading,
+    error,
+    refetch: load,
+  } = useApiResource<StressStatus>("/api/stress", { poll: POLL.fast });
+  const { data: groupsResp } = useApiResource<{ groups: GroupInfo[] }>(
+    "/api/groups",
+    { poll: POLL.normal, silent: true }
+  );
+  const groups = groupsResp?.groups ?? [];
 
   // Start form
   const [players, setPlayers] = useState(100);
@@ -58,29 +66,6 @@ export default function StressPage() {
   // Ramp form
   const [rampTarget, setRampTarget] = useState(200);
   const [rampDuration, setRampDuration] = useState(30);
-
-  async function load() {
-    try {
-      const [s, g] = await Promise.all([
-        apiFetch<StressStatus>("/api/stress"),
-        apiFetch<{ groups: GroupInfo[] }>("/api/groups").catch(() => ({
-          groups: [],
-        })),
-      ]);
-      setStatus(s);
-      setGroups(g.groups);
-    } catch {
-      // ignored
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 3000);
-    return () => clearInterval(interval);
-  }, []);
 
   async function start() {
     setStarting(true);
@@ -129,23 +114,22 @@ export default function StressPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="Stress Test"
-        description="Simulate player load across backend groups without launching real Minecraft clients."
-        actions={
-          status?.active && (
-            <Button variant="destructive" onClick={stop}>
-              <Square className="mr-1 size-4" /> Stop test
-            </Button>
-          )
-        }
-      />
-
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : (
-        <div className="space-y-6">
+    <PageShell
+      title="Stress Test"
+      description="Simulate player load across backend groups without launching real Minecraft clients."
+      status={loading ? "loading" : error ? "error" : "ready"}
+      error={error}
+      onRetry={load}
+      skeleton="single"
+      actions={
+        status?.active && (
+          <Button variant="destructive" onClick={stop}>
+            <Square className="mr-1 size-4" /> Stop test
+          </Button>
+        )
+      }
+    >
+      <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="Status"
@@ -297,8 +281,7 @@ export default function StressPage() {
               </CardContent>
             </Card>
           </div>
-        </div>
-      )}
-    </>
+      </div>
+    </PageShell>
   );
 }

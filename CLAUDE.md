@@ -87,7 +87,13 @@ Controller Modules (`modules/`):
 - `modules/backup` — Scheduled tar+zstd snapshots (services/dedicated/templates/config/state-sync/database) with GFS retention, single-pass SHA-256 manifest, multi-threaded zstd-jni compression, and live TOML config editing via REST (migration range 7000+)
 
 Other:
-- `dashboard` — Web Dashboard (ALPHA): Next.js + shadcn/ui management UI, connects to controller REST API + WebSocket. Live at `dashboard.nimbuspowered.org`. Separate app, not embedded in core JAR
+- `dashboard` — Web Dashboard (BETA): Next.js + shadcn/ui management UI, connects to controller REST API + WebSocket. Live at `dashboard.nimbuspowered.org`. Separate app, not embedded in core JAR.
+  - Beta-era conventions:
+    - Every page wraps its body in `PageShell`, which owns the consistent header + loading/empty/error states. Do not reintroduce per-page skeletons or bare status branches.
+    - `useApiResource` is the canonical data hook; no bare `useEffect` + `fetch` in pages. Mutations go through `apiFetch`, which auto-surfaces 4xx/5xx as toasts (opt-out with `{ silent: true }` for user-initiated flows that render their own errors).
+    - Severity colors use CSS variables (`--severity-ok`, `--severity-warn`, `--severity-err`, `--severity-info`). Do not reintroduce hardcoded `emerald-*` / `amber-*` / `destructive` tailwind classes in status UI.
+    - Polling intervals are standardized as `POLL.fast` (3s) / `POLL.normal` (5s) / `POLL.slow` (30s) and pause while the tab is hidden.
+    - Dashboard version lives in `dashboard/package.json` (currently `0.9.1-beta.1`), is injected at build via `next.config.ts`, exposed through `dashboard/src/lib/version.ts`, and the sidebar renders a Beta/Alpha badge reflecting the channel. Dashboard version is independent of the controller patch cadence.
 
 Gradle project names remain unchanged (`:nimbus-sdk`, `:nimbus-module-perms`, etc.) via `projectDir` mappings in `settings.gradle.kts`.
 
@@ -108,7 +114,7 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 ├── Nimbus.kt              # Entry point, bootstrap
 ├── api/                   # Ktor REST API + WebSocket (v0.2), ProxyEventRoutes (proxy event endpoint)
 ├── config/                # TOML config loading (NimbusConfig, GroupConfig)
-├── console/               # JLine3 REPL, CommandDispatcher, 30 commands
+├── console/               # JLine3 REPL, CommandDispatcher, 34 commands
 ├── database/              # Exposed ORM: DatabaseManager, MigrationManager, Tables, MetricsCollector, AuditCollector
 ├── event/                 # Coroutine-based EventBus + sealed Events
 ├── group/                 # ServerGroup runtime state, GroupManager
@@ -126,7 +132,7 @@ nimbus-core/src/main/kotlin/dev/nimbuspowered/nimbus/
 └── velocity/              # VelocityConfigGen (auto-manage proxy server list, modded client config)
 # Note: permissions, display code now lives in their respective module JARs
 
-dashboard/src/              # Web Dashboard (Next.js, ALPHA)
+dashboard/src/              # Web Dashboard (Next.js, BETA)
 ├── app/                   # Next.js pages (login, dashboard, groups, services, etc.)
 ├── components/            # React components (shadcn/ui based)
 └── lib/                   # API client, auth, utilities
@@ -208,7 +214,7 @@ dashboard/src/              # Web Dashboard (Next.js, ALPHA)
 - Punishments: controller module holds canonical records + an in-memory cache of active bans/mutes keyed by UUID & IP. Bridge enforces on Velocity `PreLoginEvent` via `/api/punishments/check/{uuid}?ip=` with its own 5s TTL cache; backend plugin enforces mutes on chat. Superseding writes automatically revoke prior active punishments of the same class. Expiry loop deactivates tempbans/tempmutes every 30s (configurable). Permission nodes: `nimbus.punish.ban`, `nimbus.punish.mute`, ..., `nimbus.punish.bypass` (skip mute enforcement)
 - Resource packs: controller module persists pack registry + assignments; backend plugin fetches `/api/resourcepacks/for-group/<group>` on player join with 10s local cache. Pack stack order is GLOBAL < GROUP < SERVICE, priority ascending within scope. Paper 1.20.3+ uses multi-pack UUID API via reflection; older versions fall back to the single highest-priority pack. Local pack files served unauthenticated at `/api/resourcepacks/files/{uuid}.zip` (SHA-1 hash in `setResourcePack` call prevents tampering)
 - Backups: controller module archives services/dedicated/templates/config/state-sync/database into tar+zstd via Apache Commons Compress + zstd-jni with `setWorkers(N)` for native multi-threaded compression (3–5× faster than subprocess `tar --zstd`). Single-pass SHA-256 computed while streaming, written as trailing `MANIFEST.sha256` entry, re-checked by `backup verify`. SQLite DB dump uses `VACUUM INTO` (atomic); MySQL/Postgres shell out to `mysqldump`/`pg_dump` and skip with WARN + PARTIAL status if missing on PATH. Quiesce via existing `ServiceManager.executeCommand` (`save-off`/`save-all flush`/`save-on`). GFS retention per `(targetType, targetName, scheduleClass)`; `keep_manual = true` makes manual backups immune. Cron scheduler uses a hand-rolled 5-field POSIX evaluator. Config edits via `PUT /api/backups/config` validate + rewrite TOML atomically + hot-reload scheduler. Remote-node services are skipped with PARTIAL status (cluster streaming deferred). All routes ADMIN-only
-- Web Dashboard (ALPHA): `dashboard.nimbuspowered.org` — browser-based UI connecting to controller API. Runs entirely client-side, API token stored in browser localStorage. CORS must include dashboard origin
+- Web Dashboard (BETA): `dashboard.nimbuspowered.org` — browser-based UI connecting to controller API. Runs entirely client-side, API token stored in browser localStorage. CORS must include dashboard origin
 
 ## Cross-Version Compatibility
 

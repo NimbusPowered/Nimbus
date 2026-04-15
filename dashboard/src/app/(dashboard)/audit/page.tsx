@@ -12,11 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api";
 import { Search, ScrollText } from "@/lib/icons";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 
 interface AuditEntry {
   timestamp: string;
@@ -37,34 +35,31 @@ function formatTimestamp(ts: string): string {
 }
 
 export default function AuditPage() {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [actionFilter, setActionFilter] = useState("");
   const [actorFilter, setActorFilter] = useState("");
-
-  async function load() {
-    try {
-      const params = new URLSearchParams({ limit: "100" });
-      if (actionFilter) params.set("action", actionFilter);
-      if (actorFilter) params.set("actor", actorFilter);
-      const data = await apiFetch<AuditResponse>(`/api/audit?${params}`);
-      setEntries(data.entries);
-    } catch {
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [debouncedAction, setDebouncedAction] = useState("");
+  const [debouncedActor, setDebouncedActor] = useState("");
 
   useEffect(() => {
-    load();
-  }, []);
-
-  useEffect(() => {
-    const timeout = setTimeout(load, 300);
-    return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => {
+      setDebouncedAction(actionFilter);
+      setDebouncedActor(actorFilter);
+    }, 300);
+    return () => clearTimeout(t);
   }, [actionFilter, actorFilter]);
+
+  const params = new URLSearchParams({ limit: "100" });
+  if (debouncedAction) params.set("action", debouncedAction);
+  if (debouncedActor) params.set("actor", debouncedActor);
+
+  const { data, loading, error, refetch, isEmpty } =
+    useApiResource<AuditResponse>(`/api/audit?${params.toString()}`, {
+      poll: POLL.slow,
+      silent: true,
+      isEmpty: (d) => d.entries.length === 0,
+    });
+
+  const entries = data?.entries ?? [];
 
   const filters = (
     <>
@@ -89,60 +84,66 @@ export default function AuditPage() {
     </>
   );
 
-  return (
-    <>
-      <PageHeader
-        title="Audit Log"
-        description={`${entries.length} most recent entries · every state change is recorded.`}
-        actions={filters}
-      />
+  const status = loading
+    ? "loading"
+    : error
+      ? "error"
+      : isEmpty
+        ? "empty"
+        : "ready";
 
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : entries.length === 0 ? (
-        <EmptyState
-          icon={ScrollText}
-          title="No audit entries"
-          description="Nothing matches your current filters, or nothing has happened yet."
-        />
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6">Time</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Details</TableHead>
+  return (
+    <PageShell
+      title="Audit Log"
+      description={`${entries.length} most recent entries · every state change is recorded.`}
+      actions={filters}
+      status={status}
+      skeleton="table"
+      error={error}
+      onRetry={refetch}
+      emptyState={{
+        icon: ScrollText,
+        title: "No audit entries",
+        description:
+          "Nothing matches your current filters, or nothing has happened yet.",
+      }}
+    >
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">Time</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead>Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((e, i) => (
+                <TableRow key={i}>
+                  <TableCell className="pl-6 text-xs text-muted-foreground whitespace-nowrap">
+                    {formatTimestamp(e.timestamp)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs">
+                      {e.actor}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {e.action}
+                  </TableCell>
+                  <TableCell className="text-sm">{e.target}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
+                    {e.details || "—"}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((e, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="pl-6 text-xs text-muted-foreground whitespace-nowrap">
-                      {formatTimestamp(e.timestamp)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {e.actor}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {e.action}
-                    </TableCell>
-                    <TableCell className="text-sm">{e.target}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
-                      {e.details || "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-    </>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </PageShell>
   );
 }

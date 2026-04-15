@@ -4,14 +4,16 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { dotColors } from "@/lib/status";
 import { toast } from "sonner";
 import { Save, RefreshCw } from "@/lib/icons";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
-import { PageHeader } from "@/components/page-header";
+import { PageShell } from "@/components/page-shell";
+import { dashboardVersion, channel, channelLabel } from "@/lib/version";
+import { cn } from "@/lib/utils";
+import { MaintenanceWhitelistCard } from "@/components/maintenance-whitelist-card";
 
 interface ConfigResponse {
   networkName: string;
@@ -26,9 +28,15 @@ interface ModuleInfo {
   loaded: boolean;
 }
 
+interface ControllerInfo {
+  version?: string;
+  networkName?: string;
+}
+
 export default function SettingsPage() {
   const [, setConfig] = useState<ConfigResponse | null>(null);
   const [modules, setModules] = useState<ModuleInfo[]>([]);
+  const [controllerInfo, setControllerInfo] = useState<ControllerInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -42,7 +50,8 @@ export default function SettingsPage() {
       apiFetch<{ modules: ModuleInfo[] }>("/api/modules")
         .then((d) => d.modules)
         .catch(() => []),
-    ]).then(([c, m]) => {
+      apiFetch<ControllerInfo>("/api/controller/info").catch(() => null),
+    ]).then(([c, m, info]) => {
       if (c) {
         setConfig(c);
         setNetworkName(c.networkName);
@@ -50,6 +59,7 @@ export default function SettingsPage() {
         setConsoleLogEvents(c.consoleLogEvents);
       }
       setModules(m);
+      setControllerInfo(info);
       setLoading(false);
     });
   }, []);
@@ -83,27 +93,24 @@ export default function SettingsPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="Settings"
-        description="Network identity, console preferences and loaded modules."
-        actions={
-          <>
-            <Button variant="outline" onClick={reloadGroups}>
-              <RefreshCw className="mr-1 size-4" /> Reload groups
-            </Button>
-            <Button onClick={saveConfig} disabled={saving || loading}>
-              <Save className="mr-1 size-4" />
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </>
-        }
-      />
-
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+    <PageShell
+      title="Settings"
+      description="Network identity, console preferences and loaded modules."
+      status={loading ? "loading" : "ready"}
+      skeleton="form"
+      actions={
+        <>
+          <Button variant="outline" onClick={reloadGroups}>
+            <RefreshCw className="mr-1 size-4" /> Reload groups
+          </Button>
+          <Button onClick={saveConfig} disabled={saving || loading}>
+            <Save className="mr-1 size-4" />
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Network</CardTitle>
@@ -144,6 +151,45 @@ export default function SettingsPage() {
 
           <Card className="md:col-span-2">
             <CardHeader>
+              <CardTitle>Version</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Dashboard</div>
+                    <div className="font-mono text-sm">{dashboardVersion}</div>
+                  </div>
+                  {channelLabel && (
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide",
+                        channel === "beta" &&
+                          "bg-sky-500/15 text-sky-600 dark:bg-sky-400/15 dark:text-sky-300",
+                        channel === "alpha" &&
+                          "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+                      )}
+                    >
+                      {channelLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Controller</div>
+                    <div className="font-mono text-sm">
+                      {controllerInfo?.version ?? "unknown"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <MaintenanceWhitelistCard />
+
+          <Card className="md:col-span-2">
+            <CardHeader>
               <CardTitle>Modules</CardTitle>
             </CardHeader>
             <CardContent>
@@ -174,9 +220,8 @@ export default function SettingsPage() {
                 </div>
               )}
             </CardContent>
-          </Card>
-        </div>
-      )}
-    </>
+        </Card>
+      </div>
+    </PageShell>
   );
 }

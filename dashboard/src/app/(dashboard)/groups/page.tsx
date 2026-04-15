@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
+import { useApiResource } from "@/hooks/use-api-resource";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,11 +34,18 @@ import {
   SelectGroup,
   SelectLabel,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, Package, FolderTreeIcon, Upload } from "@/lib/icons";
+import { Plus, Loader2, Package, FolderTreeIcon, Upload, MoreHorizontal, Pencil, Trash2 } from "@/lib/icons";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { GroupEditDialog } from "@/components/group-edit-dialog";
+import { GroupDeleteDialog } from "@/components/group-delete-dialog";
 
 interface ModpackInfo {
   name: string;
@@ -89,8 +96,13 @@ interface VersionListResponse {
 }
 
 export default function GroupsPage() {
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: groupsResp,
+    loading,
+    error,
+    refetch: load,
+  } = useApiResource<GroupListResponse>("/api/groups");
+  const groups = groupsResp?.groups ?? [];
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
@@ -110,21 +122,6 @@ export default function GroupsPage() {
   const [creating, setCreating] = useState(false);
 
   const selectedSoftware = softwareList.find((s) => s.name === newSoftware);
-
-  async function load() {
-    try {
-      const data = await apiFetch<GroupListResponse>("/api/groups");
-      setGroups(data.groups);
-    } catch {
-      // handled
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   // Fetch software list when dialog opens
   useEffect(() => {
@@ -213,6 +210,8 @@ export default function GroupsPage() {
   const [resolving, setResolving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState("");
+  // -1 = indeterminate (e.g. server-side download phase); 0..100 = upload %.
+  const [importPercent, setImportPercent] = useState<number>(-1);
 
   function resetImportState() {
     setImportSource("");
@@ -224,6 +223,7 @@ export default function GroupsPage() {
     setImportMaxInstances(1);
     setImportInfo(null);
     setImportProgress("");
+    setImportPercent(-1);
     setImportMode("source");
   }
 
@@ -264,9 +264,11 @@ export default function GroupsPage() {
     if (!importGroupName.trim()) return;
     setImporting(true);
     setImportProgress("Importing...");
+    setImportPercent(-1);
     try {
       if (importMode === "upload" && importFile) {
-        setImportProgress(`Uploading ${importFile.name}...`);
+        setImportProgress(`Uploading ${importFile.name}…`);
+        setImportPercent(0);
         const params = new URLSearchParams({
           groupName: importGroupName.trim(),
           type: importType,
@@ -280,7 +282,15 @@ export default function GroupsPage() {
           importFile,
           (uploaded, total) => {
             const pct = Math.round((uploaded / total) * 100);
-            setImportProgress(`Uploading ${importFile.name}... ${pct}%`);
+            setImportPercent(pct);
+            setImportProgress(
+              pct < 100
+                ? `Uploading ${importFile.name}… ${pct}%`
+                : `Installing on controller…`
+            );
+            // After upload finishes, server-side install begins (no progress
+            // signal yet) — drop back to indeterminate so the bar animates.
+            if (pct >= 100) setImportPercent(-1);
           }
         );
         if (result.filesFailed > 0) {
@@ -316,6 +326,7 @@ export default function GroupsPage() {
     } finally {
       setImporting(false);
       setImportProgress("");
+      setImportPercent(-1);
     }
   }
 
@@ -324,23 +335,8 @@ export default function GroupsPage() {
     (importMode === "upload" && importFile)
   );
 
+  const [editTarget, setEditTarget] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await apiFetch(`/api/groups/${deleteTarget}`, { method: "DELETE" });
-      toast.success(`Group '${deleteTarget}' deleted`);
-      setDeleteTarget(null);
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to delete group");
-    } finally {
-      setDeleting(false);
-    }
-  }
 
   const headerActions = (
     <>
@@ -529,15 +525,32 @@ export default function GroupsPage() {
                   </Field>
                 </div>
               </div>
-              <DialogFooter>
-                {importProgress && (
-                  <div className="flex items-center gap-2 mr-auto text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    {importProgress}
+              {importProgress && (
+                <div className="space-y-1.5 px-1">
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      {importProgress}
+                    </span>
+                    {importPercent >= 0 && (
+                      <span className="font-mono">{importPercent}%</span>
+                    )}
                   </div>
-                )}
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    {importPercent >= 0 ? (
+                      <div
+                        className="h-full bg-primary transition-[width] duration-150 ease-out"
+                        style={{ width: `${importPercent}%` }}
+                      />
+                    ) : (
+                      <div className="h-full w-1/3 animate-pulse bg-primary/60" />
+                    )}
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
                 <Button onClick={importModpack} disabled={importing || !canImport}>
-                  {importing ? "Importing..." : importMode === "upload" ? "Upload & Import" : "Import"}
+                  {importing ? "Importing…" : importMode === "upload" ? "Upload & Import" : "Import"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -724,24 +737,32 @@ export default function GroupsPage() {
   );
 
   return (
-    <>
-      <PageHeader
-        title="Groups"
-        description={`${groups.length} group${
-          groups.length === 1 ? "" : "s"
-        } configured · dynamic and static servers.`}
-        actions={headerActions}
-      />
-
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : groups.length === 0 ? (
-        <EmptyState
-          icon={FolderTreeIcon}
-          title="No groups configured"
-          description="Create a group to start running lobbies or game servers."
-        />
-      ) : (
+    <PageShell
+      title="Groups"
+      description={`${groups.length} group${
+        groups.length === 1 ? "" : "s"
+      } configured · dynamic and static servers.`}
+      actions={headerActions}
+      status={
+        loading
+          ? "loading"
+          : error
+          ? "error"
+          : groups.length === 0
+          ? "empty"
+          : "ready"
+      }
+      error={error}
+      onRetry={load}
+      skeleton="table"
+      emptyState={{
+        icon: FolderTreeIcon,
+        title: "No groups configured",
+        description:
+          "Create a group to start running lobbies or game servers.",
+      }}
+    >
+      <>
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -782,14 +803,27 @@ export default function GroupsPage() {
                     {g.resources.maxPlayers}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive"
-                      onClick={() => setDeleteTarget(g.name)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="ghost" size="icon" className="size-8">
+                            <MoreHorizontal className="size-4" />
+                            <span className="sr-only">Actions</span>
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditTarget(g.name)}>
+                          <Pencil className="size-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeleteTarget(g.name)}
+                        >
+                          <Trash2 className="size-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
@@ -797,26 +831,20 @@ export default function GroupsPage() {
           </Table>
           </CardContent>
         </Card>
-      )}
 
-    <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete Group</DialogTitle>
-          <DialogDescription>
-            Are you sure you want to delete &apos;{deleteTarget}&apos;? All running services must be stopped first. This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    </>
+        <GroupEditDialog
+          groupName={editTarget}
+          open={!!editTarget}
+          onOpenChange={(open) => !open && setEditTarget(null)}
+          onSaved={load}
+        />
+        <GroupDeleteDialog
+          groupName={deleteTarget}
+          open={!!deleteTarget}
+          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          onDeleted={load}
+        />
+      </>
+    </PageShell>
   );
 }

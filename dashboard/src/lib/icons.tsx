@@ -35,9 +35,13 @@ import {
   Ellipsis,
   EllipsisVertical,
   ExternalLink,
+  File,
+  Folder,
+  FolderPlus,
   FolderTree,
   Gauge,
   Gavel,
+  ImageIcon,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
@@ -69,6 +73,7 @@ import {
   Users,
   X,
   Zap,
+  ZoomIn,
   type LucideIcon,
 } from "lucide-react";
 
@@ -95,11 +100,15 @@ export {
   Clock,
   Cpu,
   Download,
+  File,
+  Folder,
+  FolderPlus,
   FolderTree,
   HardDrive,
   History,
   Gauge,
   Gavel,
+  ImageIcon,
   MemoryStick,
   Network,
   Package,
@@ -108,6 +117,7 @@ export {
   Play,
   Plug,
   Plus,
+  Radio,
   RefreshCw,
   RotateCw,
   Save,
@@ -124,6 +134,7 @@ export {
   UserCheck,
   Users,
   X,
+  ZoomIn,
 };
 
 // Aliases for names used at call sites.

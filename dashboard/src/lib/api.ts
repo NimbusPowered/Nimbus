@@ -1,5 +1,39 @@
+import { toast } from "sonner";
+
 const API_URL_KEY = "nimbus_api_url";
 const TOKEN_KEY = "nimbus_api_token";
+
+/**
+ * Extra options accepted by `apiFetch` on top of the standard `RequestInit`.
+ *
+ * `silent` suppresses the global error toast — use for polling requests and
+ * anywhere the caller shows its own error UI (e.g. inside a form, or the
+ * `ErrorState` rendered by `PageShell`).
+ */
+export interface ApiFetchOptions extends RequestInit {
+  silent?: boolean;
+}
+
+function toastApiError(status: number, message: string) {
+  // 401 is already handled via redirect; don't also toast.
+  if (status === 401) return;
+  if (status === 403) {
+    toast.error("Forbidden", { description: message });
+    return;
+  }
+  if (status >= 500) {
+    toast.error("Server error", {
+      description: message || `The controller returned ${status}.`,
+    });
+    return;
+  }
+  if (status >= 400) {
+    toast.error("Request failed", { description: message });
+    return;
+  }
+  // Network / CORS failure — no status.
+  toast.error("Network error", { description: message });
+}
 
 export function getApiUrl(): string {
   if (typeof window === "undefined") return "";
@@ -81,11 +115,22 @@ function buildRequest(
 
 export async function apiFetch<T = unknown>(
   path: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { url, init } = buildRequest(path, options);
+  const { silent, ...requestOptions } = options;
+  const { url, init } = buildRequest(path, requestOptions);
 
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (e) {
+    // Aborts are expected (unmount, refetch); let them propagate without toasts.
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (err.name !== "AbortError" && !silent) {
+      toastApiError(0, err.message || "Failed to reach controller");
+    }
+    throw err;
+  }
 
   if (res.status === 401) {
     clearCredentials();
@@ -95,7 +140,9 @@ export async function apiFetch<T = unknown>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `API error: ${res.status}`);
+    const message = body.error || body.message || `API error: ${res.status}`;
+    if (!silent) toastApiError(res.status, message);
+    throw new Error(message);
   }
 
   if (res.status === 204) return undefined as T;

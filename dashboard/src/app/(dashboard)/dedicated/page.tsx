@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +34,6 @@ import {
   SelectLabel,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,8 +55,10 @@ import {
   Upload,
   Loader2,
   Pencil,
+  TerminalIcon,
 } from "@/lib/icons";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
+import { ServiceConsoleSheet } from "@/components/service-console-sheet";
 
 interface DedicatedService {
   name: string;
@@ -124,8 +125,15 @@ function stateBadgeVariant(state: string | null): "default" | "secondary" | "des
 }
 
 export default function DedicatedPage() {
-  const [services, setServices] = useState<DedicatedService[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: dedResp,
+    loading,
+    error,
+    refetch: load,
+  } = useApiResource<DedicatedListResponse>("/api/dedicated", {
+    poll: POLL.normal,
+  });
+  const services = dedResp?.services ?? [];
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
@@ -147,6 +155,7 @@ export default function DedicatedPage() {
   const selectedSoftware = softwareList.find((s) => s.name === newSoftware);
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [consoleService, setConsoleService] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [actioning, setActioning] = useState<string | null>(null);
 
@@ -202,23 +211,6 @@ export default function DedicatedPage() {
       setSaving(false);
     }
   }
-
-  async function load() {
-    try {
-      const data = await apiFetch<DedicatedListResponse>("/api/dedicated");
-      setServices(data.services);
-    } catch {
-      // handled
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Fetch software list when dialog opens
   useEffect(() => {
@@ -865,22 +857,30 @@ export default function DedicatedPage() {
   );
 
   return (
-    <>
-      <PageHeader
-        title="Dedicated"
-        description="Standalone servers with fixed ports and user-managed directories."
-        actions={headerActions}
-      />
-
-      {loading ? (
-        <Skeleton className="h-96 rounded-xl" />
-      ) : services.length === 0 ? (
-        <EmptyState
-          icon={BoxIcon}
-          title="No dedicated services configured"
-          description="Create one to manage a standalone server with a fixed port."
-        />
-      ) : (
+    <PageShell
+      title="Dedicated"
+      description="Standalone servers with fixed ports and user-managed directories."
+      actions={headerActions}
+      status={
+        loading
+          ? "loading"
+          : error
+          ? "error"
+          : services.length === 0
+          ? "empty"
+          : "ready"
+      }
+      error={error}
+      onRetry={load}
+      skeleton="table"
+      emptyState={{
+        icon: BoxIcon,
+        title: "No dedicated services configured",
+        description:
+          "Create one to manage a standalone server with a fixed port.",
+      }}
+    >
+      <>
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -938,6 +938,11 @@ export default function DedicatedPage() {
                             }
                           />
                           <DropdownMenuContent align="end">
+                            {isRunning && (
+                              <DropdownMenuItem onClick={() => setConsoleService(s.name)}>
+                                <TerminalIcon className="mr-2 size-4" /> Open Console
+                              </DropdownMenuItem>
+                            )}
                             {!isRunning && (
                               <DropdownMenuItem onClick={() => doAction(s.name, "start")}>
                                 <Play className="mr-2 size-4" /> Start
@@ -973,7 +978,6 @@ export default function DedicatedPage() {
             </Table>
           </CardContent>
         </Card>
-      )}
 
       {/* Edit Dialog */}
       <Dialog
@@ -1085,6 +1089,14 @@ export default function DedicatedPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+      <ServiceConsoleSheet
+        serviceName={consoleService}
+        open={consoleService !== null}
+        onOpenChange={(o) => {
+          if (!o) setConsoleService(null);
+        }}
+      />
+      </>
+    </PageShell>
   );
 }

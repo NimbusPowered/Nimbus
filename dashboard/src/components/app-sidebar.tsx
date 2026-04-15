@@ -18,6 +18,7 @@ import {
   LayoutDashboardIcon,
   ServerIcon,
   FolderTreeIcon,
+  File,
   NetworkIcon,
   TerminalIcon,
   PlugIcon,
@@ -36,6 +37,8 @@ import {
 } from "@/lib/icons"
 import Link from "next/link"
 import { useModules } from "@/lib/modules"
+import { channel, channelLabel } from "@/lib/version"
+import { cn } from "@/lib/utils"
 
 const navOverview = [
   { title: "Dashboard", url: "/", icon: <LayoutDashboardIcon /> },
@@ -45,6 +48,7 @@ const navInfrastructure = [
   { title: "Services", url: "/services", icon: <ServerIcon /> },
   { title: "Groups", url: "/groups", icon: <FolderTreeIcon /> },
   { title: "Dedicated", url: "/dedicated", icon: <BoxIcon /> },
+  { title: "Files", url: "/files", icon: <File /> },
   { title: "Nodes", url: "/nodes", icon: <NetworkIcon /> },
 ]
 
@@ -102,6 +106,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             >
               <Image src="/icon.png" alt="Nimbus" width={20} height={20} />
               <span className="text-base font-semibold">Nimbus</span>
+              {channelLabel && (
+                <span
+                  className={cn(
+                    "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tracking-wide",
+                    channel === "beta" &&
+                      "bg-sky-500/15 text-sky-600 dark:bg-sky-400/15 dark:text-sky-300",
+                    channel === "alpha" &&
+                      "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+                  )}
+                >
+                  {channelLabel}
+                </span>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -76,6 +76,17 @@
   --radius-2xl: var(--radius);
   --radius-3xl: var(--radius);
   --radius-4xl: var(--radius);
+
+  /*
+   * Semantic severity tokens — one source of truth for "ok / warn / err /
+   * info" coloring across the dashboard (doctor, health cards, toasts,
+   * error states, etc.). Use the generated Tailwind utilities:
+   *   text-severity-ok, bg-severity-warn/10, border-severity-err/40, …
+   */
+  --color-severity-ok: var(--severity-ok);
+  --color-severity-warn: var(--severity-warn);
+  --color-severity-err: var(--severity-err);
+  --color-severity-info: var(--severity-info);
 }
 
 /*
@@ -118,6 +129,12 @@
   --sidebar-ring: #58A6FF;
   --background: oklch(0.985 0.003 252);
   --foreground: oklch(0.145 0 0);
+
+  /* Severity palette — emerald / amber / red / sky in Tailwind parlance. */
+  --severity-ok: oklch(0.65 0.17 151);
+  --severity-warn: oklch(0.76 0.16 78);
+  --severity-err: oklch(0.60 0.22 27);
+  --severity-info: oklch(0.68 0.14 232);
 }
 
 .dark {
@@ -152,6 +169,12 @@
   --sidebar-accent-foreground: oklch(0.94 0.003 252);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: #58A6FF;
+
+  /* Severity palette (dark) — slightly lighter / more saturated. */
+  --severity-ok: oklch(0.74 0.17 151);
+  --severity-warn: oklch(0.82 0.16 78);
+  --severity-err: oklch(0.70 0.19 22);
+  --severity-info: oklch(0.75 0.14 232);
 }
 
 @layer base {

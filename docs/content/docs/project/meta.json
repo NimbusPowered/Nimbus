@@ -4,6 +4,7 @@
   "description": "Roadmap, changelog & project status",
   "pages": [
     "roadmap",
-    "changelog"
+    "changelog",
+    "dashboard-changelog"
   ]
 }

@@ -33,8 +33,8 @@ import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { Search, Download, PackageSearch } from "@/lib/icons";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/page-shell";
 
 interface PluginResult {
   source: string;
@@ -82,8 +82,8 @@ export default function PluginsPage() {
       ]);
       setResults(data.results);
       setGroups(grp.groups);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Search failed");
+    } catch {
+      // apiFetch already toasts on 4xx/5xx.
     } finally {
       setSearching(false);
     }
@@ -107,20 +107,18 @@ export default function PluginsPage() {
       );
       setInstallPlugin(null);
       setInstallGroup("");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Install failed");
+    } catch {
+      // apiFetch already toasts on 4xx/5xx.
     } finally {
       setInstalling(false);
     }
   }
 
   return (
-    <>
-      <PageHeader
-        title="Plugins"
-        description="Search Hangar + Modrinth and install plugins into any group."
-      />
-
+    <PageShell
+      title="Plugins"
+      description="Search Hangar + Modrinth and install plugins into any group."
+    >
       <Card>
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center gap-2">
@@ -244,6 +242,6 @@ export default function PluginsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </PageShell>
   );
 }
