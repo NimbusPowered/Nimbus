@@ -60,7 +60,14 @@ data class RetentionConfig(
     @SerialName("dailyKeep") val dailyKeep: Int = 7,
     @SerialName("weeklyKeep") val weeklyKeep: Int = 4,
     @SerialName("monthlyKeep") val monthlyKeep: Int = 3,
-    @SerialName("keepManual") val keepManual: Boolean = true
+    @SerialName("keepManual") val keepManual: Boolean = true,
+    /**
+     * Age (in days) after which FAILED backup rows are deleted. FAILED rows
+     * don't count against the per-class keep budget, so without a time-based
+     * sweep a target that fails every hour would accumulate ~720 rows/month
+     * indefinitely. 0 = disabled (keep forever).
+     */
+    @SerialName("failedKeepDays") val failedKeepDays: Int = 7
 )
 
 // ── Config Manager ──────────────────────────────────────
@@ -136,6 +143,7 @@ class BackupConfigManager(private val configDir: Path) {
         require(cfg.retention.dailyKeep >= 0) { "dailyKeep must be >= 0" }
         require(cfg.retention.weeklyKeep >= 0) { "weeklyKeep must be >= 0" }
         require(cfg.retention.monthlyKeep >= 0) { "monthlyKeep must be >= 0" }
+        require(cfg.retention.failedKeepDays >= 0) { "failedKeepDays must be >= 0" }
         val names = mutableSetOf<String>()
         for (s in cfg.schedules) {
             require(s.name.isNotBlank()) { "Schedule name must not be blank" }
@@ -214,6 +222,10 @@ class BackupConfigManager(private val configDir: Path) {
         sb.appendLine("weekly_keep = ${c.retention.weeklyKeep}")
         sb.appendLine("monthly_keep = ${c.retention.monthlyKeep}")
         sb.appendLine("keep_manual = ${c.retention.keepManual}")
+        sb.appendLine("# Age in days after which FAILED backup rows are deleted.")
+        sb.appendLine("# 0 = keep forever (not recommended — a chronically failing target")
+        sb.appendLine("# accumulates rows indefinitely).")
+        sb.appendLine("failed_keep_days = ${c.retention.failedKeepDays}")
         return sb.toString()
     }
 
@@ -255,7 +267,8 @@ class BackupConfigManager(private val configDir: Path) {
             dailyKeep = extractInt(retentionBlock, "daily_keep") ?: 7,
             weeklyKeep = extractInt(retentionBlock, "weekly_keep") ?: 4,
             monthlyKeep = extractInt(retentionBlock, "monthly_keep") ?: 3,
-            keepManual = extractBool(retentionBlock, "keep_manual") ?: true
+            keepManual = extractBool(retentionBlock, "keep_manual") ?: true,
+            failedKeepDays = extractInt(retentionBlock, "failed_keep_days") ?: 7
         ) else RetentionConfig()
 
         val schedules = parseSchedules(content)
@@ -363,6 +376,8 @@ class BackupConfigManager(private val configDir: Path) {
             |weekly_keep = 4
             |monthly_keep = 3
             |keep_manual = true
+            |# Age in days after which FAILED rows are deleted. 0 = keep forever.
+            |failed_keep_days = 7
             |
         """.trimMargin()
     }

@@ -58,8 +58,31 @@ class BackupManager(
 
     private val config get() = configManager.getConfig()
     val localDestination: Path get() = resolvePath(config.localDestination)
-    private val semaphore by lazy { Semaphore(maxOf(1, config.maxConcurrent)) }
     private val activeCount = AtomicInteger(0)
+
+    // The concurrency limit is editable at runtime via PUT /api/backups/config.
+    // A plain `lazy` Semaphore would snapshot the initial value forever and
+    // ignore hot-reloads. We track the permit count we built the semaphore
+    // with and rebuild on demand if config.maxConcurrent changed. In-flight
+    // jobs against the old semaphore still release into it — harmless; new
+    // jobs acquire against the new one. Worst case during a change: briefly
+    // up to `old + new` jobs run together. Acceptable.
+    @Volatile private var semaphoreInstance: Semaphore = Semaphore(maxOf(1, config.maxConcurrent))
+    @Volatile private var semaphoreLimit: Int = maxOf(1, config.maxConcurrent)
+    private val semaphoreLock = Any()
+
+    private fun currentSemaphore(): Semaphore {
+        val want = maxOf(1, config.maxConcurrent)
+        if (want != semaphoreLimit) {
+            synchronized(semaphoreLock) {
+                if (want != semaphoreLimit) {
+                    semaphoreInstance = Semaphore(want)
+                    semaphoreLimit = want
+                }
+            }
+        }
+        return semaphoreInstance
+    }
 
     fun activeJobs(): Int = activeCount.get()
 
@@ -100,7 +123,7 @@ class BackupManager(
         scheduleClass: RetentionClass,
         scheduleName: String,
         triggeredBy: String
-    ): BackupRecord? = semaphore.withPermit {
+    ): BackupRecord? = currentSemaphore().withPermit {
         activeCount.incrementAndGet()
         try {
             val startedAt = Instant.now().toString()
@@ -320,7 +343,18 @@ class BackupManager(
         val record = fetchRecord(id) ?: error("Backup #$id not found")
         val archive = localDestination.resolve(record.archivePath)
         if (!archive.exists()) return BackupArchiver.VerifyResult(false, listOf("Archive missing on disk: $archive"))
-        return archiver.verify(archive)
+        // Truncated / malformed archives throw from inside zstd-jni or commons-
+        // compress. Catch those here so the REST + console path always returns a
+        // clean VerifyResult(valid=false) instead of a 500 / stack trace. Keep
+        // CancellationException unhandled so structured concurrency still works.
+        return try {
+            archiver.verify(archive)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn("Archive verification failed for backup #{}: {}", id, e.message)
+            BackupArchiver.VerifyResult(false, listOf("Archive unreadable: ${e.message ?: e::class.simpleName}"))
+        }
     }
 
     suspend fun delete(id: Long): Boolean {

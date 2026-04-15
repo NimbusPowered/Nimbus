@@ -69,7 +69,9 @@ class BackupModule : NimbusModule {
             baseDir = context.baseDir
         )
 
-        retention = BackupRetention(dbm.database, manager.localDestination, configManager.getConfig().retention)
+        retention = BackupRetention(dbm.database, manager.localDestination) {
+            configManager.getConfig().retention
+        }
         scheduler = BackupScheduler(manager, configManager, retention, dbm.database, context.scope)
 
         // Late-bound ServiceManager (registered after module init) for quiesce commands

@@ -4,12 +4,16 @@ import kotlinx.coroutines.Dispatchers
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * GFS retention: per `(targetType, targetName, scheduleClass)` group, keep the
@@ -19,8 +23,12 @@ import java.nio.file.Path
 class BackupRetention(
     private val database: Database,
     private val localDestination: Path,
-    private val retention: RetentionConfig
+    // Read live from config so runtime changes (PUT /api/backups/config) take
+    // effect on the next prune — otherwise the retention budgets would stay
+    // frozen at module-init values until restart.
+    private val retentionProvider: () -> RetentionConfig
 ) {
+    private val retention get() = retentionProvider()
 
     private val logger = LoggerFactory.getLogger(BackupRetention::class.java)
 
@@ -101,7 +109,32 @@ class BackupRetention(
             freed += p.size
         }
 
-        if (pending.isNotEmpty()) {
+        // FAILED rows are intentionally excluded from the per-class keep budget
+        // (a transient failure shouldn't cost you a retained snapshot), but
+        // without a separate sweep they'd pile up forever. A single target
+        // failing every hour produces ~720 rows/month. Age-based prune on
+        // startedAt covers that without touching the class budgets.
+        if (retention.failedKeepDays > 0 && onlyClass == null) {
+            val cutoff = Instant.now().minus(retention.failedKeepDays.toLong(), ChronoUnit.DAYS).toString()
+            val failedDeleted = newSuspendedTransaction(Dispatchers.IO, database) {
+                if (dryRun) {
+                    Backups.selectAll().where {
+                        (Backups.status eq "FAILED") and (Backups.startedAt less cutoff)
+                    }.count().toInt()
+                } else {
+                    Backups.deleteWhere {
+                        (Backups.status eq "FAILED") and (Backups.startedAt less cutoff)
+                    }
+                }
+            }
+            deleted += failedDeleted
+            if (failedDeleted > 0) {
+                logger.info("Retention prune: removed {} FAILED row(s) older than {} days{}",
+                    failedDeleted, retention.failedKeepDays, if (dryRun) " [DRY-RUN]" else "")
+            }
+        }
+
+        if (pending.isNotEmpty() || deleted > 0) {
             logger.info("Retention prune: {} backup(s){} freed, {} byte(s) freed",
                 deleted, if (dryRun) " [DRY-RUN]" else "", freed)
         }

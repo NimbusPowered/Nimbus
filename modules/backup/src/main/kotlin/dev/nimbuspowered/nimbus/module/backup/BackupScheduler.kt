@@ -118,7 +118,13 @@ class BackupScheduler(
                 scheduleName = schedule.name,
                 triggeredBy = "scheduler"
             )
-            updateScheduleLog(schedule.name, if (records.any { it.status == "FAILED" }) "FAILED" else "SUCCESS")
+            val aggregate = when {
+                records.any { it.status == "FAILED" }  -> "FAILED"
+                records.any { it.status == "PARTIAL" } -> "PARTIAL"
+                records.isEmpty()                      -> "SUCCESS"  // no-op run
+                else                                   -> "SUCCESS"
+            }
+            updateScheduleLog(schedule.name, aggregate)
         } catch (e: Exception) {
             logger.error("Scheduled backup '{}' failed", schedule.name, e)
             updateScheduleLog(schedule.name, "FAILED")
