@@ -1,0 +1,246 @@
+---
+title: Backup Guide
+description: Scheduled tar+zstd snapshots of services, templates, controller config, the state-sync store, and the database — with GFS retention, integrity verification, and one-command restore.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Backup module (shipped with Nimbus 0.9.1+) snapshots all stateful Nimbus data to local `.tar.zst` archives on a cron schedule, prunes them with a grandfather-father-son retention policy, and lets you restore from the dashboard, console, or REST API.
+
+## What it backs up
+
+Six scope types, toggleable in config:
+
+| Scope | What it captures |
+|---|---|
+| `services` | Each running group service's working directory |
+| `dedicated` | Each dedicated service directory |
+| `templates` | Your template library (`templates/`) |
+| `controller_config` | The controller's `config/` directory |
+| `state_sync` | Canonical state-sync store (`services/state/`) |
+| `database` | The Nimbus database (SQLite via `VACUUM INTO`, MySQL via `mysqldump`, Postgres via `pg_dump`) |
+
+A single `backup now` run produces **one archive per target** — e.g. a backup with all six scopes and three running services produces nine archives, each independently verifiable and restorable.
+
+## Install
+
+Like any other module, enable during first-run SetupWizard or install it live:
+
+```text title="Nimbus console"
+modules install backup
+shutdown
+shutdown confirm
+```
+
+After restart:
+
+```text title="Nimbus console"
+backup now --target templates
+backup list
+backup schedule list
+```
+
+<Callout type="info">
+  Archives live under `data/backups/` by default. One `config/modules/backup/backup.toml` is generated on first load with sensible defaults (hourly / daily / weekly schedules, GFS retention budgets, common excludes for `logs/`, `cache/`, `*.lock`).
+</Callout>
+
+## The 3–5× archiver
+
+Nimbus ships its own archiver rather than shelling out to `tar --zstd`. The pipeline is in-JVM, streaming end-to-end, and multi-threaded:
+
+```
+File walk (NIO)
+  → glob-filter excludes (PathMatcher)
+  → TarArchiveOutputStream (Apache Commons Compress)
+  → ZstdOutputStream (zstd-jni) — setWorkers(N), setCloseFrameOnFlush(false)
+  → BufferedOutputStream (256 KiB)
+  → atomic .tmp → final rename
+```
+
+Why this beats a subprocess by 3–5× in practice:
+
+- **Native multi-threaded compression.** `zstd-jni` honours libzstd's parallel compressor when `compression_workers > 0`. Coreutils tar pipes into the single-threaded `zstd` binary.
+- **No fork/exec per run**, no stdout pipe stage, no platform-tar exclude-flag quirks.
+- **Single-pass SHA-256.** Each file's hash is computed while the bytes stream through the archiver; a subprocess pipeline would need a second filesystem read.
+- **256 KiB upstream buffer** keeps the compressor saturated on Minecraft worlds with thousands of tiny region files.
+
+The archive carries a trailing `MANIFEST.sha256` entry with one line per file. `backup verify <id>` re-reads the archive and recomputes every hash against it — the same single-pass design.
+
+## Configuration
+
+File: `config/modules/backup/backup.toml`. You rarely need to touch this by hand — the dashboard's **Settings** tab writes this file atomically on save and hot-reloads the scheduler. All fields and their defaults:
+
+```toml title="config/modules/backup/backup.toml"
+[backup]
+enabled = true
+local_destination = "data/backups"
+max_concurrent = 2                # per-run semaphore
+compression_level = 3             # zstd 1 (fastest) .. 22 (smallest)
+compression_workers = 0           # 0 = auto (Runtime.availableProcessors() / 2)
+quiesce_services = true           # save-off/save-all before archiving
+quiesce_wait_seconds = 2
+
+[backup.scope]
+services = true
+dedicated = true
+templates = true
+controller_config = true
+state_sync = true
+database = true
+
+[backup.excludes]
+patterns = [
+  "logs/**", "crash-reports/**", "*.log", "*.log.gz",
+  "cache/**", "tmp/**", "*.lock", "session.lock",
+  "*/region/*.mca.tmp", "config/bStats/**", "plugins/bStats/**",
+]
+
+[[backup.schedules]]
+name = "hourly"
+cron = "0 * * * *"
+retention_class = "hourly"
+targets = ["services", "dedicated", "database"]
+
+[[backup.schedules]]
+name = "daily"
+cron = "0 3 * * *"
+retention_class = "daily"
+targets = ["all"]
+
+[[backup.schedules]]
+name = "weekly"
+cron = "0 4 * * 0"
+retention_class = "weekly"
+targets = ["all"]
+
+[backup.retention]
+hourly_keep = 24
+daily_keep = 7
+weekly_keep = 4
+monthly_keep = 3
+keep_manual = true       # backups triggered via `backup now` or API are never auto-pruned
+```
+
+### Cron syntax
+
+5-field POSIX cron: `minute hour day-of-month month day-of-week`. Day-of-week `0` or `7` = Sunday. Supported: `*`, `N`, `N-M`, `N,M,O`, `*/5`, `0-30/5`.
+
+| Example | Meaning |
+|---|---|
+| `0 * * * *` | Every hour at :00 |
+| `*/15 * * * *` | Every 15 minutes |
+| `0 3 * * *` | 03:00 every day |
+| `0 4 * * 0` | 04:00 every Sunday |
+| `0 4 1 * *` | 04:00 on the 1st of every month |
+
+### Retention (GFS)
+
+Per `(targetType, targetName, scheduleClass)` tuple, Nimbus keeps the N most recent **successful** backups. `FAILED` rows don't count against the budget, so a transient failure doesn't cost you a retained snapshot. `PARTIAL` rows (e.g. a remote service that was skipped) do count.
+
+`retention.keep_manual = true` (default) means `backup now` / `/api/backups/trigger` snapshots are immune to automatic pruning — only hand-deleted by the operator.
+
+## Triggering backups
+
+### Console
+
+```text title="Nimbus console"
+backup now                              # all scopes, all targets
+backup now --type templates             # just templates
+backup now --target Lobby-1             # just one service
+backup now --type database              # just the DB
+backup list --limit 30
+backup status                           # active jobs + next scheduled runs + last results
+backup schedule list                    # every configured schedule + next fire time
+backup schedule reload                  # re-read backup.toml without restart
+```
+
+### Dashboard
+
+**Modules → Backup → Overview** — four stat cards (total / storage / schedules / last run), a schedules table with last-run status and next-fire time, and the history table with per-row actions: Verify, Download, Restore, Delete.
+
+**Modules → Backup → Settings** — full editor for every knob in `backup.toml`: general tuning, scope toggles, schedule add/edit/delete with a cron + target-pills dialog, retention budgets, and the exclude patterns textarea. Save validates server-side (cron syntax, level ranges, unique schedule names, allowed targets) and hot-reloads the scheduler — no restart.
+
+### REST API
+
+```bash title="cURL"
+# Trigger a manual backup of everything
+curl -X POST https://controller.example.com/api/backups/trigger \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"targets": [], "scheduleClass": "manual"}'
+
+# Just the database
+curl -X POST https://controller.example.com/api/backups/trigger \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"targets": ["database"]}'
+```
+
+Full endpoint list in the [API reference](/docs/reference/api#backups).
+
+## Quiesce — keeping worlds consistent
+
+When `quiesce_services = true` (default), Nimbus sends `save-off` + `save-all flush` to each running service before archiving its working directory, waits `quiesce_wait_seconds`, archives, then re-enables autosave with `save-on`. This catches the common case where a world tick interleaves with a tar read and produces a partially-written region file.
+
+On remote nodes, quiesce is skipped — those services are marked **PARTIAL** and logged with a warning until cluster streaming lands in a later phase.
+
+## Database backups
+
+| DB | How it's dumped |
+|---|---|
+| SQLite | `VACUUM INTO 'staging/nimbus.sqlite'` inside a transaction — atomic, no external tool |
+| MySQL / MariaDB | `mysqldump --single-transaction --routines --triggers --events` — the tool must be on `PATH` |
+| PostgreSQL | `pg_dump --format=custom` — the tool must be on `PATH` |
+
+If `mysqldump` / `pg_dump` is missing, the database backup is **skipped with a WARN** and the run is marked `PARTIAL` for that target. Other scopes still complete. Install the client package (`apt install mysql-client` / `apt install postgresql-client`) to enable external-DB dumps.
+
+## Restore
+
+<Callout type="warning">
+  Restore is a destructive overwrite of the target directory. Nimbus refuses to restore onto a running service unless you pass `--force` — stop the service first.
+</Callout>
+
+```text title="Nimbus console"
+backup verify 42                 # recompute SHA-256 against MANIFEST.sha256
+backup restore 42 --dry-run      # list files that would be extracted
+backup restore 42                # restore to the original location
+backup restore 42 --target /tmp/recover    # restore to a different path
+backup restore 42 --force        # overwrite a running service (stop it first!)
+```
+
+From the dashboard: the history table's **Restore** (▶) button asks for confirmation and an optional `force` choice before POSTing to `/api/backups/{id}/restore`. Extracted files count is returned in the response.
+
+Restore extracts into a staging dir first, then rewrites atomically — a failed extraction can't leave a half-restored directory behind.
+
+## Retention pruning
+
+Runs automatically every hour. Trigger on demand:
+
+```text title="Nimbus console"
+backup prune --dry-run                         # preview only
+backup prune                                   # apply
+backup prune --retention-class weekly          # just prune weekly class
+```
+
+Or from the dashboard Overview's **Prune** button — same API, confirmed dialog.
+
+## What's not in v1
+
+A few honest limits of the current module — all tracked for follow-up phases:
+
+- **Remote agent nodes.** Services on agent nodes are skipped with `PARTIAL` status. A `BackupStreamRequest` cluster message + agent-side streamer lands in a later phase.
+- **No cross-snapshot dedup.** Each backup is a full tar of its target — no chunk store. Disk is cheap, restore is just `tar -x`, and the multi-threaded compressor keeps the cost reasonable. A `restic`-backed destination driver is viable as a later opt-in.
+- **No encryption.** OSS MC system — use filesystem-level or destination-level encryption if you need it. Archives contain world data and DB dumps, so consider the `data/backups/` directory's permissions and don't expose it via nginx.
+- **Local destination only.** S3 / SFTP drivers are clean follow-up work via a `BackupDestination` interface — the archiver doesn't need to care about the destination.
+
+## Troubleshooting
+
+**"Backup not showing in `modules install` list"** — the module JAR is missing `module.properties`. Only an issue for out-of-tree custom builds; the upstream module is shipped correctly.
+
+**All backups marked `PARTIAL`** — check `backup list` `errorMessage` field. The two common causes are `mysqldump`/`pg_dump` not on PATH and remote-node services being skipped. Both are expected behaviours, not failures.
+
+**`Backup '<name>' is RUNNING` when trying to restore** — stop the service with `stop <name>` first, or pass `--force` / the dashboard's "force" confirmation if you know the state is throwaway.
+
+**Dashboard hitting 429 on the backup page** — the page polls at 30 s idle / 5 s active and pauses when the tab is hidden, so you shouldn't. If you do, it's probably another dashboard tab also polling — the rate limit is global per token.
+
+**Archive corrupted** — run `backup verify <id>`. If it lists mismatches, the file on disk has been truncated or altered. Delete it (`backup list` → DELETE) and let the next scheduled run produce a fresh copy.

@@ -3001,3 +3001,214 @@ Telemetry endpoint the backend plugin calls from `PlayerResourcePackStatusEvent`
 ### GET /api/resourcepacks/files/{'{'}uuid{'}'}.zip
 
 **Public endpoint — no authentication required.** Minecraft clients don't send bearer tokens; the SHA-1 hash negotiated during `setResourcePack()` is what protects against tampering. Response streams through Ktor's `respondOutputStream` with a 64 KiB transfer buffer so large packs don't spike server RAM. Cached for 1 hour (`Cache-Control: public, max-age=3600`).
+
+## Backups
+
+Provided by the **Backup** module (migration range 7000+). All endpoints require **ADMIN** auth — archives may contain world data, plugin configs, and database dumps.
+
+### GET /api/backups
+
+List backup records.
+
+**Query parameters:**
+
+| Parameter | Description |
+|---|---|
+| `target` | Filter by exact target name (service / group / `all` for aggregate scopes) |
+| `status` | `RUNNING` / `SUCCESS` / `FAILED` / `PARTIAL` |
+| `limit` | Max rows, 1..1000 (default 100) |
+| `offset` | Pagination offset (default 0) |
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "backups": [
+    {
+      "id": 42,
+      "targetType": "SERVICE",
+      "targetName": "Lobby-1",
+      "scheduleClass": "hourly",
+      "scheduleName": "hourly",
+      "startedAt": "2026-04-15T08:30:00Z",
+      "completedAt": "2026-04-15T08:30:12Z",
+      "status": "SUCCESS",
+      "sizeBytes": 58720256,
+      "archivePath": "service-Lobby-1-hourly-20260415-083000.tar.zst",
+      "checksum": "a1b2c3…",
+      "errorMessage": null,
+      "nodeId": "local",
+      "triggeredBy": "scheduler"
+    }
+  ],
+  "total": 128
+}
+```
+
+### GET /api/backups/{'{'}id{'}'}
+
+Single backup record.
+
+### POST /api/backups/trigger
+
+Run a backup now. Body is optional — with an empty `targets` list, all scopes enabled in config are backed up.
+
+**Request:**
+
+```json title="Request"
+{
+  "targets": ["services", "database"],
+  "scheduleClass": "manual",
+  "target": "Lobby-1"
+}
+```
+
+`targets` accepts `services`, `dedicated`, `templates`, `config`, `database`, `state_sync`, or omit entirely.
+`scheduleClass` defaults to `manual` — manual backups are immune to automatic retention pruning when `retention.keep_manual = true`.
+`target` (optional) narrows SERVICE/DEDICATED backups to one specific name.
+
+Response is the same `BackupListResponse` shape as `GET /api/backups`, containing the rows that were just produced (one row per archive).
+
+### DELETE /api/backups/{'{'}id{'}'}
+
+Delete the backup record and its archive file from disk.
+
+### POST /api/backups/{'{'}id{'}'}/restore
+
+Restore a backup.
+
+**Request:**
+
+```json title="Request"
+{
+  "targetPath": null,
+  "dryRun": false,
+  "force": false
+}
+```
+
+`targetPath` (optional): override the destination directory. Defaults to the original location (`registry.get(name).workingDirectory` for services, etc.).
+`dryRun`: list files that would be extracted without writing.
+`force`: overwrite even when the target service is `READY` / `STARTING` / `DRAINING`. Without `force`, restore refuses on a running service.
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "id": 42,
+  "dryRun": false,
+  "filesExtracted": 1234,
+  "files": ["world/region/r.0.0.mca", "..."]
+}
+```
+
+### POST /api/backups/{'{'}id{'}'}/verify
+
+Re-read the archive and recompute SHA-256 for every entry against the trailing `MANIFEST.sha256`.
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "valid": true,
+  "errors": []
+}
+```
+
+### GET /api/backups/{'{'}id{'}'}/download
+
+Stream the raw `.tar.zst` archive. `Content-Disposition: attachment` set. Bearer auth required — a plain `<a download>` won't work; fetch + blob download on the client side.
+
+### GET /api/backups/{'{'}id{'}'}/manifest
+
+Stream the `MANIFEST.sha256` entry from inside the archive as `text/plain` — one `<hex-sha256>  <relative/path>` line per file. Useful for ad-hoc integrity checks.
+
+### GET /api/backups/schedules
+
+List configured schedules with computed next-fire times and last-run status.
+
+**Response:**
+
+```json title="Response (200 OK)"
+[
+  {
+    "name": "hourly",
+    "cron": "0 * * * *",
+    "retentionClass": "hourly",
+    "targets": ["services", "dedicated", "database"],
+    "lastRunAt": "2026-04-15T08:00:00Z",
+    "nextRunAt": "2026-04-15T09:00:00Z",
+    "lastStatus": "SUCCESS"
+  }
+]
+```
+
+### GET /api/backups/status
+
+Scheduler summary for the Overview tab — active-jobs count, local destination, schedules.
+
+### POST /api/backups/prune
+
+Apply retention rules now.
+
+**Request:**
+
+```json title="Request"
+{
+  "dryRun": true,
+  "retentionClass": "hourly"
+}
+```
+
+Both fields optional. `retentionClass` narrows the prune pass to one class; omit to prune all classes.
+
+**Response:**
+
+```json title="Response (200 OK)"
+{
+  "deleted": 5,
+  "freedBytes": 294912000,
+  "errors": []
+}
+```
+
+### GET /api/backups/config
+
+Full serialized module config — `BackupModuleConfig` shape:
+
+```json title="Response (200 OK)"
+{
+  "enabled": true,
+  "localDestination": "data/backups",
+  "maxConcurrent": 2,
+  "compressionLevel": 3,
+  "compressionWorkers": 0,
+  "quiesceServices": true,
+  "quiesceWaitSeconds": 2,
+  "scope": {
+    "services": true,
+    "dedicated": true,
+    "templates": true,
+    "controllerConfig": true,
+    "stateSync": true,
+    "database": true
+  },
+  "excludes": ["logs/**", "*.log", "cache/**", "*.lock"],
+  "schedules": [
+    { "name": "hourly", "cron": "0 * * * *", "retentionClass": "hourly", "targets": ["services", "dedicated", "database"] }
+  ],
+  "retention": {
+    "hourlyKeep": 24,
+    "dailyKeep": 7,
+    "weeklyKeep": 4,
+    "monthlyKeep": 3,
+    "keepManual": true
+  }
+}
+```
+
+### PUT /api/backups/config
+
+Replace the module config. Body is the same shape as the `GET` response. Validates server-side (cron syntax, compression level 1..22, unique schedule names matching `[A-Za-z0-9_-]+`, allowed target keys, known retention classes) and atomically rewrites `config/modules/backup/backup.toml` on success. The scheduler is hot-reloaded. Returns the persisted config.
+
+`400 VALIDATION_FAILED` on any schema error — the in-memory config is not touched.

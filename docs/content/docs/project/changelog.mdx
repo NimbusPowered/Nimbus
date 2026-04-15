@@ -13,6 +13,46 @@ All notable changes to this project are documented in this file. The format is b
 
 ---
 
+## [0.9.1] - 2026-04-15
+
+A new first-party **Backup** module: scheduled tar+zstd snapshots of services, templates, controller config, the state-sync store, and the database, with GFS retention, single-pass SHA-256 manifests, and a full editor on the dashboard.
+
+### Added
+
+- **Backup module** — Scheduled snapshots of all stateful Nimbus data to local `.tar.zst` archives
+  - **Native multi-threaded archiver.** In-JVM pipeline via Apache Commons Compress (`TarArchiveOutputStream`) + zstd-jni (`ZstdOutputStream` with `setWorkers(N)`, `setCloseFrameOnFlush(false)`) running at 3–5× the throughput of piping to `tar --zstd`. The speedup comes from three places: libzstd's parallel compressor (coreutils tar pipes into the single-threaded binary), no fork/exec + stdout pipe stage, and a 256 KiB upstream buffer that keeps the compressor saturated on worlds with thousands of tiny region files
+  - **Single-pass SHA-256.** Each file's hash is computed while the bytes stream through the archiver, written as a trailing `MANIFEST.sha256` entry, and re-checked by `backup verify <id>` — one filesystem read per file, not two
+  - Six scope types: services, dedicated, templates, controller config, state-sync canonical store, database. Each produces one archive per target, independently verifiable and restorable
+  - **Database dumps.** SQLite via `VACUUM INTO` inside an Exposed transaction — atomic, no external tool. MySQL via `mysqldump --single-transaction --routines --triggers --events`, Postgres via `pg_dump --format=custom` — skipped with a `WARN` and a `PARTIAL` row if the tool is missing on `PATH`
+  - **Cron scheduler** with a hand-rolled 5-field POSIX evaluator (`*`, `N`, `N-M`, `N,M,O`, `*/5`, `0-30/5`; Sunday = 0 or 7). Default config ships hourly + daily + weekly schedules
+  - **GFS retention.** Per `(targetType, targetName, scheduleClass)`, Nimbus keeps the N most recent SUCCESS/PARTIAL rows. FAILED rows don't count against the budget — a transient failure doesn't cost you a retained snapshot. `retention.keep_manual = true` (default) makes manual backups immune to automatic pruning
+  - **Quiesce** via the existing `ServiceManager.executeCommand` plumbing — `save-off` + `save-all flush`, configurable wait, `save-on` after archiving. Only applies to services in `READY`/`STARTING` state on the local node; remote-node services are skipped with `PARTIAL` status until cluster streaming lands in a later phase
+  - **Restore** with path-traversal protection — extracts to a staging dir, atomic-renames into the target. Refuses to overwrite a running service unless `--force` is passed
+  - Console command `backup <now|list|status|restore|verify|prune|schedule>` with tab completion
+  - REST API (ADMIN-only): `GET /api/backups`, `GET /api/backups/{id}`, `POST /api/backups/trigger`, `DELETE /api/backups/{id}`, `POST /api/backups/{id}/restore`, `POST /api/backups/{id}/verify`, `GET /api/backups/{id}/download` (streaming), `GET /api/backups/{id}/manifest`, `GET /api/backups/schedules`, `GET /api/backups/status`, `POST /api/backups/prune`, `GET /api/backups/config`, `PUT /api/backups/config`
+  - **Live config editing.** `PUT /api/backups/config` validates (cron syntax, compression level 1..22, unique schedule names, allowed target keys, known retention classes) and atomically rewrites `config/modules/backup/backup.toml` with a deterministic layout + comments. Scheduler is hot-reloaded on success; `400 VALIDATION_FAILED` leaves the in-memory state untouched
+  - **Retention loop** runs automatically every hour in addition to on-demand `backup prune`
+  - Migrations: `BackupV1_Baseline` (v7000 — `backups` + `backup_schedule_log` tables)
+  - Events: `BACKUP_STARTED`, `BACKUP_COMPLETED` (with duration + size), `BACKUP_FAILED`, `BACKUP_RESTORED`, `BACKUP_PRUNED`
+
+- **Dashboard — Backup page** at `/modules/backup` with two tabs:
+  - **Overview**: four stat cards (total / storage / schedules / last run), a schedules table showing last-run status + next-fire time, and a backup history table with inline Verify / Download / Restore / Delete actions. Download goes through an authed blob fetch + client-side `<a download>` so the ADMIN token isn't exposed in URLs. Empty states use call-to-action buttons that jump to the Settings tab or open the "Run backup" dialog, not file paths
+  - **Settings**: full editor for every knob in `backup.toml`. Schedule add/edit dialog with cron field, retention-class pills, and target-selection pills. Retention budgets, scope toggles with hints, compression level + workers (with a note on the 3–5× speedup), quiesce toggle + wait seconds, exclude patterns textarea. Save validates on the server and hot-reloads; errors surface in the page banner with the exact offending field
+  - Polling is visibility-aware and adaptive — 30 s idle, 5 s while a job is running, paused when the tab is hidden. No busy-loop on the global rate limit
+
+### Changed
+
+- **Sidebar breadcrumbs.** `backup`, `punishments`, `resourcepacks`, `doctor`, `stats`, and `login` now have proper capitalized labels instead of falling through to the raw URL segment
+- **Module discovery icons.** The sidebar's `iconMap` gained `Archive` and `HardDrive` mappings so modules with those `DashboardConfig.icon` values render correctly
+- **Dependencies.** `nimbus-core` now shades `com.github.luben:zstd-jni:1.5.6-4` and `org.apache.commons:commons-compress:1.27.1` (~1.8 MB) so modules can rely on them without wiring their own copies
+
+### Notes
+
+- **Phase 1 scope.** Local destination only; remote agent-node services are skipped with `PARTIAL` status. S3/SFTP destinations, cross-snapshot dedup, and cluster streaming are tracked for follow-up work via a `BackupDestination` interface and a new `BackupStreamRequest` cluster message, respectively
+- **No encryption in v1.** Archives contain world data and DB dumps — use filesystem-level or destination-level encryption if needed, and don't expose `data/backups/` via nginx
+
+---
+
 ## [0.9.0] - 2026-04-14
 
 Two new first-party modules — **Punishments** and **Resource Packs** — plus a refactor of how Nimbus deploys its own plugins. Templates are now fully user-owned: the SDK, Bridge, and every module's plugin are deployed on each service prepare and never written into `templates/global/` or `templates/global_proxy/`.
