@@ -23,6 +23,35 @@
   50% { opacity: 1; transform: scale(1); }
 }
 
+/* Hero preview animations */
+@keyframes nimbus-live-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+@keyframes nimbus-flow {
+  from { stroke-dashoffset: 24; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes nimbus-packet {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes nimbus-halo {
+  0%   { transform: scale(0.96); opacity: 0; }
+  20%  { opacity: 0.35; }
+  100% { transform: scale(1.6);  opacity: 0; }
+}
+@keyframes nimbus-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nimbus-live-dot { animation: nimbus-live-dot 1.8s ease-in-out infinite; }
+.nimbus-flow     { stroke-dasharray: 4 4; animation: nimbus-flow 1.2s linear infinite; }
+.nimbus-halo     { animation: nimbus-halo 3.6s cubic-bezier(.33,.0,.2,1) infinite; }
+.nimbus-fade-in  { animation: nimbus-fade-in 500ms ease-out both; }
+
 /* Callouts: remove left bar, tint entire card with callout color */
 [style*="--callout-color"] {
   background-color: color-mix(in oklab, var(--callout-color) 8%, var(--color-fd-card)) !important;
