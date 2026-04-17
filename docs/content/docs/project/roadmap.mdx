@@ -86,6 +86,7 @@ Operators running Nimbus in production need to trust that it handles failure gra
 - Documented backup and disaster recovery procedures
 - Upgrade path testing (can you go from 0.8 → 1.0 without data loss?)
 - **Cluster-aware backups** — stream tar+zstd archives from agent nodes to the controller. Phase 1 of the backup module (0.9.1) ships local-only; agent-node services are currently skipped with `PARTIAL` status. Design notes are parked in the GitHub issue tracker and will be revived when real multi-node users surface the need
+- **Agent-node Docker support** — the Docker module (0.10.0) ships controller-only; agents still run bare processes. Needs a small cluster protocol tweak so agents can report container runtime info in heartbeats. Tracked for a follow-up phase alongside pre-built image support and Windows named-pipe sockets
 
 ### Performance Baselines
 
@@ -109,15 +110,6 @@ The kind of work that separates "it works" from "it's good":
 
 These are directions, not commitments. They'll be pursued if there's real demand and they align with the vision. Ordered roughly by expected impact.
 
-### Docker Runtime
-
-Run services as containers instead of bare JVM processes. Useful for operators who want resource isolation, reproducible environments, or CI/CD-driven server images.
-
-- Optional module — bare JVM remains the default
-- Configurable base image per group
-- Port mapping, volume mounts, resource limits
-- Container logs forwarded to controller console
-
 ### Pluggable Template Storage (S3 / SFTP)
 
 Template storage backends beyond the local filesystem. Becomes important for large clusters where copying templates between nodes is a bottleneck.
@@ -137,7 +129,7 @@ Remove the controller as a single point of failure. This is the most architectur
 
 ### Kubernetes Operator
 
-For operators who *do* want Kubernetes — a native operator that manages Nimbus controllers and agents as Kubernetes resources. This is the furthest-out item and may never be built if the Docker runtime module covers enough use cases.
+For operators who *do* want Kubernetes — a native operator that manages Nimbus controllers and agents as Kubernetes resources. This is the furthest-out item and may never be built, since the opt-in Docker module (shipped in 0.10.0) covers the "I want containers" use case for most networks without layering on an orchestrator.
 
 ---
 
@@ -147,6 +139,8 @@ For detailed release notes, see the [Changelog](/docs/project/changelog).
 
 | Version | Date | Theme |
 |---------|------|-------|
+| **v0.10.0** | April 17, 2026 | Docker module — opt-in container backend per group/dedicated, resource limits, daemon doctor check, dashboard module page + group toggle + service badge; new `LocalServiceHandleFactory` + `ServiceMemorySource` extension points |
+| **v0.9.1** | April 15, 2026 | Backup module — scheduled tar+zstd snapshots with GFS retention, native multi-threaded zstd, SHA-256 manifests, live TOML config editing, full dashboard editor |
 | **v0.9.0** | April 14, 2026 | Punishments + Resource Packs modules, runtime plugin deployment (templates fully user-owned), Velocity + backend enforcement plugins, scoped bans |
 | **v0.8.0 – v0.8.2** | April 12–13, 2026 | Production readiness audit — 94 findings resolved across security, stability, data integrity, performance; cluster TLS keystore restart bug |
 | **v0.7.0 – v0.7.3** | April 11–12, 2026 | Multi-node cluster — TLS setup wizard, placement pinning, state sync, failover, daemon mode |

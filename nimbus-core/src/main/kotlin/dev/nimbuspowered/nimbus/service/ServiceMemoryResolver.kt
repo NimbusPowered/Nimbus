@@ -2,6 +2,7 @@ package dev.nimbuspowered.nimbus.service
 
 import dev.nimbuspowered.nimbus.cluster.NodeConnection
 import dev.nimbuspowered.nimbus.group.GroupManager
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Single source of truth for per-service memory stats. Used by REST routes
@@ -31,6 +32,24 @@ object ServiceMemoryResolver {
     /** Minimum JVM process overhead in MB (regardless of heap size). */
     private const val MIN_OVERHEAD_MB = 384L
 
+    /**
+     * Alternative readers registered by modules (e.g. the Docker module, whose
+     * `docker stats` values account for cgroup memory rather than the raw JVM PID).
+     * Queried in registration order before falling back to `/proc/<pid>/status`.
+     *
+     * Uses [CopyOnWriteArrayList] because [resolve] may run concurrently from
+     * REST routes while a module registers a new source during enable(); the
+     * COW iterator is a snapshot and safe against concurrent mutation.
+     */
+    private val extraSources = CopyOnWriteArrayList<ServiceMemorySource>()
+
+    fun registerSource(source: ServiceMemorySource) {
+        // Guard against double-registration on module reload — a second Docker
+        // source would cause every container's RSS to be counted twice.
+        if (extraSources.any { it::class == source::class }) return
+        extraSources += source
+    }
+
     fun resolve(
         service: Service,
         groupManager: GroupManager,
@@ -44,8 +63,9 @@ object ServiceMemoryResolver {
         val used = when {
             terminal -> 0L
             service.nodeId == "local" -> {
-                // Local service — read /proc directly and refresh the cache
-                val rss = service.pid?.let { ProcessMemoryReader.readRssMb(it) } ?: 0L
+                // Extra sources first — Docker cgroup stats beat /proc for containers.
+                val fromSource = extraSources.firstNotNullOfOrNull { it.readRssMb(service) }
+                val rss = fromSource ?: service.pid?.let { ProcessMemoryReader.readRssMb(it) } ?: 0L
                 if (rss > 0) service.memoryUsedMb = rss
                 rss
             }

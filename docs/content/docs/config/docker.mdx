@@ -1,0 +1,106 @@
+---
+title: Docker Module
+description: Configure the Docker module — socket location, resource-limit defaults, Java image map, and per-group overrides.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Docker module owns a single TOML file at `config/modules/docker/docker.toml`. It is auto-generated with defaults when the module is installed. Per-group and per-dedicated overrides live in the service's own TOML under `[group.docker]` / `[dedicated.docker]`.
+
+## Complete Example
+
+```toml title="config/modules/docker/docker.toml"
+[docker]
+enabled = true
+# Unix socket (Linux/Mac) or tcp://host:port (Docker Desktop Windows, Podman).
+# Examples:
+#   socket = "/var/run/docker.sock"
+#   socket = "tcp://localhost:2375"
+socket = "/var/run/docker.sock"
+
+[docker.defaults]
+memory_limit = "2G"
+cpu_limit = 2.0
+network = "nimbus"
+java_image = "eclipse-temurin:21-jre"
+java_17_image = "eclipse-temurin:17-jre"
+java_21_image = "eclipse-temurin:21-jre"
+```
+
+## `[docker]`
+
+| Key | Default | What it controls |
+|---|---|---|
+| `enabled` | `true` | Module-wide kill switch. When `false`, every group/dedicated `[docker] enabled = true` is ignored and services run as bare processes |
+| `socket` | `/var/run/docker.sock` | Path (or TCP URL) to the Docker Engine socket. Absolute Unix path, `unix:///…`, or `tcp://host:port`. Named pipes (`npipe://…`) are not supported in this release |
+
+## `[docker.defaults]`
+
+Values here apply to every Docker-backed service unless the service's own `[group.docker]` / `[dedicated.docker]` block overrides them.
+
+| Key | Default | What it controls |
+|---|---|---|
+| `memory_limit` | `"2G"` | Hard container memory cap (cgroup). Accepts `K`, `M`, `G`, `T` suffixes |
+| `cpu_limit` | `2.0` | CPU quota in cores. `1.0` = one full core, `0.5` = half a core. Maps to Docker's `NanoCpus` |
+| `network` | `"nimbus"` | Docker bridge network to attach containers to. Auto-created on first start if it doesn't exist |
+| `java_image` | `eclipse-temurin:21-jre` | Fallback image when auto-selection by Java version finds no match |
+| `java_17_image` | `eclipse-temurin:17-jre` | Image used for services whose resolved Java version is 17 |
+| `java_21_image` | `eclipse-temurin:21-jre` | Image used for services whose resolved Java version is 21 |
+
+## Per-group overrides
+
+Set any subset of these in a group's config. Empty strings and `0.0` values mean "inherit the module default".
+
+```toml title="config/groups/bedwars.toml"
+[group.docker]
+enabled = false                            # default — set to true to containerise
+memory_limit = ""                          # inherit module default (2G)
+cpu_limit = 0.0                            # inherit module default (2.0)
+java_image = ""                            # inherit auto-selection
+network = ""                               # inherit module default (nimbus)
+```
+
+| Key | Default | What it controls |
+|---|---|---|
+| `enabled` | `false` | **Opt-in switch.** Groups without this set to `true` run as bare processes regardless of the module config |
+| `memory_limit` | `""` | Override the module default. Hard cgroup cap, format `<number><unit>` (e.g. `"4G"`) |
+| `cpu_limit` | `0.0` | Override the module default. Cores, fractional allowed (`1.5`) |
+| `java_image` | `""` | Override auto-selection. Full image reference (`registry/image:tag`) |
+| `network` | `""` | Override module default. Must be an existing Docker network OR Nimbus will create it on first use |
+
+## Per-dedicated overrides
+
+Dedicated services get the same block under `[dedicated.docker]`:
+
+```toml title="config/dedicated/smp.toml"
+[dedicated.docker]
+enabled = true
+memory_limit = "8G"
+cpu_limit = 4.0
+```
+
+Same semantics as `[group.docker]`. Dedicated services that set `enabled = true` run in a container named `nimbus-smp` (lowercase of the service name).
+
+## Container labels (fixed)
+
+Every container Nimbus creates carries these labels — used for discovery on controller restart (crash recovery) and by `/api/docker/*`:
+
+| Label | Value |
+|---|---|
+| `nimbus.managed` | `true` |
+| `nimbus.service` | The service name (`BedWars-1`, `SMP`, …) |
+| `nimbus.group` | The group name (dedicated services use the service name here too) |
+| `nimbus.port` | The allocated host port |
+
+These are not configurable — changing them would break recovery and the `docker ps` / `docker prune` flows.
+
+## Tuning knobs that are NOT here (by design)
+
+- **Restart policy.** Fixed to `no` — Nimbus handles restart decisions via `[group.lifecycle] restart_on_crash`. Docker's own restart policy would fight with the scaling engine
+- **Port mapping.** Same-port mapping (`host:N → container:N`). `PortAllocator` already picks the host port; changing it container-side would confuse `server.properties`
+- **Bind mount.** The entire service work dir is bind-mounted at `/server`. No extra mounts — if you need them, that's a pre-built-image use case not covered in Phase 1
+- **Environment variables.** Inherited from the JVM command line (`-D…` flags + `NIMBUS_API_TOKEN`). Not separately configurable
+
+<Callout type="info">
+  See [the Docker Guide](/docs/guide/docker) for the operator-facing walkthrough: prerequisites, install, enable-per-group, troubleshooting.
+</Callout>

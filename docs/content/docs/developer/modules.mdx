@@ -761,3 +761,47 @@ my-uptime-module/
     └── resources/
         └── module.properties
 ```
+
+## Advanced Extension Points
+
+Beyond commands, routes, migrations, and doctor checks, modules can plug into a couple of service-level hooks. These are opt-in — the default behaviour doesn't change when nothing's registered.
+
+### LocalServiceHandleFactory
+
+Swap out the default `ProcessHandle` with something else — a container, a VM, a remote sandbox. The Docker module is the reference implementation.
+
+```kotlin
+interface LocalServiceHandleFactory {
+    fun isAvailable(): Boolean
+    suspend fun create(
+        service: Service,
+        workDir: Path,
+        command: List<String>,
+        env: Map<String, String>,
+        dockerConfig: DockerServiceConfig,
+        readyPattern: Regex?
+    ): ServiceHandle
+
+    /** Reattach to surviving instances on controller restart. */
+    fun recover(): Map<String, ServiceHandle> = emptyMap()
+}
+```
+
+Register via `context.registerService(LocalServiceHandleFactory::class.java, impl)`. `ServiceManager.startLocalService` calls `isAvailable()` on every start and falls back to a bare process if the factory is down — so a temporarily offline backend doesn't wedge the controller.
+
+### ServiceMemorySource
+
+Add a smarter memory reader alongside the default `/proc/<pid>/status` reader. Useful when you know something the default reader doesn't — e.g. the Docker module returns cgroup memory (the full container RSS) via `docker stats`, which catches sidecar processes the plain JVM PID would miss.
+
+```kotlin
+interface ServiceMemorySource {
+    fun readRssMb(service: Service): Long?
+}
+```
+
+Register via `ServiceMemoryResolver.registerSource(source)`. The resolver queries every registered source in order and takes the first non-null result before falling back to `/proc`. Return `null` when the source doesn't apply to a given service — do **not** return `0L` just because you don't know.
+
+### ServiceHandle.kind
+
+Every `ServiceHandle` exposes a `kind: String` property (default `"process"`). Override it to tag your handle — the dashboard reads `backedBy` on `/api/services` to render badges, and core uses it for nothing else. Keep the value short and lowercase (`docker`, `podman`, `firecracker`).
+

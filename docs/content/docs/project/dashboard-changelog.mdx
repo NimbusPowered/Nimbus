@@ -13,6 +13,31 @@ The Nimbus Web Dashboard is versioned independently of the controller, so its UI
 
 ---
 
+## [0.10.0-beta.1] — 2026-04-17
+
+**Controller compatibility:** `0.10.0`
+
+Dashboard surface for the new **Docker** module, landing alongside the controller 0.10.0 release.
+
+### Added
+
+- **New page: `/modules/docker`.** Four status cards (module enabled, daemon reachable, daemon version + API version, running/total container counters) plus a table of every Nimbus-managed container with state badges, image, ports, and short ID. Prune button wires to `POST /api/docker/prune`. Polls at `POLL.normal`, pauses on tab hide, and silences transient failures so a brief daemon hiccup doesn't spam toasts.
+- **Daemon-offline banner** on the Docker page that surfaces the configured socket path when `reachable: false`, so operators see *why* opted-in services are running as plain processes.
+- **Per-group Docker section on `GroupEditDialog`.** Enable switch (switch off = no overrides written, TOML stays clean) plus memory limit, CPU limit, and Java image fields. Empty values mean "inherit module default".
+- **Docker badge on the services list.** Sky-blue `Docker` tag next to each containerised service name, backed by a new `backedBy` field on `/api/services`. Paired with the existing Dedicated + Persistent badges — no crowding, same row.
+- **Sidebar icon.** `Container` lucide icon exposed through `@/lib/icons` and wired into the module `iconMap`, so the Docker entry renders with a dedicated icon instead of the generic `Box` fallback.
+
+### Changed
+
+- **`GroupResponse` now carries a `docker` sub-object.** The types in `group-edit-dialog.tsx` reflect this; existing screens that don't read the field ignore it.
+- **`ServiceResponse` gained `backedBy`.** Values: `"process"` (default), `"docker"`, `"remote"`. Future runtime backends can add new values without breaking older dashboards — unknown values fall through without a badge.
+
+### Notes
+
+- **No dashboard changes required on the existing /services page beyond the badge.** Container-specific deep-links (logs, shell exec) stay out of Phase 1 — the /modules/docker page handles inspection; service-level log streaming continues to flow through the existing Console sheet, which works identically for process- and Docker-backed services.
+
+---
+
 ## [0.9.1-beta.1] — 2026-04-15
 
 **Controller compatibility:** `0.9.1`

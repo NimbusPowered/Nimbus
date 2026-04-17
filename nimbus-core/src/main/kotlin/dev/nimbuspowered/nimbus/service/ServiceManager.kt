@@ -320,16 +320,39 @@ class ServiceManager(
     }
 
     private suspend fun startLocalService(service: Service, prepared: ServiceFactory.PreparedService): Service? {
-        val (_, workDir, command, readyPattern, isModded, readyTimeout, env) = prepared
+        val workDir = prepared.workDir
+        val command = prepared.command
+        val readyPattern = prepared.readyPattern
+        val readyTimeout = prepared.readyTimeout
+        val env = prepared.env
         val serviceName = service.name
 
-        val processHandle = ProcessHandle()
-        if (readyPattern != null) {
-            processHandle.setReadyPattern(readyPattern)
-        }
+        // If the group/dedicated config opted into Docker AND a LocalServiceHandleFactory
+        // is registered and available, start the service as a container. Otherwise fall
+        // back to a bare process — the default.
+        val dockerFactory = if (prepared.dockerConfig != null) {
+            moduleContext?.getService(LocalServiceHandleFactory::class.java)?.takeIf { it.isAvailable() }
+        } else null
 
+        var processHandle: ServiceHandle? = null
         return try {
-            processHandle.start(workDir, command, env)
+            processHandle = if (dockerFactory != null && prepared.dockerConfig != null) {
+                try {
+                    dockerFactory.create(service, workDir, command, env, prepared.dockerConfig, readyPattern)
+                } catch (e: Exception) {
+                    logger.error("Docker-backed start failed for '{}' — falling back to process: {}", serviceName, e.message, e)
+                    val fallback = ProcessHandle()
+                    if (readyPattern != null) fallback.setReadyPattern(readyPattern)
+                    fallback.start(workDir, command, env)
+                    fallback
+                }
+            } else {
+                val plain = ProcessHandle()
+                if (readyPattern != null) plain.setReadyPattern(readyPattern)
+                plain.start(workDir, command, env)
+                plain
+            }
+
             // Store handle immediately after start so cleanupFailedStart can find it
             processHandles[serviceName] = processHandle
 
@@ -371,7 +394,7 @@ class ServiceManager(
         } catch (e: Exception) {
             logger.error("Failed to start service '{}'", serviceName, e)
             // Ensure the process is destroyed even if it wasn't stored in the map yet
-            processHandles[serviceName] = processHandle
+            processHandle?.let { processHandles[serviceName] = it }
             cleanupFailedStart(service)
             null
         }
@@ -1034,16 +1057,35 @@ class ServiceManager(
         val recovered = mutableListOf<RecoveredLocalService>()
         val protectedDirs = mutableSetOf<Path>()
 
+        // Ask the Docker module (if loaded) for any containers that survived the
+        // controller restart. These take precedence over PID-based adoption — the
+        // old PID won't match since the container runs under a new host pid each
+        // time the daemon restarts anyway.
+        val dockerRecovered = runCatching {
+            moduleContext?.getService(LocalServiceHandleFactory::class.java)?.recover() ?: emptyMap()
+        }.getOrElse {
+            logger.warn("Docker recovery probe failed: {}", it.message)
+            emptyMap()
+        }
+        if (dockerRecovered.isNotEmpty()) {
+            logger.info("Docker recovery: {} running container(s) eligible for re-adoption", dockerRecovered.size)
+        }
+
         for (persisted in state.services) {
-            val handle = ProcessHandle.adopt(persisted.pid, persisted.serviceName)
+            val handle: ServiceHandle? = dockerRecovered[persisted.serviceName]
+                ?: ProcessHandle.adopt(persisted.pid, persisted.serviceName)
             if (handle != null) {
+                // Use the live handle's PID when available — for Docker-reattached
+                // services the persisted PID is stale (old host-side pid from a
+                // previous container run).
+                val livePid = handle.pid() ?: persisted.pid
                 val workDir = Path(persisted.workDir)
                 val dedicatedConfig = if (persisted.isDedicated) dedicatedServiceManager?.getConfig(persisted.serviceName) else null
                 val service = Service(
                     name = persisted.serviceName,
                     groupName = persisted.groupName,
                     port = persisted.port,
-                    pid = persisted.pid,
+                    pid = livePid,
                     workingDirectory = workDir,
                     isStatic = persisted.isStatic,
                     bedrockPort = if (persisted.bedrockPort > 0) persisted.bedrockPort else null,
@@ -1065,9 +1107,9 @@ class ServiceManager(
                     serviceName = persisted.serviceName,
                     groupName = persisted.groupName,
                     port = persisted.port,
-                    pid = persisted.pid
+                    pid = livePid
                 ))
-                logger.info("Recovered local service '{}' (PID {})", persisted.serviceName, persisted.pid)
+                logger.info("Recovered local service '{}' (PID {})", persisted.serviceName, livePid)
             } else {
                 logger.info("Service '{}' (PID {}) is no longer alive — removing from state",
                     persisted.serviceName, persisted.pid)

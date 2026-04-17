@@ -85,6 +85,7 @@ Controller Modules (`modules/`):
 - `modules/punishments` — Punishments module: network-wide bans, tempbans, ipbans, mutes, kicks, warnings with auto-expiry loop (migration range 5000+)
 - `modules/resourcepacks` — Resource pack registry: URL-referenced + locally hosted packs, GLOBAL/GROUP/SERVICE assignments, streaming upload with SHA-1 (migration range 6000+)
 - `modules/backup` — Scheduled tar+zstd snapshots (services/dedicated/templates/config/state-sync/database) with GFS retention, single-pass SHA-256 manifest, multi-threaded zstd-jni compression, and live TOML config editing via REST (migration range 7000+)
+- `modules/docker` — Opt-in Docker backend: services run as containers when `[group.docker] enabled = true` is set, otherwise as bare processes. Raw HTTP/1.1 over the Docker Engine socket (no `docker` CLI dep, JVM `UnixDomainSocketAddress`), TTY-mode attach for bidirectional stdin+stdout, cgroup-enforced memory/CPU limits, auto network + image pull, container crash recovery via label-based reattach. Controller-only in Phase 1 — agent-node Docker is a follow-up
 
 Other:
 - `dashboard` — Web Dashboard (BETA): Next.js + shadcn/ui management UI, connects to controller REST API + WebSocket. Live at `dashboard.nimbuspowered.org`. Separate app, not embedded in core JAR.
@@ -93,7 +94,7 @@ Other:
     - `useApiResource` is the canonical data hook; no bare `useEffect` + `fetch` in pages. Mutations go through `apiFetch`, which auto-surfaces 4xx/5xx as toasts (opt-out with `{ silent: true }` for user-initiated flows that render their own errors).
     - Severity colors use CSS variables (`--severity-ok`, `--severity-warn`, `--severity-err`, `--severity-info`). Do not reintroduce hardcoded `emerald-*` / `amber-*` / `destructive` tailwind classes in status UI.
     - Polling intervals are standardized as `POLL.fast` (3s) / `POLL.normal` (5s) / `POLL.slow` (30s) and pause while the tab is hidden.
-    - Dashboard version lives in `dashboard/package.json` (currently `0.9.1-beta.1`), is injected at build via `next.config.ts`, exposed through `dashboard/src/lib/version.ts`, and the sidebar renders a Beta/Alpha badge reflecting the channel. Dashboard version is independent of the controller patch cadence.
+    - Dashboard version lives in `dashboard/package.json` (currently `0.10.0-beta.1`), is injected at build via `next.config.ts`, exposed through `dashboard/src/lib/version.ts`, and the sidebar renders a Beta/Alpha badge reflecting the channel. Dashboard version is independent of the controller patch cadence.
 
 Gradle project names remain unchanged (`:nimbus-sdk`, `:nimbus-module-perms`, etc.) via `projectDir` mappings in `settings.gradle.kts`.
 
@@ -150,6 +151,7 @@ dashboard/src/              # Web Dashboard (Next.js, BETA)
 - `config/modules/punishments/messages.toml` — Punishment kick/mute message templates (&-color codes, placeholders `{target}`, `{issuer}`, `{reason}`, `{remaining}`, `{expires}`)
 - `data/resourcepacks/<uuid>.zip` — Locally hosted resource pack files (streamed in, SHA-1 computed during upload)
 - `config/modules/backup/backup.toml` — Backup module config (schedules, retention, scope, excludes, compression); atomically rewritten by `PUT /api/backups/config` with hot-reload
+- `config/modules/docker/docker.toml` — Docker module config (socket, defaults for memory/CPU limits, java image map, network). Per-service overrides live in the group/dedicated TOML under `[group.docker]` / `[dedicated.docker]` with `enabled = true` as the opt-in
 - `data/backups/*.tar.zst` — Local backup archives with trailing `MANIFEST.sha256` entry (one line per file: `<hex-sha256>  <relative/path>`)
 - `config/modules/syncproxy/motd.toml` — MOTD + maintenance mode config
 - `config/modules/syncproxy/tablist.toml` — Tab list header, footer, player format

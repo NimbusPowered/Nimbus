@@ -1,0 +1,164 @@
+---
+title: Docker Guide
+description: Run Minecraft services as Docker containers instead of bare Java processes — opt-in per group, hard resource limits, clean cleanup.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The **Docker module** (shipped with Nimbus 0.10.0+) lets services run inside Docker containers instead of as bare `java` processes. It is **opt-in per group** — groups without `[group.docker] enabled = true` keep running exactly as before.
+
+## Why use it
+
+Bare JVM processes are faster to start, lighter, and have no external dependencies. They're the right default for the majority of Nimbus deployments. Docker wins when you need any of:
+
+- **Hard memory/CPU caps.** The kernel enforces limits, not just `-Xmx`. A runaway plugin can't eat all the host's RAM
+- **Clean cleanup.** Container stop = everything gone. No leftover temp files, no zombie processes, no stale `session.lock`
+- **Isolation.** A misbehaving service can't interact with other services' files or sockets
+- **Mixed Java versions.** Java 17 and Java 21 services side-by-side without host PATH gymnastics — each container carries its own JRE
+- **Reproducibility.** Same image = same behaviour on every node in the cluster
+
+It is **not** for: faster startup (Docker adds ~200ms), lower memory usage (kernel overhead), or orchestration (that's Nimbus's job — don't layer Kubernetes on top)
+
+## Prerequisites
+
+- **Docker Engine 20.10+** or Docker Desktop (with WSL2 integration on Windows)
+- **The Nimbus user in the `docker` group** (`sudo usermod -aG docker $USER`, then re-login) so Nimbus can reach the socket without `sudo`
+- On Linux, the socket lives at `/var/run/docker.sock` by default
+- On Windows without Docker Desktop's WSL2 integration, expose the daemon via TCP (Docker Desktop → Settings → General → "Expose daemon on tcp://localhost:2375") — the module supports `socket = "tcp://localhost:2375"`
+
+<Callout type="warn">
+  **Podman** is Docker-API-compatible and should work with the module pointed at the Podman socket, but is not officially tested. If you hit an issue, open a GitHub issue with your podman version.
+</Callout>
+
+## Installing the module
+
+1. Run the setup wizard (or re-run it: `./nimbus --reinstall`) and select **Docker** from the module list. The module is not installed by default
+2. Nimbus writes `config/modules/docker/docker.toml` with sensible defaults
+3. Start the controller — the module probes the daemon and logs `Docker daemon reachable at /var/run/docker.sock`
+
+If the daemon is unreachable at startup, the module stays loaded but inactive. Services that opted into Docker transparently fall back to bare processes with a warning in the log.
+
+## Enabling Docker for a group
+
+Edit the group's TOML — or open the group in the dashboard and flip the **Docker** switch under Edit:
+
+```toml title="config/groups/bedwars.toml"
+[group]
+name = "BedWars"
+software = "PAPER"
+# ...
+
+[group.docker]
+enabled = true
+```
+
+That's the minimum. On the next scale-up of the group:
+
+- Nimbus picks a Java image matching the server's required Java version (17 or 21 based on MC version)
+- Pulls the image if not cached locally
+- Creates a container named `nimbus-bedwars-1` (or whatever the service slot is)
+- Binds the service work dir as `/server` inside the container
+- Maps the allocated host port directly to the same container port
+- Passes the JVM command line from `ServiceFactory` (same command that would run as a bare process, minus the host `java` binary)
+- Attaches to stdin+stdout so `sendCommand("stop")` and the live console still work
+- Applies resource limits from the config
+
+## Per-group overrides
+
+```toml title="config/groups/bedwars.toml"
+[group.docker]
+enabled = true
+memory_limit = "4G"                        # hard cgroup memory cap
+cpu_limit = 3.0                            # CPU quota in cores (2.0 = 2 full cores)
+java_image = "eclipse-temurin:21-jre"      # override auto-selection
+network = "nimbus-bedwars"                 # override default network
+```
+
+Empty strings / `0.0` mean "inherit the module default" from `docker.toml`.
+
+## Dedicated services
+
+Dedicated services get the same `[dedicated.docker]` block:
+
+```toml title="config/dedicated/smp.toml"
+[dedicated]
+name = "SMP"
+port = 25567
+# ...
+
+[dedicated.docker]
+enabled = true
+memory_limit = "8G"
+cpu_limit = 4.0
+```
+
+## Console & dashboard
+
+### Console
+
+```bash
+docker status                # Daemon version + Nimbus container count
+docker ps                    # List Nimbus-managed containers
+docker inspect <name>        # Container details with live stats
+docker prune                 # Remove stopped nimbus.managed=true containers
+```
+
+### Dashboard
+
+`/modules/docker` renders:
+
+- **Status cards**: module enabled, daemon reachable, daemon version, container counters
+- **Container table**: every running Nimbus container with its service/group labels, state, image, ports, and short ID
+- **Prune button** that calls `POST /api/docker/prune`
+
+The **services list** (`/services`) shows a **Docker badge** next to each containerised service. The **group edit dialog** has a Docker section: enabled switch + memory + CPU + image.
+
+## REST API
+
+All endpoints require an admin token:
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/docker/status` | Daemon reachability + version + container counters |
+| `GET /api/docker/containers` | Every Nimbus-managed container |
+| `GET /api/docker/containers/{name}` | Single container with live cgroup stats |
+| `POST /api/docker/prune` | Remove every stopped `nimbus.managed=true` container |
+
+## How recovery works
+
+When the controller restarts, it enumerates every container labelled `nimbus.managed=true` and **re-attaches** to the running ones — no restart of the Minecraft services. The attach stream picks up fresh stdout, the exit watcher resumes, and the handle gets wired into `ServiceManager` exactly as if it had just been created. Stopped containers from previous runs show up in `docker ps -a` until you `docker prune`.
+
+## How memory accounting works
+
+When Docker is active for a service, `ServiceMemoryResolver` prefers the **cgroup memory reading** from `docker stats` over `/proc/<pid>/status`. cgroup memory catches the whole container (any sidecar helper processes, forked JVMs during plugin load, etc.), not just the main `java` PID. This is why dashboard memory numbers for Docker-backed services tend to match `docker stats` exactly.
+
+## How the container is built
+
+The module creates containers with:
+
+- `Tty: true` + `OpenStdin: true` so Nimbus can write `stop\n` to stdin and read stdout from a single hijacked attach connection
+- `RestartPolicy: no` — Nimbus controls restarts, not Docker
+- A bridge network named `nimbus` (auto-created on first start)
+- Labels: `nimbus.managed=true`, `nimbus.service=<name>`, `nimbus.group=<group>`, `nimbus.port=<port>`
+- Port mapping `host:N → container:N` (same port, the server binds what's in `server.properties` / `velocity.toml`)
+- The **entire work dir** bind-mounted at `/server`, so templates, plugins, JARs, worlds, and configs come from the host filesystem — no custom image build required
+
+## Known limitations (Phase 1)
+
+These are on the roadmap but not in this release:
+
+- **Agent-node Docker support.** The cluster protocol needs a tweak so agents can report container runtime info in heartbeats
+- **Pre-built images.** Every container uses `eclipse-temurin:21-jre` + bind-mount. Baking the server JAR into an image is faster to start but needs a build pipeline
+- **Windows named pipes.** TCP via `tcp://localhost:2375` works today; direct `\\.\pipe\docker_engine` support is not wired up
+- **Image pull progress.** First start on a new host pulls ~500 MB silently; a progress indicator in the dashboard would help
+
+## Troubleshooting
+
+**"Daemon unreachable" in `/api/docker/status`**
+Run `docker ps` from the Nimbus user's shell. If it fails with "permission denied on /var/run/docker.sock", you're not in the `docker` group — `sudo usermod -aG docker $USER` and re-login. If the daemon isn't running, `sudo service docker start`.
+
+**Services silently stay on the process path**
+The module falls back to a bare process if the daemon isn't available at service-start time. Check `/api/doctor` — the Docker section surfaces the exact reason. You can also tail the controller log for `Docker daemon not reachable`.
+
+**Container pulled the wrong Java image**
+Set `java_image` explicitly in the group's `[group.docker]` block. Auto-selection looks at the detected system Java binary name for a `(jdk|temurin|jre|openjdk)NN` pattern and falls back to the module default otherwise.
