@@ -2,6 +2,17 @@ import { toast } from "sonner";
 
 const API_URL_KEY = "nimbus_api_url";
 const TOKEN_KEY = "nimbus_api_token";
+export const AUTH_KIND_KEY = "nimbus_auth_kind";
+
+export type AuthKind = "api-token" | "user-session";
+
+export interface UserInfo {
+  uuid: string;
+  name: string;
+  permissions: string[];
+  isAdmin: boolean;
+  totpEnabled: boolean;
+}
 
 /**
  * Extra options accepted by `apiFetch` on top of the standard `RequestInit`.
@@ -45,14 +56,36 @@ export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) || "";
 }
 
+export function getAuthKind(): AuthKind | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(AUTH_KIND_KEY);
+  if (raw === "api-token" || raw === "user-session") return raw;
+  return null;
+}
+
 export function setCredentials(apiUrl: string, token: string) {
   localStorage.setItem(API_URL_KEY, apiUrl);
   localStorage.setItem(TOKEN_KEY, token);
 }
 
+/** Stores an API-token style credential (long-lived controller token). */
+export function setApiTokenCredentials(apiUrl: string, token: string) {
+  localStorage.setItem(API_URL_KEY, apiUrl);
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(AUTH_KIND_KEY, "api-token");
+}
+
+/** Stores a user-session style credential (dashboard login token). */
+export function setUserSessionCredentials(apiUrl: string, token: string) {
+  localStorage.setItem(API_URL_KEY, apiUrl);
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(AUTH_KIND_KEY, "user-session");
+}
+
 export function clearCredentials() {
   localStorage.removeItem(API_URL_KEY);
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(AUTH_KIND_KEY);
 }
 
 export function isAuthenticated(): boolean {
@@ -147,6 +180,23 @@ export async function apiFetch<T = unknown>(
 
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+/**
+ * Silent GET /api/auth/me — resolves to the current user or null on any
+ * failure (missing creds, 401, network, etc.). Never throws, never toasts.
+ * Used by the auth bootstrap + silent refresh loop.
+ */
+export async function fetchMe(): Promise<UserInfo | null> {
+  if (!getApiUrl() || !getToken()) return null;
+  try {
+    const { url, init } = buildRequest("/api/auth/me", { method: "GET" });
+    const res = await fetch(url, init);
+    if (!res.ok) return null;
+    return (await res.json()) as UserInfo;
+  } catch {
+    return null;
+  }
 }
 
 /**
