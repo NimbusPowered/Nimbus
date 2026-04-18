@@ -55,3 +55,6 @@ project(":nimbus-module-backup").projectDir = file("modules/backup")
 
 include("nimbus-module-docker")
 project(":nimbus-module-docker").projectDir = file("modules/docker")
+
+include("nimbus-module-auth")
+project(":nimbus-module-auth").projectDir = file("modules/auth")
