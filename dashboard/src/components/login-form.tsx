@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -342,15 +341,9 @@ export function LoginForm({
 
         <CardHeader className="text-center">
           <div className="mb-2 flex justify-center">
-            <Image
-              src="/icon.png"
-              alt="Nimbus"
-              width={64}
-              height={64}
-              priority
-              className="h-16 w-16"
-            />
+            <NimbusLogo className="h-16 w-16" />
           </div>
+          <span className="sr-only">Nimbus</span>
           {description && <CardDescription>{description}</CardDescription>}
           {screen !== "connect" && resolvedUrl && (
             <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -648,6 +641,49 @@ function MethodCard({
         <span className="text-xs text-muted-foreground">{description}</span>
       </div>
     </button>
+  );
+}
+
+/**
+ * Vector Nimbus mark — stylised cloud with a monospace "N" carved out.
+ * Pure SVG so it stays crisp at any size; uses the banner palette
+ * (#7aa2f7 → #7dcfff) so it visually matches the ASCII banner used
+ * elsewhere in the app. Safe fallback until we ship a hi-res logo asset.
+ */
+function NimbusLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      aria-hidden="true"
+      className={className}
+    >
+      <defs>
+        <linearGradient id="nimbus-logo-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#7aa2f7" />
+          <stop offset="55%" stopColor="#89b4fa" />
+          <stop offset="100%" stopColor="#7dcfff" />
+        </linearGradient>
+      </defs>
+      {/* Cloud silhouette — three overlapping circles + a base */}
+      <g fill="url(#nimbus-logo-grad)">
+        <circle cx="22" cy="30" r="12" />
+        <circle cx="40" cy="26" r="13" />
+        <circle cx="48" cy="34" r="10" />
+        <rect x="16" y="32" width="36" height="14" rx="7" />
+      </g>
+      {/* Carved "N" — uses the card's background colour so it reads as a cutout */}
+      <g fill="var(--card, #ffffff)" fontFamily="'JetBrains Mono', ui-monospace, monospace" fontWeight="700">
+        <text
+          x="32"
+          y="42"
+          textAnchor="middle"
+          fontSize="22"
+          letterSpacing="-1"
+        >
+          N
+        </text>
+      </g>
+    </svg>
   );
 }
 
