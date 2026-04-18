@@ -67,13 +67,17 @@ Core (root):
 - `nimbus-protocol` — Shared cluster message types
 - `nimbus-cli` — Remote CLI: standalone JLine3 console that connects to controller via REST + WebSocket (no Minecraft dependencies)
 
-Plugins (`plugins/`):
+Core Plugins (`plugins/`) — deployed on every service/proxy independent of installed modules:
 - `plugins/sdk` — Server SDK (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed to backend servers)
-- `plugins/bridge` — Velocity plugin: hub commands + cloud bridge + punishment login enforcement (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
-- `plugins/perms` — Permissions plugin: builtin or LuckPerms provider (Spigot 1.8.8+ / Paper / Folia compatible, auto-deployed, configurable)
-- `plugins/display` — Display plugin: server selector signs + NPCs via FancyNpcs (Spigot 1.13+ signs, Paper 1.20+ NPCs, Folia compatible)
-- `plugins/punishments` — Punishments plugin: in-game `/ban` `/tempban` `/mute` `/tempmute` `/kick` `/warn` `/unban` `/unmute` `/history` commands + chat mute listener (cross-version, Folia compatible)
-- `plugins/resourcepacks` — Resource packs plugin: applies network-wide packs on player join, 1.20.3+ multi-pack stack, telemetry reporting (cross-version, Folia compatible)
+- `plugins/bridge` — Velocity plugin: `/cloud` + `/nimbus` commands, cloud bridge, remote-command forwarding (incl. caller UUID for caller-scoped module commands) (Java, auto-embedded as resource `nimbus-bridge.jar` during build)
+
+Module-owned plugins (live next to their owning module under `modules/<mod>/plugin[-variant]/`, auto-deployed only when that module is enabled via `ModuleContext.registerPluginDeployment(...)`):
+- `modules/perms/plugin` — Permissions plugin (Spigot/Paper/Folia, builtin or LuckPerms provider)
+- `modules/display/plugin` — Display plugin: server selector signs + NPCs via FancyNpcs (Spigot 1.13+ signs, Paper 1.20+ NPCs, Folia compatible)
+- `modules/punishments/plugin-backend` — Chat mute listener (enforces mutes without registering commands)
+- `modules/punishments/plugin-velocity` — Velocity listeners for login-enforcement (ban/ipban)
+- `modules/resourcepacks/plugin` — Applies network-wide packs on player join, 1.20.3+ multi-pack stack, telemetry
+- `modules/auth/plugin-velocity` — Delivers dashboard-initiated magic-link chat components via `AUTH_MAGIC_LINK_DELIVERY` event subscription (no command registration — `/nimbus dashboard …` runs through Bridge's remote-command forwarding)
 - (no backup plugin — backup module runs entirely on the controller; no SDK calls into running services)
 
 Controller Modules (`modules/`):
