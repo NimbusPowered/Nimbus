@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { PageShell } from "@/components/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useApiResource } from "@/hooks/use-api-resource";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { CheckCircle2, CircleAlert, Shield } from "@/lib/icons";
@@ -32,8 +33,63 @@ interface TotpEnrollResponse {
   recoveryCodes: string[];
 }
 
+interface SessionSummaryDto {
+  sessionId: string;
+  name: string;
+  createdAt: number;
+  expiresAt: number;
+  lastUsedAt: number;
+  ip: string | null;
+  userAgent: string | null;
+  loginMethod: string;
+}
+
+interface MySessionsResponse {
+  sessions: SessionSummaryDto[];
+  currentSessionId: string;
+}
+
 function qrSrc(uri: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(uri)}`;
+}
+
+function formatRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 0) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function formatAbsolute(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return String(ts);
+  }
+}
+
+function shortUserAgent(ua: string | null): string {
+  if (!ua) return "unknown client";
+  return ua.length > 50 ? `${ua.slice(0, 50)}…` : ua;
+}
+
+function loginMethodLabel(m: string): string {
+  switch (m) {
+    case "code":
+      return "code";
+    case "magic_link":
+      return "magic link";
+    case "totp":
+      return "totp";
+    default:
+      return m;
+  }
 }
 
 export default function ProfileSecurityPage() {
@@ -49,6 +105,16 @@ export default function ProfileSecurityPage() {
     { silent: true }
   );
 
+  const {
+    data: sessionsData,
+    loading: sessionsLoading,
+    error: sessionsError,
+    refetch: refetchSessions,
+  } = useApiResource<MySessionsResponse>(
+    state.kind === "user" ? "/api/auth/my-sessions" : null,
+    { poll: POLL.slow, silent: true }
+  );
+
   const [enrollment, setEnrollment] = useState<TotpEnrollResponse | null>(null);
   const [confirmCode, setConfirmCode] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -58,6 +124,9 @@ export default function ProfileSecurityPage() {
   const [disabling, setDisabling] = useState(false);
 
   const [enrolling, setEnrolling] = useState(false);
+
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokingOthers, setRevokingOthers] = useState(false);
 
   if (state.kind === "api-token") {
     return (
@@ -146,6 +215,37 @@ export default function ProfileSecurityPage() {
       toast.success(`${label} copied`);
     } catch {
       toast.error("Clipboard copy failed");
+    }
+  };
+
+  const revokeSession = async (sessionId: string) => {
+    setRevokingId(sessionId);
+    try {
+      await apiFetch(`/api/auth/my-sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      toast.success("Session revoked");
+      await refetchSessions();
+    } catch {
+      // apiFetch surfaces toast
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  const revokeOthers = async () => {
+    setRevokingOthers(true);
+    try {
+      const res = await apiFetch<{ revoked: number }>(
+        "/api/auth/my-sessions/revoke-others",
+        { method: "POST" }
+      );
+      toast.success(`Revoked ${res.revoked} other session${res.revoked === 1 ? "" : "s"}`);
+      await refetchSessions();
+    } catch {
+      // apiFetch surfaces toast
+    } finally {
+      setRevokingOthers(false);
     }
   };
 
@@ -281,6 +381,96 @@ export default function ProfileSecurityPage() {
     );
   };
 
+  const renderSessionsCard = () => {
+    const hasOthers =
+      sessionsData !== null &&
+      sessionsData.sessions.some(
+        (s) => s.sessionId !== sessionsData.currentSessionId
+      );
+
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-2">
+            <span>Sessions</span>
+            {hasOthers && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={revokeOthers}
+                disabled={revokingOthers}
+              >
+                {revokingOthers ? "Signing out…" : "Sign out everywhere else"}
+              </Button>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 text-sm">
+          {sessionsLoading && !sessionsData && (
+            <p className="text-muted-foreground">Loading sessions…</p>
+          )}
+          {sessionsError && !sessionsData && (
+            <p className="text-[color:var(--severity-err)]">
+              Failed to load sessions.{" "}
+              <button
+                className="underline underline-offset-4"
+                onClick={() => refetchSessions()}
+              >
+                Retry
+              </button>
+            </p>
+          )}
+          {sessionsData && sessionsData.sessions.length === 0 && (
+            <p className="text-muted-foreground">No active sessions.</p>
+          )}
+          {sessionsData &&
+            sessionsData.sessions.map((s) => {
+              const isCurrent = s.sessionId === sessionsData.currentSessionId;
+              return (
+                <div
+                  key={s.sessionId}
+                  className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{s.name}</span>
+                      {isCurrent && (
+                        <span className="text-xs text-[color:var(--severity-ok)]">
+                          (this session)
+                        </span>
+                      )}
+                      <Badge variant="secondary">
+                        {loginMethodLabel(s.loginMethod)}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {s.ip ?? "unknown"} · {shortUserAgent(s.userAgent)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Last used: {formatRelative(s.lastUsedAt)} · Expires:{" "}
+                      {formatAbsolute(s.expiresAt)}
+                    </div>
+                  </div>
+                  {!isCurrent && (
+                    <div className="shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => revokeSession(s.sessionId)}
+                        disabled={revokingId === s.sessionId}
+                      >
+                        {revokingId === s.sessionId ? "Revoking…" : "Revoke"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <PageShell
       title="Security"
@@ -288,16 +478,7 @@ export default function ProfileSecurityPage() {
     >
       <div className="flex flex-col gap-4">
         {renderTotpCard()}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Sessions</CardTitle>
-          </CardHeader>
-          <CardContent className="py-2 text-sm text-muted-foreground">
-            Session management coming soon — you will be able to review and
-            revoke active dashboard sessions from here.
-          </CardContent>
-        </Card>
+        {renderSessionsCard()}
       </div>
 
       {/* Enrollment modal */}

@@ -20,13 +20,16 @@ import java.util.UUID;
 /**
  * Velocity companion to the Nimbus dashboard-auth module.
  *
- * <p>Registers the proxy-side {@code /dashboard} command so players on the
- * proxy can request a login code / magic link. Since every Nimbus player
- * connects through the Velocity proxy, the proxy also delivers
- * dashboard-initiated magic-link chat components — no backend plugin needed.
+ * <p>Its only job is to deliver dashboard-initiated magic-link chat
+ * components: the dashboard login page posts a player's name, the auth
+ * controller module fires an {@code AUTH_MAGIC_LINK_DELIVERY} event, and
+ * this plugin turns that event into a clickable Adventure message for the
+ * target player if they're connected to this proxy.
  *
- * <p>All HTTP calls use the service's {@code NIMBUS_API_TOKEN} against the
- * auth module's SERVICE-auth endpoints.
+ * <p>The in-game {@code /nimbus dashboard …} command lives in the Bridge's
+ * CloudCommand now — it forwards to the controller's {@code DashboardCommand}
+ * module command, same pattern as every other Nimbus module. No
+ * command registration here.
  *
  * <p>Deployment: auto-installed on every Velocity proxy by the auth
  * controller module via {@code PluginDeployment(target = VELOCITY)}.
@@ -35,7 +38,7 @@ import java.util.UUID;
     id = "nimbus-auth",
     name = "Nimbus Auth",
     version = "0.0.0",  // replaced at build time from gradle.properties
-    description = "In-game /dashboard command + magic-link delivery for Nimbus Velocity proxies",
+    description = "Magic-link chat delivery for Nimbus dashboard auth",
     authors = {"NimbusPowered"}
 )
 public class NimbusAuthVelocityPlugin {
@@ -63,17 +66,10 @@ public class NimbusAuthVelocityPlugin {
                 : System.getProperty("nimbus.api.token", "");
 
         if (apiUrl == null || apiUrl.isEmpty()) {
-            logger.warn("No nimbus.api.url configured — NimbusAuth proxy-side /dashboard disabled");
+            logger.warn("No nimbus.api.url configured — NimbusAuth magic-link delivery disabled");
             return;
         }
         if (apiUrl.endsWith("/")) apiUrl = apiUrl.substring(0, apiUrl.length() - 1);
-
-        AuthApiClient api = new AuthApiClient(apiUrl, token, logger);
-
-        var meta = server.getCommandManager().metaBuilder("dashboard")
-            .plugin(this)
-            .build();
-        server.getCommandManager().register(meta, new DashboardVelocityCommand(api));
 
         // Subscribe to AUTH_MAGIC_LINK_DELIVERY module events. The controller
         // fires one whenever the dashboard login page requests a magic link
@@ -97,13 +93,12 @@ public class NimbusAuthVelocityPlugin {
                 server.getPlayer(uuid).ifPresent(p -> sendMagicLink(p, url, ttl));
             });
             eventStream.connect();
+            logger.info("NimbusAuth enabled — AUTH_MAGIC_LINK_DELIVERY subscribed");
         } catch (Exception e) {
             logger.warn("Failed to subscribe to AUTH_MAGIC_LINK_DELIVERY — "
                     + "dashboard-initiated magic links will not reach players on this proxy: {}",
                     e.getMessage());
         }
-
-        logger.info("NimbusAuth enabled — /dashboard registered, AUTH_MAGIC_LINK_DELIVERY subscribed");
     }
 
     @Subscribe

@@ -204,6 +204,52 @@ class SessionService(
         }
     }
 
+    /**
+     * Revoke a single session belonging to [uuid], matched by its public
+     * `sessionId` (the first 16 hex chars of the token hash). Matching is
+     * done in-process because `max_per_user` caps the row count tight
+     * enough that a full-row scan per uuid is cheaper than smuggling a
+     * cross-DB substring function into the SQL.
+     *
+     * Returns whether a matching session was found and updated; callers
+     * should treat false as "not found" (avoids leaking existence).
+     */
+    suspend fun revokeOwnedSession(uuid: UUID, sessionId: String): Boolean {
+        if (sessionId.isBlank() || sessionId.length > 64) return false
+        return newSuspendedTransaction(Dispatchers.IO, db.database) {
+            val match = DashboardSessions.selectAll()
+                .where { (DashboardSessions.uuid eq uuid.toString()) and (DashboardSessions.revoked eq false) }
+                .firstOrNull { it[DashboardSessions.tokenHash].startsWith(sessionId) }
+                ?: return@newSuspendedTransaction false
+            val hash = match[DashboardSessions.tokenHash]
+            DashboardSessions.update({ DashboardSessions.tokenHash eq hash }) {
+                it[revoked] = true
+            } > 0
+        }
+    }
+
+    /**
+     * Revoke every session for [uuid] except the one identified by
+     * [keepSessionId]. Returns the number of rows flipped.
+     */
+    suspend fun revokeOtherSessions(uuid: UUID, keepSessionId: String): Int {
+        return newSuspendedTransaction(Dispatchers.IO, db.database) {
+            val rows = DashboardSessions.selectAll()
+                .where { (DashboardSessions.uuid eq uuid.toString()) and (DashboardSessions.revoked eq false) }
+                .toList()
+            var revokedCount = 0
+            for (row in rows) {
+                val hash = row[DashboardSessions.tokenHash]
+                if (hash.startsWith(keepSessionId)) continue
+                DashboardSessions.update({ DashboardSessions.tokenHash eq hash }) {
+                    it[revoked] = true
+                }
+                revokedCount++
+            }
+            revokedCount
+        }
+    }
+
     suspend fun revokeAll(uuid: UUID): Int {
         return newSuspendedTransaction(Dispatchers.IO, db.database) {
             DashboardSessions.update({ DashboardSessions.uuid eq uuid.toString() }) {

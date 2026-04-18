@@ -468,8 +468,86 @@ fun Route.authRoutes(
                 totpEnabled = totpService.isEnabled(principal.uuid.toString())
             ))
         }
+
+        /**
+         * User-scoped sessions listing. Uses the bearer session to identify
+         * the caller and only returns *their* active sessions — no cross-user
+         * leakage. The flag `currentSession` lets the UI highlight the
+         * session that's making the call right now.
+         */
+        get("my-sessions") {
+            val raw = extractBearerToken(call)
+                ?: return@get call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Missing session token", ApiErrors.UNAUTHORIZED))
+            val principal = sessionService.validate(raw)
+                ?: return@get call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Invalid or expired session", AuthErrors.AUTH_SESSION_INVALID))
+
+            val currentSessionId = principal.sessionId
+            val list = sessionService.listForUser(principal.uuid).map { s ->
+                SessionSummaryDto(
+                    sessionId = s.sessionId,
+                    name = s.name,
+                    createdAt = s.createdAt,
+                    expiresAt = s.expiresAt,
+                    lastUsedAt = s.lastUsedAt,
+                    ip = s.ip,
+                    userAgent = s.userAgent,
+                    loginMethod = s.loginMethod
+                )
+            }
+            call.respond(MySessionsResponse(sessions = list, currentSessionId = currentSessionId))
+        }
+
+        /**
+         * Revoke a specific sibling session of the caller. We match by the
+         * prefix-16 `sessionId` (since we never hand the raw token back —
+         * only the hash prefix is safe to expose). Revoking one's own current
+         * session is allowed but the client should prefer `/api/auth/logout`
+         * which also clears local state.
+         */
+        delete("my-sessions/{sessionId}") {
+            val raw = extractBearerToken(call)
+                ?: return@delete call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Missing session token", ApiErrors.UNAUTHORIZED))
+            val principal = sessionService.validate(raw)
+                ?: return@delete call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Invalid or expired session", AuthErrors.AUTH_SESSION_INVALID))
+            val sid = call.parameters["sessionId"]
+                ?: return@delete call.respond(HttpStatusCode.BadRequest,
+                    apiError("sessionId required", ApiErrors.VALIDATION_FAILED))
+            val revoked = sessionService.revokeOwnedSession(principal.uuid, sid)
+            if (revoked) {
+                call.respond(ApiMessage(success = true, message = "Session revoked"))
+            } else {
+                call.respond(HttpStatusCode.NotFound,
+                    apiError("Session not found", ApiErrors.NOT_FOUND))
+            }
+        }
+
+        /**
+         * Revoke every OTHER session for the caller, keeping the one making
+         * this call alive (so the user doesn't get logged out by their own
+         * "log me out everywhere" click).
+         */
+        post("my-sessions/revoke-others") {
+            val raw = extractBearerToken(call)
+                ?: return@post call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Missing session token", ApiErrors.UNAUTHORIZED))
+            val principal = sessionService.validate(raw)
+                ?: return@post call.respond(HttpStatusCode.Unauthorized,
+                    apiError("Invalid or expired session", AuthErrors.AUTH_SESSION_INVALID))
+            val revoked = sessionService.revokeOtherSessions(principal.uuid, principal.sessionId)
+            call.respond(LogoutAllResponse(revoked))
+        }
     }
 }
+
+@Serializable
+data class MySessionsResponse(
+    val sessions: List<SessionSummaryDto>,
+    val currentSessionId: String
+)
 
 internal fun extractBearerToken(call: io.ktor.server.application.ApplicationCall): String? {
     val header = call.request.headers["Authorization"] ?: return null

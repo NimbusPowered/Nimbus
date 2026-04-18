@@ -11,6 +11,7 @@ import dev.nimbuspowered.nimbus.module.NimbusModule
 import dev.nimbuspowered.nimbus.module.PluginDeployment
 import dev.nimbuspowered.nimbus.module.PluginTarget
 import dev.nimbuspowered.nimbus.module.SessionValidator
+import dev.nimbuspowered.nimbus.module.auth.commands.DashboardCommand
 import dev.nimbuspowered.nimbus.module.auth.migrations.AuthV8000_Sessions
 import dev.nimbuspowered.nimbus.module.auth.migrations.AuthV8001_Challenges
 import dev.nimbuspowered.nimbus.module.auth.migrations.AuthV8002_Totp
@@ -182,6 +183,16 @@ class AuthModule : NimbusModule {
             },
             auth = AuthLevel.NONE
         )
+
+        // Register the Bridge-facing `/nimbus dashboard …` command. Replaces
+        // the old standalone `/dashboard` in the Velocity plugin so auth
+        // follows the same pattern as punish/perms/scaling/etc.
+        context.registerCommand(DashboardCommand(
+            challengeService = challengeService,
+            sessionService = sessionService,
+            publicUrlSupplier = publicUrlSupplier,
+            configSupplier = configSupplier
+        ))
 
         context.registerService(LoginChallengeService::class.java, challengeService)
         context.registerService(SessionService::class.java, sessionService)
