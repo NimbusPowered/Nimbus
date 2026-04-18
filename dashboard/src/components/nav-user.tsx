@@ -20,7 +20,6 @@ import {
 import {
   EllipsisVerticalIcon,
   LogOutIcon,
-  ServerIcon,
   Shield,
   UserCheck,
   Gauge,
@@ -79,9 +78,16 @@ export function NavUser() {
                 />
               }
             >
-              <div className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <ServerIcon className="size-4" />
-              </div>
+              {/* Command-block head — same asset used on the login-screen
+                  API-token MethodCard so the two views stay visually tied. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://mc-heads.net/avatar/eb6cee8fda7ef0b3ae0eb0579d5676ce36af7efc574d88728f3894f6b166538/32"
+                alt=""
+                width={32}
+                height={32}
+                className="size-8 rounded-lg"
+              />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">API Admin</span>
                 <span className="truncate text-xs text-foreground/70">
