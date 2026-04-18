@@ -151,6 +151,50 @@ class SessionService(
         }
     }
 
+    /**
+     * Refresh the cached `permissions_snapshot` for every active session of a
+     * given UUID. Called from the `PermissionsChanged` event subscription so
+     * group/permission mutations take effect without waiting for re-login.
+     *
+     * Returns the number of sessions updated.
+     */
+    suspend fun refreshPermissionsFor(uuid: String, permissions: PermissionSet): Int {
+        val snapshot = permissions.asSet().joinToString(",")
+        return newSuspendedTransaction(Dispatchers.IO, db.database) {
+            DashboardSessions.update({
+                (DashboardSessions.uuid eq uuid) and
+                    (DashboardSessions.revoked eq false)
+            }) {
+                it[permissionsSnapshot] = snapshot
+            }
+        }
+    }
+
+    /**
+     * Refresh permissions for every active session by re-resolving each
+     * unique UUID via [resolve]. Used on group-scope perms mutations (group
+     * create/update/delete, track create/delete) where any group member may
+     * be affected.
+     */
+    suspend fun refreshAllActive(resolve: (String) -> PermissionSet): Int {
+        val now = System.currentTimeMillis()
+        val uuids = newSuspendedTransaction(Dispatchers.IO, db.database) {
+            DashboardSessions
+                .selectAll()
+                .where {
+                    (DashboardSessions.revoked eq false) and
+                        (DashboardSessions.expiresAt greaterEq now)
+                }
+                .map { it[DashboardSessions.uuid] }
+                .toSet()
+        }
+        var total = 0
+        for (uuid in uuids) {
+            total += refreshPermissionsFor(uuid, resolve(uuid))
+        }
+        return total
+    }
+
     suspend fun revoke(rawToken: String): Boolean {
         val hash = LoginChallengeService.sha256Hex(rawToken.trim())
         return newSuspendedTransaction(Dispatchers.IO, db.database) {

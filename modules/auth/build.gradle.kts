@@ -6,6 +6,7 @@ plugins {
 dependencies {
     compileOnly(project(":nimbus-core"))
     compileOnly(project(":nimbus-module-api"))
+    compileOnly(project(":nimbus-module-perms"))
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
     compileOnly("io.ktor:ktor-server-core:3.1.1")

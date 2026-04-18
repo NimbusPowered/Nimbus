@@ -7,6 +7,7 @@ import dev.nimbuspowered.nimbus.module.PermissionSet
 import dev.nimbuspowered.nimbus.module.auth.AuthConfig
 import dev.nimbuspowered.nimbus.module.auth.service.ChallengeKind
 import dev.nimbuspowered.nimbus.module.auth.service.LoginChallengeService
+import dev.nimbuspowered.nimbus.module.auth.service.PermissionResolver
 import dev.nimbuspowered.nimbus.module.auth.service.SessionService
 import io.ktor.http.*
 import io.ktor.server.request.*
@@ -76,6 +77,7 @@ data class ConsumeChallengeResponse(
 fun Route.authRoutes(
     challengeService: LoginChallengeService,
     sessionService: SessionService,
+    permissionResolver: PermissionResolver,
     configSupplier: () -> AuthConfig
 ) {
     route("/api/auth") {
@@ -154,8 +156,10 @@ fun Route.authRoutes(
                 ?: return@post call.respond(HttpStatusCode.InternalServerError,
                     apiError("Stored challenge has invalid uuid", ApiErrors.INTERNAL_ERROR))
 
-            // Phase 2 will resolve real permissions from the Perms module here.
-            val permissions = PermissionSet.EMPTY
+            // Resolve the user's effective permission set via the Perms module.
+            // If Perms is disabled the resolver returns EMPTY — the MC-login path
+            // then has no dashboard access, but API tokens keep working (admin).
+            val permissions = permissionResolver.resolve(consumed.uuid)
             val loginMethod = when (consumed.kind) {
                 ChallengeKind.CODE -> "code"
                 ChallengeKind.MAGIC_LINK -> "magic_link"
