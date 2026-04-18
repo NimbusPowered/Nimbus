@@ -1,0 +1,190 @@
+---
+title: Dashboard Auth & RBAC
+description: Per-user Minecraft-account login, TOTP 2FA, and role-based access control for the Nimbus Dashboard.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Nimbus Dashboard (v0.11+) supports per-user login tied to Minecraft accounts, with granular permissions powered by the Perms module. API tokens still work as admin-superuser for CLI and automation — nothing breaks.
+
+## How users sign in
+
+Two flavours, both verified via the user's in-game Minecraft session. No passwords, no Microsoft SSO (3rd-party apps can't do Mojang OAuth).
+
+### Login Code
+
+1. Player joins any Nimbus-managed server, types `/dashboard login`.
+2. Chat reply: `§a[Nimbus] §fYour login code: §e483 927 §7(60s valid).`
+3. Player opens the dashboard → selects the **Minecraft Account** tab → types the 6-digit code.
+4. Session created. Sidebar populates with only the pages the user's permissions allow.
+
+### Magic Link ✨
+
+1. On the login page, switch to the **Magic Link** sub-toggle.
+2. Type your username → dashboard responds with "Check your in-game chat ✨".
+3. In-game chat message: `§d✨ §f[Nimbus] §fYour magic login link is ready! §e§l[Click to sign in]§r §7(60s valid)`.
+4. Clicking opens the dashboard with `?link=<token>` → auto-consumed, URL cleaned up, session created.
+
+The magic-link flow can also be triggered from inside the game: `/dashboard login link`.
+
+<Callout type="info">
+Operators can disable magic-link login entirely via `magic_link_enabled = false` in `config/modules/auth/auth.toml`, forcing code-only.
+</Callout>
+
+## Two-factor authentication (TOTP)
+
+Users can enable TOTP from **Profile → Security**:
+
+1. Click **Enable 2FA** → QR code + 10 recovery codes appear.
+2. Scan with any authenticator app (Google Authenticator, 1Password, Bitwarden, ...).
+3. Enter a 6-digit code to confirm.
+4. **Save the recovery codes** — they won't be shown again. Each is single-use.
+
+Next login: after consuming the code/magic-link, the dashboard prompts for a TOTP code. Recovery codes are accepted here too for the "I lost my phone" case.
+
+### `require_for_admin`
+
+Set `[totp] require_for_admin = true` in `auth.toml` to enforce 2FA for `nimbus.dashboard.admin` holders. Enforcement is done at the UI layer — the dashboard prompts admins without TOTP to enroll on first login. The backend does not *block* login, so you can still recover a locked-out admin by disabling the flag.
+
+## Permission model
+
+All dashboard nodes live under `nimbus.dashboard.*`. They resolve through the existing Perms module with full wildcard support (`*`, `.`-segment expansion). Grant them like any other permission node — to groups, to individual players, via tracks, etc.
+
+### Gatekeeper
+
+```
+nimbus.dashboard.access          # REQUIRED — any user without this is rejected at login
+```
+
+### Per-feature nodes
+
+```
+nimbus.dashboard.overview                     # Home / cluster status
+nimbus.dashboard.services.view
+nimbus.dashboard.services.start
+nimbus.dashboard.services.stop
+nimbus.dashboard.services.restart
+nimbus.dashboard.services.console             # Live console WebSocket
+nimbus.dashboard.services.edit_config
+
+nimbus.dashboard.groups.view
+nimbus.dashboard.groups.edit
+
+nimbus.dashboard.dedicated.view
+nimbus.dashboard.dedicated.manage
+
+nimbus.dashboard.players.view
+nimbus.dashboard.players.kick
+nimbus.dashboard.players.history
+
+nimbus.dashboard.punishments.view
+nimbus.dashboard.punishments.warn
+nimbus.dashboard.punishments.mute
+nimbus.dashboard.punishments.tempmute
+nimbus.dashboard.punishments.kick
+nimbus.dashboard.punishments.ban
+nimbus.dashboard.punishments.tempban
+nimbus.dashboard.punishments.ipban
+nimbus.dashboard.punishments.revoke
+nimbus.dashboard.punishments.history
+
+nimbus.dashboard.resourcepacks.view
+nimbus.dashboard.resourcepacks.manage
+nimbus.dashboard.resourcepacks.assign
+
+nimbus.dashboard.backups.view
+nimbus.dashboard.backups.trigger
+nimbus.dashboard.backups.restore
+nimbus.dashboard.backups.delete
+nimbus.dashboard.backups.edit_config
+
+nimbus.dashboard.perms.view
+nimbus.dashboard.perms.edit
+
+nimbus.dashboard.docker.view
+nimbus.dashboard.docker.manage
+
+nimbus.dashboard.scaling.view
+nimbus.dashboard.scaling.edit
+
+nimbus.dashboard.nodes.view
+nimbus.dashboard.nodes.manage
+
+nimbus.dashboard.maintenance.toggle
+nimbus.dashboard.reload
+nimbus.dashboard.shutdown
+
+nimbus.dashboard.audit.view
+
+nimbus.dashboard.admin                         # Short-circuits all checks
+```
+
+### Recommended group templates
+
+Copy-paste starting point — Nimbus does **not** auto-create these.
+
+#### Supporter
+
+```
+nimbus.dashboard.access
+nimbus.dashboard.overview
+nimbus.dashboard.players.view
+nimbus.dashboard.players.kick
+nimbus.dashboard.players.history
+nimbus.dashboard.punishments.view
+nimbus.dashboard.punishments.warn
+nimbus.dashboard.punishments.mute
+nimbus.dashboard.punishments.tempmute
+nimbus.dashboard.punishments.kick
+nimbus.dashboard.punishments.history
+```
+
+#### Moderator — Supporter + bans/revoke
+
+```
+nimbus.dashboard.punishments.ban
+nimbus.dashboard.punishments.tempban
+nimbus.dashboard.punishments.revoke
+```
+
+#### Developer — infrastructure, no player moderation
+
+```
+nimbus.dashboard.access
+nimbus.dashboard.overview
+nimbus.dashboard.services.*
+nimbus.dashboard.groups.*
+nimbus.dashboard.dedicated.*
+nimbus.dashboard.resourcepacks.*
+nimbus.dashboard.scaling.*
+nimbus.dashboard.nodes.view
+nimbus.dashboard.audit.view
+```
+
+#### Admin
+
+```
+nimbus.dashboard.admin
+```
+
+## Backwards compatibility
+
+| Consumer                     | Behaviour                            |
+|------------------------------|--------------------------------------|
+| CLI (`nimbus-cli`)           | API token, unchanged, admin          |
+| Remote automation            | API token, unchanged, admin          |
+| Dashboard (existing users)   | API token still works; MC login preferred |
+| In-game Bridge → Controller  | Cluster token, unchanged             |
+
+API tokens are treated as implicit `nimbus.dashboard.admin` — every existing integration keeps its full access without configuration changes.
+
+## Security notes
+
+- Session tokens are 256-bit URL-safe random. Only `sha256(token)` is stored — a DB leak cannot be replayed as a valid session.
+- Login challenges (codes + magic links) live at most 60 seconds, are single-use, and are also stored hashed.
+- Magic-link tokens carry more leak surface than codes (URL history, referrer, clipboard) — the login page sets `Referrer-Policy: no-referrer`, consumes the token on load, and strips it from the URL via `history.replaceState`.
+- TOTP secrets are AES-GCM encrypted at rest using a per-install key in `config/modules/auth/session.key` (auto-generated, chmod 600).
+- Recovery codes are SHA-256 hashed and single-use.
+- Rate limits: 5 code/magic-link issuances per minute per UUID; global 120/min request limit already applies.
+
+See [Auth config reference](/docs/config/auth) for tuneables.
