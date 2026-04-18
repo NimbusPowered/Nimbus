@@ -28,6 +28,9 @@ project(":nimbus-punishments-backend").projectDir = file("plugins/punishments-ba
 include("nimbus-resourcepacks")
 project(":nimbus-resourcepacks").projectDir = file("plugins/resourcepacks")
 
+include("nimbus-auth-velocity")
+project(":nimbus-auth-velocity").projectDir = file("plugins/auth-velocity")
+
 // Controller Modules
 include("nimbus-module-api")
 project(":nimbus-module-api").projectDir = file("modules/api")

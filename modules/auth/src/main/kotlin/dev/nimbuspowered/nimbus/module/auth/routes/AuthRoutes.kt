@@ -3,6 +3,8 @@ package dev.nimbuspowered.nimbus.module.auth.routes
 import dev.nimbuspowered.nimbus.api.ApiErrors
 import dev.nimbuspowered.nimbus.api.ApiMessage
 import dev.nimbuspowered.nimbus.api.apiError
+import dev.nimbuspowered.nimbus.event.EventBus
+import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.module.PermissionSet
 import dev.nimbuspowered.nimbus.module.auth.AuthConfig
 import dev.nimbuspowered.nimbus.module.auth.service.ChallengeKind
@@ -25,6 +27,7 @@ object AuthErrors {
     const val AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
     const val AUTH_DISABLED = "AUTH_DISABLED"
     const val AUTH_SESSION_INVALID = "AUTH_SESSION_INVALID"
+    const val PLAYER_OFFLINE = "PLAYER_OFFLINE"
 }
 
 @Serializable
@@ -68,23 +71,60 @@ data class ConsumeChallengeResponse(
     val totpRequired: Boolean = false
 )
 
+/** Dashboard-initiated magic-link delivery request. */
+@Serializable
+data class DeliverMagicLinkRequest(val name: String)
+
+@Serializable
+data class DeliverMagicLinkResponse(val status: String = "delivered", val ttlSeconds: Long)
+
+@Serializable
+data class SessionSummaryDto(
+    val sessionId: String,
+    val name: String,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val lastUsedAt: Long,
+    val ip: String?,
+    val userAgent: String?,
+    val loginMethod: String
+)
+
+@Serializable
+data class SessionListResponse(val sessions: List<SessionSummaryDto>)
+
+@Serializable
+data class LogoutAllResponse(val revoked: Int)
+
 /**
- * Registers the /api/auth routes.
- *
- * Phase 1 scope: generate-code, request-magic-link, consume-challenge, logout, me.
- * TOTP flow (`totp_required`) and the in-game magic-link delivery live in later phases.
+ * Abstraction over the online-player lookup used to resolve a dashboard-initiated
+ * magic-link request to a specific in-game player. Backed by the `players` module's
+ * `PlayerTracker` when present — otherwise the deliver-magic-link endpoint returns
+ * 404 `PLAYER_OFFLINE` (fail-closed, consistent with the contract).
  */
-fun Route.authRoutes(
+fun interface PlayerLookup {
+    /** Resolve a player name to `(uuid, service)` if currently online, else `null`. */
+    fun findOnlinePlayer(name: String): Pair<String, String>?
+}
+
+/**
+ * Bridge/SDK-facing auth routes — service-token authenticated.
+ *
+ * These are what the in-game `/dashboard` command hits to issue codes/links
+ * that the player can then enter on the dashboard. Separated from the public
+ * block below so operators can audit that no backend-plugin endpoint is
+ * reachable without a token.
+ */
+fun Route.authServiceRoutes(
     challengeService: LoginChallengeService,
     sessionService: SessionService,
-    permissionResolver: PermissionResolver,
-    configSupplier: () -> AuthConfig
+    configSupplier: () -> AuthConfig,
+    publicUrlSupplier: () -> String
 ) {
     route("/api/auth") {
 
-        // Used by the Bridge/SDK (Phase 3) to hand a freshly generated code back
-        // to the in-game player. Cluster-token-authenticated in production — the
-        // core wires this into the service-token route block for now.
+        // Called by the Bridge/SDK to hand a freshly generated 6-digit code
+        // back to the in-game player via chat.
         post("generate-code") {
             val req = runCatching { call.receive<GenerateCodeRequest>() }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest,
@@ -106,6 +146,10 @@ fun Route.authRoutes(
             }
         }
 
+        // Called by the Bridge/SDK when the player runs `/dashboard login link`.
+        // Returns the pre-built URL so the caller can render the clickable
+        // chat component themselves. Also valid as a fallback for the
+        // dashboard-initiated `deliver-magic-link` flow below.
         post("request-magic-link") {
             val req = runCatching { call.receive<RequestMagicLinkRequest>() }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest,
@@ -120,7 +164,7 @@ fun Route.authRoutes(
             val ip = call.request.local.remoteAddress
             try {
                 val issued = challengeService.issueMagicLink(uuid.toString(), req.name.take(16), ip)
-                val base = configSupplier().dashboard.publicUrl.trimEnd('/')
+                val base = publicUrlSupplier().trimEnd('/')
                 val url = "$base/login?link=${issued.raw}"
                 call.respond(HttpStatusCode.Accepted, RequestMagicLinkResponse(
                     url = url,
@@ -137,11 +181,136 @@ fun Route.authRoutes(
             }
         }
 
+        // `/dashboard sessions` — list the caller's own active dashboard sessions.
+        // In Phase 3 we scope by the `uuid` query param so the Bridge/SDK can
+        // forward the requesting player's UUID. A future phase will replace
+        // this with session-scoped auth (the player's own token).
+        get("sessions") {
+            val uuidStr = call.request.queryParameters["uuid"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest,
+                    apiError("uuid query param required", ApiErrors.VALIDATION_FAILED))
+            val uuid = runCatching { UUID.fromString(uuidStr) }.getOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest,
+                    apiError("Invalid uuid", ApiErrors.VALIDATION_FAILED))
+            val summaries = sessionService.listForUser(uuid).map {
+                SessionSummaryDto(
+                    sessionId = it.sessionId,
+                    name = it.name,
+                    createdAt = it.createdAt,
+                    expiresAt = it.expiresAt,
+                    lastUsedAt = it.lastUsedAt,
+                    ip = it.ip,
+                    userAgent = it.userAgent,
+                    loginMethod = it.loginMethod
+                )
+            }
+            call.respond(SessionListResponse(summaries))
+        }
+
+        // `/dashboard logout-all` — revoke every session for the calling player.
+        post("logout-all") {
+            val uuidStr = call.request.queryParameters["uuid"]
+                ?: return@post call.respond(HttpStatusCode.BadRequest,
+                    apiError("uuid query param required", ApiErrors.VALIDATION_FAILED))
+            val uuid = runCatching { UUID.fromString(uuidStr) }.getOrNull()
+                ?: return@post call.respond(HttpStatusCode.BadRequest,
+                    apiError("Invalid uuid", ApiErrors.VALIDATION_FAILED))
+            val revoked = sessionService.revokeAll(uuid)
+            call.respond(LogoutAllResponse(revoked))
+        }
+    }
+}
+
+/**
+ * Dashboard-initiated magic-link delivery — public, rate-limited.
+ *
+ * User types their MC name on the login page → controller resolves the name
+ * to an online player and fires an `AUTH_MAGIC_LINK_DELIVERY` event that the
+ * SDK plugin on the target service turns into a clickable chat component.
+ *
+ * If the player is offline we deliberately return 404 `PLAYER_OFFLINE` —
+ * the frontend surfaces this as a friendly "join any Nimbus server first"
+ * hint. We do **not** leak whether the name ever existed.
+ */
+fun Route.authPublicDeliveryRoutes(
+    challengeService: LoginChallengeService,
+    configSupplier: () -> AuthConfig,
+    publicUrlSupplier: () -> String,
+    playerLookupSupplier: () -> PlayerLookup?,
+    eventBus: EventBus?
+) {
+    route("/api/auth") {
+        post("deliver-magic-link") {
+            val req = runCatching { call.receive<DeliverMagicLinkRequest>() }.getOrNull()
+                ?: return@post call.respond(HttpStatusCode.BadRequest,
+                    apiError("name required", ApiErrors.VALIDATION_FAILED))
+
+            val cfg = configSupplier()
+            if (!cfg.loginChallenge.magicLinkEnabled) {
+                return@post call.respond(HttpStatusCode.Forbidden,
+                    apiError("Magic link login is disabled", AuthErrors.AUTH_DISABLED))
+            }
+
+            val lookup = playerLookupSupplier()
+                ?: return@post call.respond(HttpStatusCode.NotFound,
+                    apiError("Player is not online (Players module not available)", AuthErrors.PLAYER_OFFLINE))
+
+            val (uuidStr, _) = lookup.findOnlinePlayer(req.name)
+                ?: return@post call.respond(HttpStatusCode.NotFound,
+                    apiError("Player '${req.name}' is not online on any Nimbus service", AuthErrors.PLAYER_OFFLINE))
+
+            val ip = call.request.local.remoteAddress
+            val issued = try {
+                challengeService.issueMagicLink(uuidStr, req.name.take(16), ip)
+            } catch (e: LoginChallengeService.RateLimitedException) {
+                return@post call.respond(HttpStatusCode.TooManyRequests,
+                    apiError(e.message ?: "Rate limited", AuthErrors.AUTH_RATE_LIMITED))
+            } catch (e: IllegalStateException) {
+                return@post call.respond(HttpStatusCode.Forbidden,
+                    apiError(e.message ?: "Disabled", AuthErrors.AUTH_DISABLED))
+            }
+
+            val base = publicUrlSupplier().trimEnd('/')
+            val url = "$base/login?link=${issued.raw}"
+
+            // Fire a module event — the Velocity auth plugin subscribes to
+            // this and renders the Adventure clickable component directly to
+            // the target player via `proxyServer.getPlayer(uuid)`. No service
+            // routing needed because Velocity owns every player connection.
+            eventBus?.emit(NimbusEvent.ModuleEvent(
+                moduleId = "auth",
+                type = "AUTH_MAGIC_LINK_DELIVERY",
+                data = mapOf(
+                    "uuid" to uuidStr,
+                    "name" to req.name,
+                    "url" to url,
+                    "ttl" to cfg.loginChallenge.magicLinkTtlSeconds.toString(),
+                    "expiresAt" to issued.expiresAt.toString()
+                )
+            ))
+
+            call.respond(HttpStatusCode.Accepted,
+                DeliverMagicLinkResponse(ttlSeconds = cfg.loginChallenge.magicLinkTtlSeconds))
+        }
+    }
+}
+
+/**
+ * Public user-flow auth routes — dashboard-facing. Consume challenge, logout
+ * (self), and `me` all carry their own bearer-session auth so they live here
+ * rather than behind the service-token gate.
+ */
+fun Route.authRoutes(
+    challengeService: LoginChallengeService,
+    sessionService: SessionService,
+    permissionResolver: PermissionResolver,
+    configSupplier: () -> AuthConfig
+) {
+    route("/api/auth") {
+
         /**
          * Unified consume endpoint: accepts either a 6-digit code or a
          * magic-link token. Returns a real session + user profile.
-         *
-         * Phase 1: no TOTP branch. `totpRequired` stays false until Phase 4.
          */
         post("consume-challenge") {
             val req = runCatching { call.receive<ConsumeChallengeRequest>() }.getOrNull()
@@ -156,9 +325,6 @@ fun Route.authRoutes(
                 ?: return@post call.respond(HttpStatusCode.InternalServerError,
                     apiError("Stored challenge has invalid uuid", ApiErrors.INTERNAL_ERROR))
 
-            // Resolve the user's effective permission set via the Perms module.
-            // If Perms is disabled the resolver returns EMPTY — the MC-login path
-            // then has no dashboard access, but API tokens keep working (admin).
             val permissions = permissionResolver.resolve(consumed.uuid)
             val loginMethod = when (consumed.kind) {
                 ChallengeKind.CODE -> "code"

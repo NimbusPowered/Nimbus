@@ -157,8 +157,16 @@ val resourcePacksJar = tasks.register("copyResourcePacksJar", Copy::class) {
     rename { "nimbus-resourcepacks.jar" }
 }
 
+// Embed the Auth Velocity plugin JAR (proxy-side /dashboard)
+val authVelocityJar = tasks.register("copyAuthVelocityJar", Copy::class) {
+    dependsOn(project(":nimbus-auth-velocity").tasks.named("shadowJar"))
+    from(project(":nimbus-auth-velocity").tasks.named("shadowJar").map { (it as Jar).archiveFile })
+    into(layout.buildDirectory.dir("resources/main/plugins"))
+    rename { "nimbus-auth-velocity.jar" }
+}
+
 tasks.processResources {
-    dependsOn(pluginJar, sdkJar, displayJar, permsJar, punishmentsJar, punishmentsBackendJar, resourcePacksJar, downloadFancyNpcs)
+    dependsOn(pluginJar, sdkJar, displayJar, permsJar, punishmentsJar, punishmentsBackendJar, resourcePacksJar, authVelocityJar, downloadFancyNpcs)
 }
 
 tasks.jar {
@@ -183,7 +191,7 @@ val embeddedModules = mapOf(
 tasks.shadowJar {
     archiveClassifier.set("")
     mergeServiceFiles()
-    dependsOn(pluginJar, sdkJar, displayJar, permsJar, punishmentsJar, punishmentsBackendJar, resourcePacksJar, downloadFancyNpcs)
+    dependsOn(pluginJar, sdkJar, displayJar, permsJar, punishmentsJar, punishmentsBackendJar, resourcePacksJar, authVelocityJar, downloadFancyNpcs)
 
     // Embed controller module JARs (extracted by SetupWizard to modules/)
     // These are added only to shadowJar to avoid circular dependency during compileKotlin

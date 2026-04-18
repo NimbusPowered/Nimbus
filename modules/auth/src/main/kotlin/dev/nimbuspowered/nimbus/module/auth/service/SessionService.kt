@@ -212,6 +212,48 @@ class SessionService(
         }
     }
 
+    /** Summary of an active session, returned by `/api/auth/sessions`. */
+    data class SessionSummary(
+        val sessionId: String,
+        val name: String,
+        val createdAt: Long,
+        val expiresAt: Long,
+        val lastUsedAt: Long,
+        val ip: String?,
+        val userAgent: String?,
+        val loginMethod: String
+    )
+
+    /**
+     * List active (non-revoked, non-expired) sessions for a given uuid.
+     * Used by the in-game `/dashboard sessions` command and the future
+     * `Profile -> Sessions` dashboard page.
+     */
+    suspend fun listForUser(uuid: UUID): List<SessionSummary> {
+        val now = System.currentTimeMillis()
+        return newSuspendedTransaction(Dispatchers.IO, db.database) {
+            DashboardSessions.selectAll()
+                .where {
+                    (DashboardSessions.uuid eq uuid.toString()) and
+                        (DashboardSessions.revoked eq false) and
+                        (DashboardSessions.expiresAt greaterEq now)
+                }
+                .orderBy(DashboardSessions.lastUsedAt, SortOrder.DESC)
+                .map { row ->
+                    SessionSummary(
+                        sessionId = row[DashboardSessions.tokenHash].take(16),
+                        name = row[DashboardSessions.name],
+                        createdAt = row[DashboardSessions.createdAt],
+                        expiresAt = row[DashboardSessions.expiresAt],
+                        lastUsedAt = row[DashboardSessions.lastUsedAt],
+                        ip = row[DashboardSessions.ip],
+                        userAgent = row[DashboardSessions.userAgent],
+                        loginMethod = row[DashboardSessions.loginMethod]
+                    )
+                }
+        }
+    }
+
     private fun generateToken(): String {
         val buf = ByteArray(32)
         secureRandom.nextBytes(buf)
