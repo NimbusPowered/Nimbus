@@ -17,6 +17,31 @@ All notable changes to this project are documented in this file. The format is b
 
 ---
 
+## [0.11.2] - 2026-04-19
+
+Patch release focused on internal quality: a TOTP recovery-code bug that silently broke 2FA recovery, a comprehensive test suite + JaCoCo coverage scaffolding across every Gradle subproject, and small dashboard polish for the OTP / login flow. Fully backwards-compatible; no migration changes.
+
+### Added
+
+- **Test suite + JaCoCo coverage** — JUnit 5 + MockK/Mockito wired up across all 22 Gradle subprojects (everything except the dashboard, which is a Next.js app), 880+ tests green. Per-subproject JaCoCo reports plus an aggregated root report (`./gradlew jacocoAggregatedReport`) filtered to `dev/nimbuspowered/**`. Baseline coverage: line 12.5 %, branch 7.7 %, method 14.9 %, class 15.6 %. Top-covered modules: `nimbus-protocol` 88 %, `display` 40 %, `backup` 33 %, `auth` 29 %, `resourcepacks` 29 %, `punishments` 28 %, `players` 28 %
+
+### Changed
+
+- **Dev tooling** — Java plugin subprojects now scope `-source 16 -target 16` to `compileJava` only, so `compileTestJava` can use Java 21 features. A handful of TOTP / scaling helpers were promoted from `private` to `internal` so tests can hit them without reflection. No public API change
+- **Dashboard `next.config`** — relaxed dev-server allowed origins and lifted image-quality limits, smoothing local dashboard development against a remote controller. Production build behaviour unchanged
+- **Repo housekeeping** — removed the unused `examples/` directory, gitignored `/.gradle-impl-plugins/`
+
+### Fixed
+
+- **TOTP recovery codes were never accepted.** `TotpService.enroll` hashed the display form (`ABCD-1234`, with the dash) while `consumeRecoveryCode` normalized the dash away before hashing, so every recovery code looked invalid in production. Both paths now hash the canonical (dash-stripped, uppercased) form via a shared `canonicalizeRecoveryCode` helper. **Anyone who has already lost their TOTP device and saved recovery codes from a v0.11.0 / 0.11.1 enrollment will need to re-enroll** — old hashes are unreachable. Regression tests added
+- **Dashboard login form / OTP input** — tightened the 6-digit code + recovery-code inputs (focus handling, paste behaviour, layout shift on the login card). Cosmetic only, no auth-protocol change
+
+### Notes
+
+- 15 pre-existing `nimbus-core` test failures (drifted from a permissive `ServiceState` transition model, the bounded-buffer `EventBus`, the player-count gate on the scale-down loop, and the re-introduced `/api/shutdown`) were repaired during the coverage push. No production behaviour was changed to make tests pass
+
+---
+
 ## [0.11.1] - 2026-04-19
 
 Quick-win patch from the v0.11 production-readiness audit. Tightens the new auth surface and adds proper audit-trail coverage for dashboard logins. Fully backwards-compatible; no migration changes.
