@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/public/banner.svg" alt="Nimbus Cloud" width="520" />
+<img src="docs/public/icon.png" alt="Nimbus Cloud" width="250" />
 
 <br />
 
@@ -14,7 +14,7 @@ and a first-class REST API — without the bloat of enterprise cloud stacks.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Java](https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://adoptium.net)
-[![Release](https://img.shields.io/github/v/release/NimbusPowered/Nimbus?style=for-the-badge&color=22c55e&label=Release)](https://github.com/NimbusPowered/Nimbus/releases)
+[![Release](https://img.shields.io/github/v/release/NimbusPowered/Nimbus?include_prereleases&style=for-the-badge&color=22c55e&label=Release)](https://github.com/NimbusPowered/Nimbus/releases)
 [![Docs](https://img.shields.io/badge/Docs-online-0ea5e9?style=for-the-badge&logo=readthedocs&logoColor=white)](https://NimbusPowered.github.io/Nimbus/)
 
 <br />
