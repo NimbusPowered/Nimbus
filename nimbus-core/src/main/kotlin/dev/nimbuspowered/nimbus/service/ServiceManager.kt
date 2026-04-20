@@ -13,6 +13,9 @@ import dev.nimbuspowered.nimbus.event.EventBus
 import dev.nimbuspowered.nimbus.event.NimbusEvent
 import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.protocol.ClusterMessage
+import dev.nimbuspowered.nimbus.service.spawn.SandboxMode
+import dev.nimbuspowered.nimbus.service.spawn.SandboxResolver
+import dev.nimbuspowered.nimbus.service.spawn.SystemdRunSandbox
 import dev.nimbuspowered.nimbus.template.PerformanceOptimizer
 import dev.nimbuspowered.nimbus.template.SoftwareResolver
 import dev.nimbuspowered.nimbus.template.TemplateManager
@@ -72,6 +75,7 @@ class ServiceManager(
     private val compatibilityChecker = CompatibilityChecker(groupManager, config, javaResolver)
     private val performanceOptimizer = PerformanceOptimizer()
     private val serviceDeployer = dev.nimbuspowered.nimbus.template.ServiceDeployer()
+    private val sandboxResolver = SandboxResolver(config.sandbox)
 
     internal val serviceFactory = ServiceFactory(
         config = config,
@@ -319,6 +323,55 @@ class ServiceManager(
         return startRemoteService(prepared.service, prepared, node, group)
     }
 
+    /** Groups we've already warned about for silent-fallback sandbox edge-cases; dedupes log spam. */
+    private val sandboxFallbackWarned = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Resolves the sandbox mode for [service] and wraps [command] via
+     * systemd-run when MANAGED is selected. BARE returns the command
+     * unchanged. DOCKER reaching this function means the operator asked for
+     * docker sandboxing but the Docker module isn't loaded or `[group.docker]
+     * enabled = true` wasn't set — we WARN once per group and return bare,
+     * never silently. Lookup failures fall back to BARE so a broken group
+     * config never blocks a service.
+     */
+    private fun applyManagedSandbox(service: Service, command: List<String>): List<String> {
+        val group = groupManager.getGroup(service.groupName) ?: return command
+        val groupDef = group.config.group
+        val resolved = sandboxResolver.resolve(service.name, groupDef.sandbox, groupDef.resources)
+        when (resolved.mode) {
+            SandboxMode.BARE -> return command
+            SandboxMode.DOCKER -> {
+                if (sandboxFallbackWarned.add("${service.groupName}:docker")) {
+                    logger.warn(
+                        "Group '{}' has [group.sandbox] mode = \"docker\" but the Docker module is not loaded " +
+                                "(or [group.docker] enabled = true is missing). Falling back to bare process — no kernel enforcement.",
+                        service.groupName
+                    )
+                }
+                return command
+            }
+            SandboxMode.MANAGED -> {
+                val wrapped = SystemdRunSandbox.wrapCommand(service.name, command, resolved.limits)
+                if (wrapped === command &&
+                    sandboxFallbackWarned.add("${service.groupName}:managed-no-limits")
+                ) {
+                    logger.warn(
+                        "Group '{}' resolved to sandbox mode = \"managed\" but every limit derives to 0 " +
+                                "(memory_limit_mb={}, cpu_quota={}, tasks_max={}). Spawning without systemd-run wrapping — " +
+                                "no kernel enforcement active. Check [group.resources] memory parses and the global " +
+                                "[sandbox] overhead defaults.",
+                        service.groupName,
+                        resolved.limits.memoryMb,
+                        resolved.limits.cpuQuota,
+                        resolved.limits.tasksMax
+                    )
+                }
+                return wrapped
+            }
+        }
+    }
+
     private suspend fun startLocalService(service: Service, prepared: ServiceFactory.PreparedService): Service? {
         val workDir = prepared.workDir
         val command = prepared.command
@@ -349,7 +402,8 @@ class ServiceManager(
             } else {
                 val plain = ProcessHandle()
                 if (readyPattern != null) plain.setReadyPattern(readyPattern)
-                plain.start(workDir, command, env)
+                val effectiveCommand = applyManagedSandbox(service, command)
+                plain.start(workDir, effectiveCommand, env)
                 plain
             }
 
@@ -605,7 +659,12 @@ class ServiceManager(
                 } else {
                     logger.warn("Service '{}' did not become ready within timeout — marking as CRASHED", serviceName)
                     if (service.transitionTo(ServiceState.CRASHED)) {
-                        eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, -1, service.restartCount))
+                        val tail = runCatching { handle.snapshotTail() }.getOrDefault(emptyList())
+                        val ctx = StartupDiagnostic.CrashContext.ReadyTimeout(readyTimeout.inWholeSeconds)
+                        val diag = StartupDiagnostic.diagnose(tail, ctx)
+                        service.lastCrashReport = StartupCrashReport(diag, tail, exitCode = null)
+                        logger.warn("Service '{}' crash diagnosis: {}", serviceName, diag)
+                        eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, -1, service.restartCount, diag, tail))
                     }
                 }
             } catch (_: kotlinx.coroutines.CancellationException) {
@@ -781,7 +840,16 @@ class ServiceManager(
             } else {
                 logger.warn("Service '{}' crashed with exit code {}", serviceName, exitCode)
             }
-            eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, exitCode, service.restartCount))
+            // Classify startup crashes (wasReady=false) so the operator gets a readable hint.
+            // Runtime crashes (wasReady=true) can still benefit, but we flag them as post-ready.
+            val tail = runCatching { handle.snapshotTail() }.getOrDefault(emptyList())
+            val ctx = StartupDiagnostic.CrashContext.Exited(exitCode)
+            val diag = if (!wasReady || tail.isNotEmpty()) StartupDiagnostic.diagnose(tail, ctx) else null
+            if (diag != null) {
+                service.lastCrashReport = StartupCrashReport(diag, tail, exitCode)
+                logger.warn("Service '{}' crash diagnosis: {}", serviceName, diag)
+            }
+            eventBus.emit(NimbusEvent.ServiceCrashed(serviceName, exitCode, service.restartCount, diag, tail))
         }
 
         if (restartOnCrash && service.restartCount < maxRestarts) {

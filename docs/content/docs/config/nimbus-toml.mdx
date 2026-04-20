@@ -26,6 +26,7 @@ Sensitive config values can be overridden via environment variables. Env vars ta
 | `NIMBUS_DB_PASSWORD` | `[database] password` | Database password |
 | `NIMBUS_CLUSTER_TOKEN` | `[cluster] token` | Cluster authentication token |
 | `NIMBUS_CLUSTER_KEYSTORE_PASSWORD` | `[cluster] keystore_password` | TLS keystore password |
+| `NIMBUS_LOG_FORMAT` | — | Set to `json` to emit structured JSON logs (one object per line, via `logstash-logback-encoder`). Default plain-text. Added in v0.12.0. |
 
 Agent env vars: `NIMBUS_AGENT_TOKEN`, `NIMBUS_AGENT_CONTROLLER` (see agent docs).
 
@@ -618,3 +619,30 @@ CurseForge API configuration for modpack imports. Only needed if you import modp
 [curseforge]
 api_key = "your-curseforge-api-key"
 ```
+
+---
+
+## `[sandbox]`
+
+Global defaults for the **managed sandbox**: a thin wrapper that spawns each service inside its own cgroup v2 scope via `systemd-run --user --scope` so memory and CPU limits are enforced by the kernel instead of only by `-Xmx`. Introduced in v0.12.0. Per-group overrides live under `[group.sandbox]` in the group TOML — see [Groups](/docs/config/groups).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `default_mode` | String | `"auto"` | Default sandbox backend for groups that don't set their own `[group.sandbox] mode`. Values: `"auto"` (managed on Linux with `systemd-run` reachable, otherwise bare), `"managed"`, `"bare"`. |
+| `memory_overhead_percent` | Int | `30` | JVM native-memory overhead budget added on top of `[group.resources] memory` when auto-deriving the hard memory cap. |
+| `memory_overhead_min_mb` | Long | `256` | Absolute floor for the overhead budget — keeps small-heap services from being OOM-killed by a too-tight cap. |
+
+```toml title="config/nimbus.toml"
+[sandbox]
+default_mode = "auto"            # or "managed" / "bare"
+memory_overhead_percent = 30
+memory_overhead_min_mb = 256
+```
+
+<Callout type="info">
+On Linux with a reachable user systemd bus, managed mode is selected automatically. Verify after upgrade with `systemctl --user list-units | grep nimbus-` — you should see a `*.scope` unit per running service. Docker-backed services (`[group.docker] enabled = true`) are unaffected and keep using the Docker module's own cgroup enforcement.
+</Callout>
+
+<Callout type="info">
+No separate "disable" knob — set `default_mode = "bare"` to opt out globally, or use `[group.sandbox] mode = "bare"` per group. WSL1, macOS, and hosts without user-level systemd automatically fall back to bare with a single INFO log at startup.
+</Callout>

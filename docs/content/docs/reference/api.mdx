@@ -340,8 +340,27 @@ Partial update of non-critical fields — `networkName`, `consoleColored`, `cons
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `POST` | `/api/reload` | Hot-reloads every `config/groups/*.toml`. Emits `CONFIG_RELOADED`. |
+| `POST` | `/api/reload` | Hot-reloads every `config/groups/*.toml`. Emits `CONFIG_RELOADED`. Returns a [`ReloadReport`](#reload-report) (v0.12.0+). |
 | `POST` | `/api/shutdown` | Responds 202, then `System.exit(0)` after 250 ms so the response flushes. Essential for daemon deployments without a TTY console. |
+
+#### Reload report
+
+Since v0.12.0, `/api/reload` returns a structured `ReloadReport` that names every known config section, its reload scope (`LIVE` / `NEXT_SERVICE_PREPARE` / `REQUIRES_RESTART`), and whether the current pass applied it. `requiresRestartIfChanged` is a **reference list** of sections whose changes would require a full controller restart — not a per-request delta. Backwards-compatible: the legacy `success`, `groupsLoaded`, and `message` fields are retained for older dashboard versions.
+
+```json
+{
+  "success": true,
+  "groupsLoaded": 3,
+  "message": "Reloaded 3 group config(s)",
+  "sections": [
+    { "name": "groups",   "scope": "LIVE",               "applied": true,  "description": "Group definitions..." },
+    { "name": "sandbox",  "scope": "NEXT_SERVICE_PREPARE","applied": false, "description": "Global sandbox defaults..." },
+    { "name": "api",      "scope": "REQUIRES_RESTART",   "applied": false, "description": "API bind/port/token/JWT/CORS..." }
+  ],
+  "requiresRestartIfChanged": ["api", "database", "cluster", "audit", "metrics", "controller", "network", "loadbalancer", "punishments", "resourcepacks", "dashboard", "console"],
+  "warnings": []
+}
+```
 
 ---
 
@@ -487,6 +506,20 @@ Paged dump of the `audit_log` table. `limit` clamped 1..500. Filters are optiona
 #### `GET /api/metrics`
 
 Prometheus text exposition — `nimbus_info{version}`, `nimbus_uptime_seconds`, `nimbus_services_total`, `nimbus_services_by_state{state}`, `nimbus_services_by_group{group}`, `nimbus_players_total`, plus node, load balancer, and state sync gauges. Requires a service- or master-level token. Configure your scraper with a bearer token header.
+
+Added in v0.12.0:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `nimbus_warmpool_size` | gauge | `group` | Currently prepared services in the warm pool for this group. |
+| `nimbus_warmpool_target` | gauge | `group` | Configured `scaling.warm_pool_size` target. |
+| `nimbus_service_crashes_total` | counter | `group` | Service crashes since controller start. Group label is inferred from the `<Group>-<N>` naming convention; dedicated services tally under their own name. |
+| `nimbus_scaling_events_total` | counter | `group`, `direction=up\|down` | Scaling decisions emitted by the engine. |
+| `nimbus_placement_blocked_total` | counter | `group` | Starts blocked by placement constraints (pinned node offline etc.). |
+
+<Callout type="info">
+Counters reset on controller restart — this is intentional. Prometheus `rate()` and `increase()` handle counter resets natively, and long-running trends are already in the DB via `MetricsCollector`.
+</Callout>
 
 ---
 

@@ -17,6 +17,46 @@ All notable changes to this project are documented in this file. The format is b
 
 ---
 
+## [0.12.0] - 2026-04-20
+
+Minor release focused on **v1.0-readiness hardening**: kernel-enforced resource caps for bare-process services, operator-readable crash diagnostics, richer Prometheus metrics, a structured `/api/reload` response, opt-in JSON logging for Loki/Elastic, and a long-standing silent-fallback bug in the software resolver. All additions are additive and opt-in — existing `nimbus.toml` / `groups/*.toml` files keep working unchanged.
+
+### Added
+
+- **Managed sandbox (`[sandbox]` / `[group.sandbox]`)** — services can now run inside their own cgroup v2 scope via `systemd-run --user --scope`, with kernel-enforced `MemoryMax`, `CPUQuota`, and `TasksMax`. Default `default_mode = "auto"`: on Linux hosts with a reachable user systemd bus Nimbus silently wraps every service spawn; on macOS, WSL1, or hosts without user systemd it transparently falls back to bare (`ProcessBuilder`) with a single INFO log at startup. Per-group override via `[group.sandbox] mode = "bare"|"managed"|"docker"` and optional `memory_limit_mb` / `cpu_quota` / `tasks_max`. Memory caps auto-derive from `[group.resources] memory` + a 30 %/256 MB JVM overhead budget. Fixes the audit finding that bare JVMs have no hard native-memory cap and can OOM-kill neighbours on the same host
+- **Startup crash diagnosis + stdout tail** — when a service transitions `STARTING → CRASHED` (ready-timeout or early exit before READY), Nimbus now attaches a one-line operator-readable diagnosis and the last ~50 stdout lines to both the `ServiceCrashed` event and the new `Service.lastCrashReport` field. Pattern classifier covers the realistic majority of failures: bound-port conflicts (with port extraction), JVM OOM (`OutOfMemoryError`), kernel/cgroup OOM-kill (exit 137), missing JAR, Java version mismatch (`UnsupportedClassVersionError`), stale `session.lock`, EULA, ready-pattern timeout. Messages are English to match the rest of the codebase. Dashboards and REST clients can render the report without replaying the full stdout stream
+- **Prometheus metrics — five new series** on the existing `/api/metrics` endpoint: `nimbus_warmpool_size{group}`, `nimbus_warmpool_target{group}`, `nimbus_service_crashes_total{group}`, `nimbus_scaling_events_total{group,direction="up|down"}`, `nimbus_placement_blocked_total{group}`. Counters reset on controller restart by design — Prometheus `rate()` / `increase()` handles resets natively, and persisting these would just duplicate what `MetricsCollector` already keeps in the DB for long-running dashboard charts
+- **Structured reload report** — `POST /api/reload` and the console `reload` command now return/display a `ReloadReport` naming every known config section with its `ReloadScope` (`LIVE` / `NEXT_SERVICE_PREPARE` / `REQUIRES_RESTART`), whether the current pass applied it, and which sections need a full controller restart to take effect. Backwards-compatible — the legacy `success`, `groupsLoaded`, and `message` fields are retained, so older dashboard versions keep working unchanged. 22 sections are enumerated out of the box (groups, dedicated, syncproxy/motd/tablist/chat, backup, audit, api, database, cluster, network, sandbox, java, loadbalancer, controller, bedrock, punishments, resourcepacks, dashboard, curseforge, console, metrics). Ends the "I edited `nimbus.toml` and nothing changed" confusion that the previous one-line hint at the end of `reload` output always missed
+- **Opt-in JSON logging** — set `NIMBUS_LOG_FORMAT=json` in the environment before starting the controller to switch from the default plain-text `latest.log` pattern to one-object-per-line JSON via `logstash-logback-encoder`. Designed for ingestion into Loki, Elasticsearch, or Splunk. MDC keys pre-whitelisted: `service_name`, `group_name`, `node_id`, `request_id`, `api_user` — so any future `MDC.put(...)` site starts emitting rich fields without further config changes. Default plain-text mode is unchanged
+- **Unknown server-version hard-fail + NeoForwarding bootstrap** — `SoftwareResolver` now throws `UnknownServerVersionException` instead of silently falling back to an arbitrary version when a group requests a Minecraft version that upstream APIs don't know about (Paper/Purpur/Velocity/NeoForge/Fabric). `CreateGroupCommand` surfaces the list of known versions on this failure so operators get an actionable error instead of a mystery backend. Service startup additionally detects whether the NeoForwarding mod is needed based on the loaded MC version (≥ 1.20.2) and the configured forwarding mode
+
+### Changed
+
+- **Docs — `[sandbox]` and `[group.sandbox]`** added to the `nimbus.toml` reference and the group-config guide. The `/api/reload` response example updated to show the new `ReloadReport` shape with legacy-field compatibility, and the `/api/metrics` section lists the five new counter/gauge series
+
+### Fixed
+
+- **`CompatibilityChecker` no longer crashes on groups with unresolvable software versions** — the upstream `UnknownServerVersionException` is caught and turned into a per-group compatibility warning rather than aborting the preflight. Groups that *can* be resolved still preflight normally
+
+### Security
+
+- Release notes carry no security fixes. The audit follow-ups from v0.11.1 (brute-force throttle, auth events, HTTPS GeoIP) remain the current state
+
+### Known follow-ups (deferred)
+
+- **Agent-node sandbox** — managed mode currently wraps only controller-local spawns. Cross-node enforcement requires a `ClusterMessage.StartService` schema addition and is tracked for a follow-up
+- **Windows Job Objects** — a JNA-based Windows backend for the managed sandbox is sketched but not shipped in this release; Linux covers the overwhelming majority of Nimbus deployments
+- **`ModuleContext.registerReloadableSection`** — module-api extension is deferred; the Backup module keeps its own `PUT /api/backups/config` endpoint for hot-reload
+- **MDC emit sites** — the JSON config already whitelists the keys; future `MDC.put` calls in `ServiceManager` and API routes will start emitting rich fields without further config churn
+
+### Notes
+
+- Linux operators who want to disable the default managed wrapping can either set `[sandbox] default_mode = "bare"` globally or `[group.sandbox] mode = "bare"` per group. A quick verification after upgrade: start any service and check `systemctl --user list-units | grep nimbus-` — you should see a `*.scope` unit per running service
+- `nimbus_service_crashes_total` infers the group label from the `<Group>-<N>` service naming convention; dedicated services (which have no numeric suffix) are tallied under their own name
+- Existing tests extended by 39 new cases across the five feature areas; full `nimbus-core` suite stays green
+
+---
+
 ## [0.11.2] - 2026-04-19
 
 Patch release focused on internal quality: a TOTP recovery-code bug that silently broke 2FA recovery, a comprehensive test suite + JaCoCo coverage scaffolding across every Gradle subproject, and small dashboard polish for the OTP / login flow. Fully backwards-compatible; no migration changes.

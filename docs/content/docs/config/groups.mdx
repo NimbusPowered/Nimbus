@@ -307,6 +307,31 @@ optimize = false
 
 ---
 
+## `[group.sandbox]`
+
+Per-group override of the managed sandbox backend and its resource limits. Defaults come from the global `[sandbox]` section in [`nimbus.toml`](/docs/config/nimbus-toml#sandbox); the per-group block only needs to carry the keys you want to diverge on. Added in v0.12.0.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | String | `""` | `""` inherits `[sandbox] default_mode`. Explicit values: `"bare"` (plain `ProcessBuilder`, no kernel enforcement), `"managed"` (cgroup v2 via `systemd-run --user --scope`; falls back to bare on unsupported platforms), `"docker"` (delegated to the Docker module — kept for backwards compatibility; prefer `[group.docker] enabled = true`). |
+| `memory_limit_mb` | Long | `0` | Hard memory cap in MB applied when `mode = "managed"`. `0` auto-derives from `[group.resources] memory` plus the global overhead budget (default 30 % or 256 MB, whichever is larger). |
+| `cpu_quota` | Double | `0.0` | CPU quota as a multiplier — `1.0` = one core, `2.5` = 2.5 cores, `0.0` = unlimited. Applied as `CPUQuota=N%` to the cgroup scope. |
+| `tasks_max` | Int | `0` | Maximum task (thread + process) count inside the scope. `0` = unlimited. |
+
+```toml title="config/groups/Lobby.toml"
+[group.sandbox]
+mode = "managed"          # force managed even if global default is "bare"
+memory_limit_mb = 4096    # hard cap, overrides the auto-derived value
+cpu_quota = 2.0           # two cores
+tasks_max = 512
+```
+
+<Callout type="info">
+`managed` mode is kernel-enforced. If a service exceeds `memory_limit_mb`, the kernel OOM-kills it and Nimbus surfaces the crash with an "OOM-gekillt (Exit 137)" diagnosis in the operator console and in `service.lastCrashReport`. Set a realistic cap — `-Xmx` plus 30 % native-memory headroom is a safe starting point.
+</Callout>
+
+---
+
 ## Static vs Dynamic
 
 | Aspect | STATIC | DYNAMIC |
