@@ -5,8 +5,10 @@ import dev.nimbuspowered.nimbus.cluster.NodeConnection
 import dev.nimbuspowered.nimbus.cluster.NodeManager
 import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.loadbalancer.TcpLoadBalancer
+import dev.nimbuspowered.nimbus.metrics.PrometheusCounters
 import dev.nimbuspowered.nimbus.proxy.ProxySyncManager
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
+import dev.nimbuspowered.nimbus.service.WarmPoolManager
 import io.ktor.http.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -24,7 +26,9 @@ fun Route.metricsRoutes(
     loadBalancer: TcpLoadBalancer?,
     proxySyncManager: ProxySyncManager,
     startedAt: Instant,
-    stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null
+    stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null,
+    warmPoolManager: WarmPoolManager? = null,
+    counters: PrometheusCounters? = null
 ) {
     get("/api/metrics") {
         val sb = StringBuilder()
@@ -160,6 +164,48 @@ fun Route.metricsRoutes(
                     sb.value("nimbus_sync_last_push_bytes", stats.lastPushBytes, *labels)
                     sb.value("nimbus_sync_last_push_files", stats.lastPushFiles, *labels)
                     sb.value("nimbus_sync_last_push_timestamp", stats.lastPushAtEpochMs / 1000, *labels)
+                }
+            }
+        }
+
+        // ── Warm pool ──
+        if (warmPoolManager != null) {
+            sb.help("nimbus_warmpool_size", "gauge", "Warm pool size per group")
+            sb.help("nimbus_warmpool_target", "gauge", "Configured warm pool target per group")
+            for (group in groups) {
+                val target = group.config.group.scaling.warmPoolSize
+                if (target <= 0) continue
+                sb.value("nimbus_warmpool_size", warmPoolManager.poolSize(group.name), "group" to group.name)
+                sb.value("nimbus_warmpool_target", target, "group" to group.name)
+            }
+        }
+
+        // ── Event counters (reset on controller restart; use rate() in Prometheus) ──
+        if (counters != null) {
+            val snap = counters.snapshot()
+
+            if (snap.crashesByGroup.isNotEmpty()) {
+                sb.help("nimbus_service_crashes_total", "counter",
+                    "Service crashes since controller start, keyed by group")
+                for ((group, count) in snap.crashesByGroup) {
+                    sb.value("nimbus_service_crashes_total", count, "group" to group)
+                }
+            }
+
+            if (snap.scaleEvents.isNotEmpty()) {
+                sb.help("nimbus_scaling_events_total", "counter",
+                    "Scaling events since controller start, by group + direction")
+                for ((key, count) in snap.scaleEvents) {
+                    sb.value("nimbus_scaling_events_total", count,
+                        "group" to key.group, "direction" to key.direction)
+                }
+            }
+
+            if (snap.placementBlockedByGroup.isNotEmpty()) {
+                sb.help("nimbus_placement_blocked_total", "counter",
+                    "Scaling starts blocked by placement constraints, per group")
+                for ((group, count) in snap.placementBlockedByGroup) {
+                    sb.value("nimbus_placement_blocked_total", count, "group" to group)
                 }
             }
         }
