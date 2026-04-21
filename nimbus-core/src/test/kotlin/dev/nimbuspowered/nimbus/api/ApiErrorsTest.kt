@@ -34,9 +34,10 @@ class ApiErrorsTest {
     }
 
     @Test
-    fun `INVALID_INPUT legacy constant redirects to VALIDATION_FAILED wire code`() {
-        // Deliberate silent correction — the two were semantic duplicates. See
-        // ApiErrors.kt KDoc for rationale. Locked here so it can't be reverted accidentally.
-        assertEquals("VALIDATION_FAILED", ApiErrors.INVALID_INPUT)
+    fun `INVALID_INPUT legacy wire string is preserved during deprecation window`() {
+        // All in-tree call-sites were explicitly migrated to ApiError.VALIDATION_FAILED.
+        // The legacy wire string is kept intact so any out-of-tree caller still
+        // switching on "INVALID_INPUT" keeps working until the facade is removed in 0.14.
+        assertEquals("INVALID_INPUT", ApiErrors.INVALID_INPUT)
     }
 }

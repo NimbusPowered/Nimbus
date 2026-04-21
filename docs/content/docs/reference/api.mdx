@@ -732,7 +732,7 @@ Every non-2xx body carries an `error` field. The canonical set lives in `api/Api
 **Backup** — `BACKUP_NOT_FOUND`, `BACKUP_ARCHIVE_MISSING`, `BACKUP_MANIFEST_MISSING`, `BACKUP_IN_PROGRESS`, `BACKUP_RESTORE_FAILED`, `BACKUP_VERIFICATION_FAILED`, `BACKUP_CONFIG_INVALID`
 
 <Callout type="info">
-  **Removed / renamed in 0.13:** `INSUFFICIENT_SCOPE` was unused and has been removed. `INVALID_INPUT` and `NOT_FOUND` are deprecated — every endpoint now returns a domain-specific code (e.g. `BACKUP_NOT_FOUND`, `PERMISSION_GROUP_NOT_FOUND`). Until 0.14 the old string constants still resolve via a compat facade (`INVALID_INPUT` silently maps to `VALIDATION_FAILED`).
+  **Removed / renamed in 0.13:** `INSUFFICIENT_SCOPE` was unused and has been removed. `INVALID_INPUT` and `NOT_FOUND` are deprecated — every endpoint now returns a domain-specific code (e.g. `BACKUP_NOT_FOUND`, `PERMISSION_GROUP_NOT_FOUND`, or `VALIDATION_FAILED`). The `ApiErrors` compat facade still exposes the old string constants unchanged, so any out-of-tree caller switching on `"NOT_FOUND"` / `"INVALID_INPUT"` keeps working; the facade is removed in 0.14.
 </Callout>
 
 ---

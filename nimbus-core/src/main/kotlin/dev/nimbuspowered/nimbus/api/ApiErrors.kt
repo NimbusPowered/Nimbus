@@ -208,9 +208,12 @@ object ApiErrors {
     const val RESOURCE_PACK_UPLOAD_FAILED = "RESOURCE_PACK_UPLOAD_FAILED"
     const val RESOURCE_PACK_ASSIGNMENT_NOT_FOUND = "RESOURCE_PACK_ASSIGNMENT_NOT_FOUND"
 
-    // --- Redirected/deprecated ---
+    // --- Deprecated ---
+    // Wire string kept at "INVALID_INPUT" during the 0.13.x deprecation window
+    // so any lingering external caller relying on it does not break. All
+    // in-tree call-sites were migrated explicitly to ApiError.VALIDATION_FAILED.
     @Deprecated("Use ApiError.VALIDATION_FAILED", ReplaceWith("ApiError.VALIDATION_FAILED.code"))
-    const val INVALID_INPUT = "VALIDATION_FAILED"   // collapsed into VALIDATION_FAILED
+    const val INVALID_INPUT = "INVALID_INPUT"
     @Deprecated("Use a domain-specific *_NOT_FOUND code")
     const val NOT_FOUND = "NOT_FOUND"
     @Deprecated("No call-sites — removed in 0.14.0")
