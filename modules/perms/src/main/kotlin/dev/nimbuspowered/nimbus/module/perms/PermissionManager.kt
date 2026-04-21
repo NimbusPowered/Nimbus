@@ -136,6 +136,57 @@ class PermissionManager(private val db: DatabaseManager) {
         }
     }
 
+    /**
+     * Renames a permission node in every group (global + contextual).
+     * Idempotent: if no group has [old], returns an empty report.
+     * If a group already has [new] alongside [old], the duplicate is
+     * deduped (old removed, new kept, contexts merged).
+     * Also rewrites negated variants: "-old" → "-new".
+     */
+    suspend fun renamePermissionInAllGroups(old: String, new: String): PermissionRenameReport {
+        validatePermission(new)
+        val updatedGroups = mutableListOf<String>()
+        var total = 0
+        val negOld = "-$old"
+        val negNew = "-$new"
+
+        for (group in groups.values.toList()) {
+            var changed = false
+
+            val idxOld = group.permissions.indexOf(old)
+            if (idxOld >= 0) {
+                group.permissions.removeAt(idxOld)
+                if (new !in group.permissions) group.permissions.add(new)
+                changed = true; total++
+            }
+            val idxNegOld = group.permissions.indexOf(negOld)
+            if (idxNegOld >= 0) {
+                group.permissions.removeAt(idxNegOld)
+                if (negNew !in group.permissions) group.permissions.add(negNew)
+                changed = true; total++
+            }
+
+            val ctxOld = group.contextualPermissions.remove(old)
+            if (ctxOld != null) {
+                val merged = group.contextualPermissions.getOrPut(new) { mutableListOf() }
+                for (c in ctxOld) if (merged.none { it == c }) merged.add(c)
+                changed = true; total += ctxOld.size
+            }
+            val ctxNegOld = group.contextualPermissions.remove(negOld)
+            if (ctxNegOld != null) {
+                val merged = group.contextualPermissions.getOrPut(negNew) { mutableListOf() }
+                for (c in ctxNegOld) if (merged.none { it == c }) merged.add(c)
+                changed = true; total += ctxNegOld.size
+            }
+
+            if (changed) {
+                saveGroup(group)
+                updatedGroups.add(group.name)
+            }
+        }
+        return PermissionRenameReport(old, new, updatedGroups, total)
+    }
+
     suspend fun removePermission(groupName: String, permission: String) {
         val group = getGroup(groupName) ?: throw IllegalArgumentException("Group '$groupName' not found")
         val removedGlobal = group.permissions.remove(permission)

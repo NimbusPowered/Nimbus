@@ -21,7 +21,7 @@ class PlayersModuleCommand(private val tracker: PlayerTracker) : ModuleCommand {
     override val name = "players"
     override val description = "Player tracking and management"
     override val usage = "players [list|info <name>|history <name>|stats]"
-    override val permission = "nimbus.players"
+    override val permission = "nimbus.cloud.players"
 
     override val subcommandMeta = listOf(
         SubcommandMeta("list", "List online players", "players list [service]",

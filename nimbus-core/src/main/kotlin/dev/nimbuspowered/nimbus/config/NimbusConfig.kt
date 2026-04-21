@@ -153,7 +153,9 @@ data class LoadBalancerConfig(
 @Serializable
 data class PermissionsConfig(
     @SerialName("deploy_plugin")
-    val deployPlugin: Boolean = true
+    val deployPlugin: Boolean = true,
+    @SerialName("skip_node_migrations")
+    val skipNodeMigrations: Boolean = false
 )
 
 @Serializable

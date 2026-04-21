@@ -5,6 +5,7 @@
   "pages": [
     "api",
     "websocket",
-    "events"
+    "events",
+    "permissions"
   ]
 }
