@@ -207,11 +207,11 @@ class NimbusApi(
 
         install(StatusPages) {
             exception<IllegalArgumentException> { call, cause ->
-                call.respond(HttpStatusCode.BadRequest, apiError(cause.message ?: "Bad request", ApiErrors.INVALID_INPUT))
+                call.respond(HttpStatusCode.BadRequest, apiError(cause.message ?: "Bad request", ApiError.VALIDATION_FAILED))
             }
             exception<Throwable> { call, cause ->
                 logger.error("Unhandled API error", cause)
-                call.respond(HttpStatusCode.InternalServerError, apiError("Internal server error", ApiErrors.INTERNAL_ERROR))
+                call.respond(HttpStatusCode.InternalServerError, apiError("Internal server error", ApiError.INTERNAL_ERROR))
             }
         }
 

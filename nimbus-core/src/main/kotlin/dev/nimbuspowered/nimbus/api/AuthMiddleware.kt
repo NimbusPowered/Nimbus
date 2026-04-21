@@ -43,7 +43,7 @@ fun ApplicationCall.hasPermission(node: String): Boolean = authPrincipal.hasPerm
 data class ForbiddenResponse(
     val success: Boolean = false,
     val message: String,
-    val error: String = ApiErrors.FORBIDDEN,
+    val error: String = ApiError.FORBIDDEN.code,
     val required: String
 )
 

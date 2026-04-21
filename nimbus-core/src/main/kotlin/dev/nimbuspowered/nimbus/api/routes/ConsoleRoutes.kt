@@ -51,7 +51,7 @@ fun Route.consoleRoutes(
                     else -> call.request.queryParameters["token"]
                 }
                 if (clientToken == null || !NimbusApi.timingSafeEquals(clientToken, token)) {
-                    call.respond(HttpStatusCode.Unauthorized, apiError("Authentication required", ApiErrors.UNAUTHORIZED))
+                    call.respond(HttpStatusCode.Unauthorized, apiError("Authentication required", ApiError.UNAUTHORIZED))
                     return@post
                 }
             }
