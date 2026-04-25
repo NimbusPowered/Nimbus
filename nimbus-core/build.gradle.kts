@@ -192,7 +192,8 @@ val embeddedModules = mapOf(
     ":nimbus-module-resourcepacks" to "nimbus-module-resourcepacks.jar",
     ":nimbus-module-backup" to "nimbus-module-backup.jar",
     ":nimbus-module-docker" to "nimbus-module-docker.jar",
-    ":nimbus-module-auth" to "nimbus-module-auth.jar"
+    ":nimbus-module-auth" to "nimbus-module-auth.jar",
+    ":nimbus-module-storage" to "nimbus-module-storage.jar"
 )
 
 tasks.shadowJar {
