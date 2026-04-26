@@ -453,7 +453,8 @@ fun nimbusMain() = runBlocking {
         dedicatedDir = dedicatedDir,
         stateSyncManager = stateSyncManager,
         warmPoolManager = warmPoolManager,
-        prometheusCounters = prometheusCounters
+        prometheusCounters = prometheusCounters,
+        metricsCollector = metricsCollector,
     )
 
     // Register shutdown hook for external signals (SIGTERM, SIGINT, terminal close)
@@ -521,7 +522,8 @@ fun nimbusMain() = runBlocking {
         dedicatedDir = dedicatedDir,
         portAllocator = portAllocator,
         databaseManager = databaseManager,
-        moduleContext = moduleContext
+        moduleContext = moduleContext,
+        metricsCollector = metricsCollector
     )
     console.init()
 

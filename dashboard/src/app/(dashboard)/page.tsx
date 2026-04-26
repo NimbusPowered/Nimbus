@@ -20,6 +20,15 @@ import {
   FolderTree,
   ExternalLinkIcon,
 } from "@/lib/icons";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { useNetworkPlayerHistory } from "@/lib/metrics";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PageShell } from "@/components/page-shell";
 import { StatCard } from "@/components/stat-card";
 import { EmptyState } from "@/components/empty-state";
@@ -69,6 +78,10 @@ interface ControllerInfo {
   releaseUrl: string | null;
 }
 
+const playerHistoryConfig: ChartConfig = {
+  totalPlayers: { label: "Players", color: "var(--chart-1)" },
+};
+
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -96,6 +109,8 @@ export default function OverviewPage() {
   } = useApiResource<ControllerInfo>("/api/controller/info", {
     poll: POLL.normal,
   });
+  const { data: playerHistory, loading: historyLoading } =
+    useNetworkPlayerHistory(60);
   const loading = statusLoading || infoLoading;
 
   const servicesPct =
@@ -328,6 +343,63 @@ export default function OverviewPage() {
               )}
             </CardContent>
           </Card>
+
+        {/* Network Players chart */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <Users className="size-4 text-muted-foreground" />
+              Network Players (60m)
+            </CardTitle>
+            {status && (
+              <span className="text-2xl font-semibold tabular-nums">
+                {status.totalPlayers}
+              </span>
+            )}
+          </CardHeader>
+          <CardContent className="pb-4">
+            {historyLoading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : !playerHistory || playerHistory.length < 2 ? (
+              <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
+                Collecting samples… history requires at least two data points.
+              </div>
+            ) : (
+              <ChartContainer
+                config={playerHistoryConfig}
+                className="!aspect-auto h-40 w-full"
+              >
+                <AreaChart
+                  data={playerHistory.map((s) => ({
+                    time: new Date(s.timestamp).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                    totalPlayers: s.totalPlayers,
+                  }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    tick={{ fontSize: 10 }}
+                    interval="preserveStartEnd"
+                    minTickGap={32}
+                  />
+                  <YAxis tick={{ fontSize: 10 }} width={32} allowDecimals={false} domain={[0, "auto"]} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area
+                    type="monotone"
+                    dataKey="totalPlayers"
+                    fill="var(--color-totalPlayers)"
+                    fillOpacity={0.25}
+                    stroke="var(--color-totalPlayers)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Changelog — at the bottom, collapsible per version */}
         <ChangelogCard />

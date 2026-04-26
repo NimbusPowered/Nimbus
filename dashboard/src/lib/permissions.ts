@@ -40,6 +40,7 @@ export const ROUTE_PERMISSIONS: Array<[string, string]> = [
   ["/plugins", PERM.SERVICES_VIEW],
   ["/audit", PERM.AUDIT_VIEW],
   ["/doctor", PERM.OVERVIEW],
+  ["/performance", PERM.OVERVIEW],
   ["/modules/perms", PERM.PERMS_VIEW],
   ["/modules/scaling", PERM.SCALING_VIEW],
   ["/modules/players", PERM.PLAYERS_VIEW],

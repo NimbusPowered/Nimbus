@@ -12,14 +12,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.batchInsert
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.selectAll
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
 class MetricsCollector(
@@ -38,6 +43,12 @@ class MetricsCollector(
     private val serviceEventQueue = ConcurrentLinkedQueue<ServiceEventEntry>()
     private val scalingEventQueue = ConcurrentLinkedQueue<ScalingEventEntry>()
     private var flushJob: Job? = null
+
+    // Startup time tracking: service name → instant when STARTING was observed
+    private val startingTimestamps = ConcurrentHashMap<String, Instant>()
+
+    // Ring buffer of recent (groupName?, elapsedSeconds) startup samples — capped at 200
+    private val startupTimeSamples: MutableList<Pair<String?, Long>> = Collections.synchronizedList(mutableListOf())
 
     private data class ServiceEventEntry(
         val timestamp: String, val eventType: String, val serviceName: String,
@@ -64,6 +75,7 @@ class MetricsCollector(
 
         // Service lifecycle events — enqueue instead of direct insert
         jobs += eventBus.on<NimbusEvent.ServiceStarting> { event ->
+            startingTimestamps[event.serviceName] = Instant.now()
             enqueueIfNotFull(serviceEventQueue, ServiceEventEntry(
                 timestamp = event.timestamp.toString(), eventType = "STARTING",
                 serviceName = event.serviceName, groupName = event.groupName, port = event.port
@@ -71,6 +83,14 @@ class MetricsCollector(
         }
 
         jobs += eventBus.on<NimbusEvent.ServiceReady> { event ->
+            val startedAt = startingTimestamps.remove(event.serviceName)
+            if (startedAt != null) {
+                val elapsedSeconds = Duration.between(startedAt, Instant.now()).seconds
+                synchronized(startupTimeSamples) {
+                    startupTimeSamples.add(event.groupName to elapsedSeconds)
+                    if (startupTimeSamples.size > 200) startupTimeSamples.removeAt(0)
+                }
+            }
             enqueueIfNotFull(serviceEventQueue, ServiceEventEntry(
                 timestamp = event.timestamp.toString(), eventType = "READY",
                 serviceName = event.serviceName, groupName = event.groupName
@@ -172,6 +192,105 @@ class MetricsCollector(
         } catch (e: Exception) {
             val total = serviceEvents.size + scalingEvents.size
             logger.warn("Failed to flush metrics batch ({} entries): {}", total, e.message)
+        }
+    }
+
+    /**
+     * Average startup seconds from the in-memory sample deque.
+     * If [groupName] is non-null, only samples for that group are considered.
+     */
+    fun getAverageStartupSeconds(groupName: String? = null): Double {
+        val samples = synchronized(startupTimeSamples) { startupTimeSamples.toList() }
+        val filtered = if (groupName != null) samples.filter { it.first == groupName } else samples
+        return if (filtered.isEmpty()) 0.0 else filtered.sumOf { it.second }.toDouble() / filtered.size
+    }
+
+    /**
+     * Count of CRASHED events for each group in the last [hours] hours.
+     * Returns a map of groupName (or "" for ungrouped) → crash count.
+     */
+    suspend fun getCrashCountsByGroup(hours: Int = 24): Map<String, Int> {
+        val since = Instant.now().minus(hours.toLong(), ChronoUnit.HOURS).toString()
+        return db.query {
+            ServiceEvents.selectAll()
+                .where { (ServiceEvents.eventType eq "CRASHED") and (ServiceEvents.timestamp greaterEq since) }
+                .groupBy { it[ServiceEvents.groupName] ?: "" }
+                .mapValues { (_, rows) -> rows.size }
+        }
+    }
+
+    data class NetworkPlayerSample(
+        val timestamp: Instant,
+        val totalPlayers: Int,
+        val byGroup: Map<String, Int>,
+    )
+
+    /**
+     * Queries [ServiceMetricSamples] for the last [minutes] minutes, buckets rows by
+     * truncated minute, and sums playerCount per bucket across all services.
+     */
+    suspend fun getNetworkPlayerHistory(minutes: Int = 60): List<NetworkPlayerSample> {
+        val since = Instant.now().minus(minutes.toLong(), ChronoUnit.MINUTES).toString()
+        val rows = db.query {
+            ServiceMetricSamples.selectAll()
+                .where { ServiceMetricSamples.timestamp greaterEq since }
+                .orderBy(ServiceMetricSamples.timestamp, org.jetbrains.exposed.sql.SortOrder.ASC)
+                .limit(10_000)
+                .map { row ->
+                    Triple(
+                        row[ServiceMetricSamples.timestamp],
+                        row[ServiceMetricSamples.groupName] ?: "",
+                        row[ServiceMetricSamples.playerCount],
+                    )
+                }
+        }
+        // Bucket by truncated-to-minute timestamp prefix (first 16 chars = "YYYY-MM-DDTHH:MM")
+        val buckets = linkedMapOf<String, MutableMap<String, Int>>()
+        for ((ts, group, players) in rows) {
+            val bucket = ts.take(16) // "YYYY-MM-DDTHH:MM"
+            buckets.getOrPut(bucket) { mutableMapOf() }.merge(group, players, Int::plus)
+        }
+        return buckets.map { (bucket, byGroup) ->
+            NetworkPlayerSample(
+                timestamp = Instant.parse("${bucket}:00Z"),
+                totalPlayers = byGroup.values.sum(),
+                byGroup = byGroup,
+            )
+        }
+    }
+
+    data class GroupSampleStats(
+        val averageMemoryPercent: Double,
+        val averageTps: Double,
+        val playerCount: Int,
+    )
+
+    /**
+     * Aggregates the last hour of [ServiceMetricSamples] rows per group.
+     * Returns averageMemoryPercent and live playerCount per groupName.
+     */
+    suspend fun getGroupSampleStats(): Map<String, GroupSampleStats> {
+        val since = Instant.now().minus(1L, ChronoUnit.HOURS).toString()
+        val rows = db.query {
+            ServiceMetricSamples.selectAll()
+                .where { ServiceMetricSamples.timestamp greaterEq since }
+                .map { row ->
+                    val used = row[ServiceMetricSamples.memoryUsedMb]
+                    val max = row[ServiceMetricSamples.memoryMaxMb]
+                    val pct = if (max > 0) used.toDouble() / max * 100.0 else 0.0
+                    Triple(
+                        row[ServiceMetricSamples.groupName] ?: "",
+                        pct,
+                        row[ServiceMetricSamples.playerCount],
+                    )
+                }
+        }
+        return rows.groupBy { it.first }.mapValues { (_, groupRows) ->
+            GroupSampleStats(
+                averageMemoryPercent = groupRows.map { it.second }.average(),
+                averageTps = 20.0, // TPS not stored in samples — callers fill from live registry
+                playerCount = groupRows.lastOrNull()?.third ?: 0,
+            )
         }
     }
 

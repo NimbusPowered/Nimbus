@@ -54,7 +54,8 @@ class NimbusConsole(
     private val dedicatedDir: Path? = null,
     private val portAllocator: PortAllocator? = null,
     private val databaseManager: dev.nimbuspowered.nimbus.database.DatabaseManager? = null,
-    private val moduleContext: dev.nimbuspowered.nimbus.module.ModuleContextImpl? = null
+    private val moduleContext: dev.nimbuspowered.nimbus.module.ModuleContextImpl? = null,
+    private val metricsCollector: dev.nimbuspowered.nimbus.database.MetricsCollector? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(NimbusConsole::class.java)
@@ -101,6 +102,9 @@ class NimbusConsole(
 
         dispatcher.register(helpCommand)
         dispatcher.register(StatusCommand(config, registry, groupManager, nodeManager, loadBalancer))
+        if (metricsCollector != null) {
+            dispatcher.register(PerfCommand(metricsCollector, registry, groupManager, dedicatedServiceManager))
+        }
         dispatcher.register(ListCommand(registry, clusterEnabled = nodeManager != null))
         dispatcher.register(GroupsCommand(groupManager, registry))
         dispatcher.register(InfoCommand(groupManager, registry, config))

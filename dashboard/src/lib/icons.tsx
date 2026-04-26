@@ -17,6 +17,7 @@
 
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   Box,
@@ -73,6 +74,7 @@ import {
   UserCheck,
   Users,
   X,
+  TrendingUp,
   Zap,
   ZoomIn,
   type LucideIcon,
@@ -89,6 +91,7 @@ export type { LucideIcon };
 
 export {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   CalendarClock,
@@ -132,6 +135,7 @@ export {
   Square,
   Stethoscope,
   Trash2,
+  TrendingUp,
   Upload,
   UserCheck,
   Users,
