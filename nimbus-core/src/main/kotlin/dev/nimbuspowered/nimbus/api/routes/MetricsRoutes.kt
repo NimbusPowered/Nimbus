@@ -1,13 +1,21 @@
 package dev.nimbuspowered.nimbus.api.routes
 
+import dev.nimbuspowered.nimbus.api.GroupPerformanceSummaryResponse
+import dev.nimbuspowered.nimbus.api.NetworkPlayerHistoryResponse
+import dev.nimbuspowered.nimbus.api.NetworkPlayerSampleResponse
 import dev.nimbuspowered.nimbus.api.NimbusApi
+import dev.nimbuspowered.nimbus.api.PerformanceSummaryResponse
+import dev.nimbuspowered.nimbus.api.requirePermission
 import dev.nimbuspowered.nimbus.cluster.NodeConnection
 import dev.nimbuspowered.nimbus.cluster.NodeManager
+import dev.nimbuspowered.nimbus.database.MetricsCollector
 import dev.nimbuspowered.nimbus.group.GroupManager
 import dev.nimbuspowered.nimbus.loadbalancer.TcpLoadBalancer
 import dev.nimbuspowered.nimbus.metrics.PrometheusCounters
 import dev.nimbuspowered.nimbus.proxy.ProxySyncManager
+import dev.nimbuspowered.nimbus.service.ServiceMemoryResolver
 import dev.nimbuspowered.nimbus.service.ServiceRegistry
+import dev.nimbuspowered.nimbus.service.ServiceState
 import dev.nimbuspowered.nimbus.service.WarmPoolManager
 import io.ktor.http.*
 import io.ktor.server.response.*
@@ -28,7 +36,9 @@ fun Route.metricsRoutes(
     startedAt: Instant,
     stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null,
     warmPoolManager: WarmPoolManager? = null,
-    counters: PrometheusCounters? = null
+    counters: PrometheusCounters? = null,
+    metricsCollector: MetricsCollector? = null,
+    dedicatedServiceManager: dev.nimbuspowered.nimbus.service.DedicatedServiceManager? = null,
 ) {
     get("/api/metrics") {
         val sb = StringBuilder()
@@ -216,6 +226,84 @@ fun Route.metricsRoutes(
             if (proxySyncManager.globalMaintenanceEnabled) 1 else 0)
 
         call.respondText(sb.toString(), ContentType.parse("text/plain; version=0.0.4; charset=utf-8"))
+    }
+
+    // GET /api/metrics/players/history?minutes=60 — network-wide player count over time
+    get("/api/metrics/players/history") {
+        if (!call.requirePermission("nimbus.dashboard.metrics.view")) return@get
+        val collector = metricsCollector
+            ?: return@get call.respond(NetworkPlayerHistoryResponse(emptyList()))
+        val minutes = (call.queryParameters["minutes"]?.toIntOrNull() ?: 60).coerceIn(5, 24 * 60)
+        val rawSamples = collector.getNetworkPlayerHistory(minutes)
+        call.respond(NetworkPlayerHistoryResponse(
+            samples = rawSamples.map { s ->
+                NetworkPlayerSampleResponse(
+                    timestamp = s.timestamp.toString(),
+                    totalPlayers = s.totalPlayers,
+                    byGroup = s.byGroup,
+                )
+            }
+        ))
+    }
+
+    // GET /api/metrics/performance — aggregated performance summary
+    get("/api/metrics/performance") {
+        if (!call.requirePermission("nimbus.dashboard.metrics.view")) return@get
+        val services = registry.getAll()
+        val groups = groupManager.getAllGroups()
+        val collector = metricsCollector
+
+        val crashesByGroup24h: Map<String, Int> = if (collector != null) collector.getCrashCountsByGroup(24) else emptyMap()
+        val crashesByGroup7d: Map<String, Int> = if (collector != null) collector.getCrashCountsByGroup(168) else emptyMap()
+        val groupSampleStats: Map<String, MetricsCollector.GroupSampleStats> =
+            if (collector != null) collector.getGroupSampleStats() else emptyMap()
+
+        val readyServices = services.filter { it.state == ServiceState.READY }
+        val networkPlayers = services.sumOf { it.playerCount }
+
+        val memoryData = services.filter { it.state == ServiceState.READY || it.state == ServiceState.STARTING }
+            .map { svc ->
+                val mem = ServiceMemoryResolver.resolve(svc, groupManager, dedicatedServiceManager)
+                mem.usedMb to mem.maxMb
+            }
+        val totalMemUsed = memoryData.sumOf { it.first }
+        val totalMemMax = memoryData.sumOf { it.second }
+
+        val averageStartup = collector?.getAverageStartupSeconds() ?: 0.0
+        val crashesLast24h = crashesByGroup24h.values.sum()
+        val crashesLast7d = crashesByGroup7d.values.sum()
+        val uptimePercent = (100.0 - crashesLast24h * 2.0).coerceAtLeast(80.0)
+
+        val groupSummaries = groups.map { group ->
+            val groupServices = services.filter { it.groupName == group.name }
+            val groupReady = groupServices.filter { it.state == ServiceState.READY }
+            val stats = groupSampleStats[group.name]
+            val avgTps = if (groupReady.isNotEmpty()) groupReady.map { it.tps }.average() else 20.0
+            GroupPerformanceSummaryResponse(
+                groupName = group.name,
+                crashesLast24h = crashesByGroup24h[group.name] ?: 0,
+                averageStartupSeconds = collector?.getAverageStartupSeconds(group.name) ?: 0.0,
+                averageMemoryPercent = stats?.averageMemoryPercent ?: 0.0,
+                averageTps = avgTps,
+                playerCount = groupServices.sumOf { it.playerCount },
+                maxPlayers = group.config.group.resources.maxPlayers * groupReady.size.coerceAtLeast(1),
+                serviceCount = groupServices.size,
+                readyServiceCount = groupReady.size,
+            )
+        }
+
+        call.respond(PerformanceSummaryResponse(
+            crashesLast24h = crashesLast24h,
+            crashesLast7d = crashesLast7d,
+            averageStartupSeconds = averageStartup,
+            uptimePercent = uptimePercent,
+            totalMemoryUsedMb = totalMemUsed,
+            totalMemoryMaxMb = totalMemMax,
+            networkPlayers = networkPlayers,
+            serviceCount = services.size,
+            readyServiceCount = readyServices.size,
+            groups = groupSummaries,
+        ))
     }
 }
 

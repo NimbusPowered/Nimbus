@@ -35,6 +35,7 @@ import {
   HardDrive,
   PackageIcon,
   type LucideIcon,
+  TrendingUp,
 } from "@/lib/icons"
 import Link from "next/link"
 import { useModules } from "@/lib/modules"
@@ -71,6 +72,7 @@ const navOperations: NavItem[] = [
 
 const navMonitoring: NavItem[] = [
   { title: "Doctor", url: "/doctor", icon: <StethoscopeIcon /> },
+  { title: "Performance", url: "/performance", icon: <TrendingUp className="size-4" /> },
   { title: "Audit Log", url: "/audit", icon: <ScrollTextIcon /> },
 ]
 

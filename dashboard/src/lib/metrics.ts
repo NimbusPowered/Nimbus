@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApiResource, POLL } from "@/hooks/use-api-resource";
 
 export interface ServiceMetricPoint {
   time: string;
@@ -99,4 +100,52 @@ export function useServiceMetrics(
   }, [serviceName, intervalMs, historyMinutes, maxPoints]);
 
   return metrics;
+}
+
+// ── Network-wide metrics ───────────────────────────────────────────────────
+
+export interface NetworkPlayerSample {
+  timestamp: string;
+  totalPlayers: number;
+  byGroup: Record<string, number>;
+}
+
+export interface GroupPerformanceSummary {
+  groupName: string;
+  crashesLast24h: number;
+  averageStartupSeconds: number;
+  averageMemoryPercent: number;
+  averageTps: number;
+  playerCount: number;
+  maxPlayers: number;
+  serviceCount: number;
+  readyServiceCount: number;
+}
+
+export interface PerformanceSummary {
+  crashesLast24h: number;
+  crashesLast7d: number;
+  averageStartupSeconds: number;
+  uptimePercent: number;
+  totalMemoryUsedMb: number;
+  totalMemoryMaxMb: number;
+  networkPlayers: number;
+  serviceCount: number;
+  readyServiceCount: number;
+  groups: GroupPerformanceSummary[];
+}
+
+/** Rolling network-wide player history for the last [minutes] minutes. */
+export function useNetworkPlayerHistory(minutes = 60) {
+  return useApiResource<NetworkPlayerSample[]>(
+    `/api/metrics/players/history?minutes=${minutes}`,
+    { poll: POLL.slow }
+  );
+}
+
+/** Network-wide performance KPIs and per-group scorecards. */
+export function usePerformanceSummary() {
+  return useApiResource<PerformanceSummary>("/api/metrics/performance", {
+    poll: 15_000,
+  });
 }

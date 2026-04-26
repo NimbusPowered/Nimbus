@@ -862,3 +862,44 @@ data class ServiceMetricHistoryResponse(
     val service: String,
     val samples: List<ServiceMetricSampleResponse>,
 )
+
+// ── Performance metrics DTOs ───────────────────────────────────────
+
+@Serializable
+data class NetworkPlayerSampleResponse(
+    val timestamp: String,
+    val totalPlayers: Int,
+    val byGroup: Map<String, Int>,
+)
+
+@Serializable
+data class NetworkPlayerHistoryResponse(
+    val samples: List<NetworkPlayerSampleResponse>,
+)
+
+@Serializable
+data class GroupPerformanceSummaryResponse(
+    val groupName: String,
+    val crashesLast24h: Int,
+    val averageStartupSeconds: Double,
+    val averageMemoryPercent: Double,
+    val averageTps: Double,
+    val playerCount: Int,
+    val maxPlayers: Int,
+    val serviceCount: Int,
+    val readyServiceCount: Int,
+)
+
+@Serializable
+data class PerformanceSummaryResponse(
+    val crashesLast24h: Int,
+    val crashesLast7d: Int,
+    val averageStartupSeconds: Double,
+    val uptimePercent: Double,
+    val totalMemoryUsedMb: Long,
+    val totalMemoryMaxMb: Long,
+    val networkPlayers: Int,
+    val serviceCount: Int,
+    val readyServiceCount: Int,
+    val groups: List<GroupPerformanceSummaryResponse>,
+)

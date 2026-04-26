@@ -68,7 +68,8 @@ class NimbusApi(
     private val dedicatedDir: Path? = null,
     private val stateSyncManager: dev.nimbuspowered.nimbus.service.StateSyncManager? = null,
     private val warmPoolManager: dev.nimbuspowered.nimbus.service.WarmPoolManager? = null,
-    private val prometheusCounters: dev.nimbuspowered.nimbus.metrics.PrometheusCounters? = null
+    private val prometheusCounters: dev.nimbuspowered.nimbus.metrics.PrometheusCounters? = null,
+    private val metricsCollector: dev.nimbuspowered.nimbus.database.MetricsCollector? = null,
 ) {
     private val logger = LoggerFactory.getLogger(NimbusApi::class.java)
 
@@ -327,7 +328,7 @@ class NimbusApi(
                 networkRoutes(config, registry, groupManager, serviceManager, startedAt)
                 controllerInfoRoutes(startedAt, apiUpdateChecker, config, registry, groupManager, serviceManager.dedicatedServiceManager)
                 maintenanceRoutes(proxySyncManager, eventBus)
-                metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt, stateSyncManager, warmPoolManager, prometheusCounters)
+                metricsRoutes(registry, groupManager, nodeManager, loadBalancer, proxySyncManager, startedAt, stateSyncManager, warmPoolManager, prometheusCounters, metricsCollector, dedicatedServiceManager)
                 // Command proxy routes (for Bridge dynamic commands)
                 if (dispatcher != null) commandRoutes(dispatcher)
                 // Module service-level routes
