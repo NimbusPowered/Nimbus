@@ -135,12 +135,17 @@ export interface PerformanceSummary {
   groups: GroupPerformanceSummary[];
 }
 
+interface NetworkPlayerHistoryResponse {
+  samples: NetworkPlayerSample[];
+}
+
 /** Rolling network-wide player history for the last [minutes] minutes. */
 export function useNetworkPlayerHistory(minutes = 60) {
-  return useApiResource<NetworkPlayerSample[]>(
+  const { data, loading, error } = useApiResource<NetworkPlayerHistoryResponse>(
     `/api/metrics/players/history?minutes=${minutes}`,
     { poll: POLL.slow }
   );
+  return { data: data?.samples ?? null, loading, error };
 }
 
 /** Network-wide performance KPIs and per-group scorecards. */
